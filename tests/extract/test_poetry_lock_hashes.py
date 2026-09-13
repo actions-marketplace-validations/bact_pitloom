@@ -231,3 +231,34 @@ def test_filename_matches_version_anchored_rejects_name_version_substring() -> N
     assert _filename_matches_version(
         "lib_beta1_tools-beta2.tar.gz", "beta2", canon_name="lib-beta1-tools"
     )
+    # A completely different prefix is rejected
+    assert not _filename_matches_version(
+        "other_package-beta1.tar.gz", "beta1", canon_name="lib-beta1-tools"
+    )
+
+
+def test_parse_artifact_version_catches_invalid_filenames() -> None:
+    """Invalid wheel or sdist filenames containing the target version string
+    are caught and swallowed during PEP 427/625 local version normalization."""
+    from pitloom.extract._poetry_lock_hashes import _parse_artifact_version
+
+    # A filename containing "-1.0_cpu-" but which is not a valid wheel (too few tags)
+    assert _parse_artifact_version("pkg-1.0_cpu-invalid.whl", "1.0+cpu") is None
+    # To trigger the sdist exception, we pass a version string that is
+    # invalid for PEP 440, so `parse_sdist_filename` fails when it tries to parse it.
+    assert _parse_artifact_version("pkg-not_a_version.tar.gz", "not+a+version") is None
+
+
+def test_legacy_metadata_files_skips_invalid_types() -> None:
+    """Invalid keys or values in the legacy [metadata.files] table are skipped."""
+    data = {
+        "metadata": {
+            "files": {
+                "valid": [{"file": "foo-1.0.whl", "hash": "sha256:..."}],
+                "invalid_value": "not-a-list",
+                123: [{"file": "bar-1.0.whl", "hash": "sha256:..."}],
+            }
+        }
+    }
+    index = _legacy_metadata_files_by_canonical_name(data)
+    assert list(index.keys()) == ["valid"]

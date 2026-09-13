@@ -53,15 +53,15 @@ from pitloom.extract._lock_common import (
 __all__ = ["extract_poetry_lock_hashes"]
 
 
-def _parse_artifact_version(filename: str, expected_version: str) -> Version | None:
-    """Attempt to parse a wheel or sdist version from *filename*, supporting
-    historical sdist extensions (.tar.bz2, etc.) and PEP 427/625 local version
-    '+' to '_' normalization."""
+def _parse_wheel(filename: str) -> Version | None:
     try:
         _name, ver, _build, _tags = parse_wheel_filename(filename)
         return ver
     except (InvalidWheelFilename, ValueError):
-        pass
+        return None
+
+
+def _parse_sdist(filename: str) -> Version | None:
     try:
         _name, ver = parse_sdist_filename(filename)
         return ver
@@ -75,26 +75,32 @@ def _parse_artifact_version(filename: str, expected_version: str) -> Version | N
                 return ver
             except (InvalidSdistFilename, ValueError):
                 pass
+    return None
+
+
+def _parse_artifact_version(filename: str, expected_version: str) -> Version | None:
+    """Attempt to parse a wheel or sdist version from *filename*, supporting
+    historical sdist extensions (.tar.bz2, etc.) and PEP 427/625 local version
+    '+' to '_' normalization."""
+    if ver := _parse_wheel(filename):
+        return ver
+    if ver := _parse_sdist(filename):
+        return ver
+
     if "+" in expected_version:
         normalized_ver = expected_version.replace("+", "_")
         if f"-{normalized_ver}-" in filename:
             candidate_fn = filename.replace(
                 f"-{normalized_ver}-", f"-{expected_version}-"
             )
-            try:
-                _name, ver, _build, _tags = parse_wheel_filename(candidate_fn)
+            if ver := _parse_wheel(candidate_fn):
                 return ver
-            except (InvalidWheelFilename, ValueError):
-                pass
         for ext in (".tar.gz", ".zip", ".tar.bz2", ".tgz", ".tar.xz"):
             if filename.endswith(f"-{normalized_ver}{ext}"):
                 prefix = filename[: -len(ext) - len(normalized_ver) - 1]
                 candidate_fn = f"{prefix}-{expected_version}.tar.gz"
-                try:
-                    _name, ver = parse_sdist_filename(candidate_fn)
+                if ver := _parse_sdist(candidate_fn):
                     return ver
-                except (InvalidSdistFilename, ValueError):
-                    pass
     return None
 
 
@@ -137,8 +143,7 @@ def _filename_matches_version(
             suffix.startswith(f"{expected_version}-")
             or suffix.startswith(f"{normalized_ver}-")
             or any(
-                suffix == f"{expected_version}{ext}"
-                or suffix == f"{normalized_ver}{ext}"
+                suffix in (f"{expected_version}{ext}", f"{normalized_ver}{ext}")
                 for ext in (".tar.gz", ".zip", ".tar.bz2", ".tgz", ".tar.xz")
             )
         )

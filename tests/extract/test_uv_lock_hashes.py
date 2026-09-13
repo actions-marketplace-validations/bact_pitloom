@@ -163,3 +163,17 @@ def test_artifact_hash_candidates_pathless_url_gives_none_filename() -> None:
         {"wheels": [{"url": "https://example.com/", "hash": "sha256:" + digest}]}
     )
     assert candidates2 == [(None, digest)]
+
+
+def test_artifact_hash_candidates_handles_missing_or_invalid_url() -> None:
+    """Artifacts with missing or non-string URLs should produce None filename."""
+    digest = "e" * 64
+    candidates = _artifact_hash_candidates(
+        {
+            "wheels": [
+                {"hash": "sha256:" + digest},  # missing url
+                {"url": 12345, "hash": "sha256:" + digest},  # invalid type
+            ]
+        }
+    )
+    assert candidates == [(None, digest), (None, digest)]
