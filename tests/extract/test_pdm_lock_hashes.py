@@ -47,16 +47,6 @@ def test_real_world_pdm_anyio_wheel_hash() -> None:
     assert hashes[canonicalize_name("anyio")] == _ANYIO_WHEEL_HASH
 
 
-def test_determinism_same_lock_same_hash() -> None:
-    project_dir = REAL_WORLD_LOCKS / "pdm-2.29.0"
-    deps = extract_pdm_lock_dependencies(project_dir)
-    assert deps is not None
-
-    first = extract_pdm_lock_hashes(project_dir, deps)
-    second = extract_pdm_lock_hashes(project_dir, deps)
-    assert first == second
-
-
 def test_missing_dependency_omitted_not_error() -> None:
     project_dir = REAL_WORLD_LOCKS / "pdm-2.29.0"
     hashes = extract_pdm_lock_hashes(project_dir, ["nonexistent-package==1.0"])

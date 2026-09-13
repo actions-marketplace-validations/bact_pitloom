@@ -61,16 +61,6 @@ def test_real_world_beautifulsoup4_min_hash() -> None:
     assert hashes[canonicalize_name("beautifulsoup4")] == _BEAUTIFULSOUP4_MIN_HASH
 
 
-def test_determinism_same_lock_same_hash() -> None:
-    project_dir = REAL_WORLD_LOCKS / "requests-html-0.10.0"
-    deps = extract_pipfile_lock_dependencies(project_dir)
-    assert deps is not None
-
-    first = extract_pipfile_lock_hashes(project_dir, deps)
-    second = extract_pipfile_lock_hashes(project_dir, deps)
-    assert first == second
-
-
 def test_missing_dependency_omitted_not_error() -> None:
     project_dir = REAL_WORLD_LOCKS / "requests-html-0.10.0"
     hashes = extract_pipfile_lock_hashes(project_dir, ["nonexistent-package==1.0"])

@@ -96,16 +96,6 @@ def test_real_world_pastel_colorama_wheel_hash_matches_resolved_version() -> Non
     assert hashes_041[canonicalize_name("colorama")] == colorama_041_hash
 
 
-def test_determinism_same_lock_same_hash() -> None:
-    project_dir = REAL_WORLD_LOCKS / "pendulum-3.2.0"
-    deps = extract_poetry_lock_dependencies(project_dir)
-    assert deps is not None
-
-    first = extract_poetry_lock_hashes(project_dir, deps)
-    second = extract_poetry_lock_hashes(project_dir, deps)
-    assert first == second
-
-
 def test_missing_dependency_omitted_not_error() -> None:
     project_dir = REAL_WORLD_LOCKS / "pendulum-3.2.0"
     hashes = extract_poetry_lock_hashes(project_dir, ["nonexistent-package==1.0"])

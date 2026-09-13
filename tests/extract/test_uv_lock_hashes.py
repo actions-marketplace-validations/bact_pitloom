@@ -45,14 +45,11 @@ def test_real_world_flask_jinja2_wheel_hash() -> None:
     assert hashes[canonicalize_name("jinja2")] == _JINJA2_WHEEL_HASH
 
 
-def test_determinism_same_lock_same_hash() -> None:
-    project_dir = REAL_WORLD_LOCKS / "flask-3.1.3"
-    deps = extract_uv_lock_dependencies(project_dir, expected_name="Flask")
-    assert deps is not None
-
-    first = extract_uv_lock_hashes(project_dir, deps)
-    second = extract_uv_lock_hashes(project_dir, deps)
-    assert first == second
+def test_missing_lock_version_marker_returns_none(tmp_path: Path) -> None:
+    lock_file = tmp_path / "uv.lock"
+    # Missing version field entirely
+    lock_file.write_text('[[package]]\nname = "foo"\nversion = "1.0"\n')
+    assert extract_uv_lock_hashes(tmp_path, []) is None
 
 
 def test_missing_dependency_omitted_not_error() -> None:

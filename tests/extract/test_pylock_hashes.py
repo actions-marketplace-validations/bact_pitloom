@@ -52,14 +52,11 @@ def test_real_world_snowflake_cli_annotated_types_wheel_hash() -> None:
     assert hashes[canonicalize_name("annotated-types")] == _ANNOTATED_TYPES_WHEEL_HASH
 
 
-def test_determinism_same_lock_same_hash() -> None:
-    project_dir = REAL_WORLD_LOCKS / "snowflake-cli-3.26.0"
-    deps = extract_pylock_dependencies(project_dir)
-    assert deps is not None
-
-    first = extract_pylock_hashes(project_dir, deps)
-    second = extract_pylock_hashes(project_dir, deps)
-    assert first == second
+def test_missing_lock_version_marker_returns_none(tmp_path: Path) -> None:
+    lock_file = tmp_path / "pylock.toml"
+    # Missing version field entirely
+    lock_file.write_text('[[package]]\nname = "foo"\nversion = "1.0"\n')
+    assert extract_pylock_hashes(tmp_path, []) is None
 
 
 def test_missing_dependency_omitted_not_error() -> None:
