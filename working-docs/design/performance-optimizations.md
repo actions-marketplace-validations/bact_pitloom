@@ -53,13 +53,14 @@ effects (provenance writes, package mutations), so it needs careful
 design to avoid regressions.
 
 **Where:**
+
 - `_document_locked_deps.py:_prefetch_combined_release_info()`
 - `deps.py:_finish_dependency_enrichment()`
 - `deps.py:_enrich_from_pypi()`
 
 ---
 
-## Skip Merkle root in `get_wheel_files()`
+## Skip Merkle root in get_wheel_files()
 
 **Identified:** roadmap review (moved from [roadmap.md](roadmap.md))
 
@@ -78,6 +79,7 @@ solely to hash them for the discarded root — real, avoidable I/O for
 large projects.
 
 **Where:**
+
 - `src/pitloom/core/_models_wheel.py:get_wheel_files()`
 - `src/pitloom/embed.py:_build_sbom_from_project_and_wheel()`
 

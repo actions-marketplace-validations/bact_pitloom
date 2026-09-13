@@ -130,29 +130,30 @@ def _filename_matches_version(
     # filenames. When canon_name is available, anchor after the
     # normalized package name prefix to avoid matching version-like
     # substrings inside the package name itself.
-    normalized_ver = expected_version.replace("+", "_")
+    lower_expected = expected_version.lower()
+    lower_normalized = expected_version.replace("+", "_").lower()
+    lower_fn = filename.lower()
     if canon_name is not None:
         # PEP 427/625 filenames use the normalized (underscored) name.
         norm_name = canonicalize_name(canon_name).replace("-", "_")
         prefix = f"{norm_name}-"
-        lower_fn = filename.lower()
         if not lower_fn.startswith(prefix):
             return False
         suffix = lower_fn[len(prefix) :]
         return (
-            suffix.startswith(f"{expected_version}-")
-            or suffix.startswith(f"{normalized_ver}-")
+            suffix.startswith(f"{lower_expected}-")
+            or suffix.startswith(f"{lower_normalized}-")
             or any(
-                suffix in (f"{expected_version}{ext}", f"{normalized_ver}{ext}")
+                suffix in (f"{lower_expected}{ext}", f"{lower_normalized}{ext}")
                 for ext in (".tar.gz", ".zip", ".tar.bz2", ".tgz", ".tar.xz")
             )
         )
     return (
-        f"-{expected_version}-" in filename
-        or f"-{normalized_ver}-" in filename
+        f"-{lower_expected}-" in lower_fn
+        or f"-{lower_normalized}-" in lower_fn
         or any(
-            filename.endswith(f"-{expected_version}{ext}")
-            or filename.endswith(f"-{normalized_ver}{ext}")
+            lower_fn.endswith(f"-{lower_expected}{ext}")
+            or lower_fn.endswith(f"-{lower_normalized}{ext}")
             for ext in (".tar.gz", ".zip", ".tar.bz2", ".tgz", ".tar.xz")
         )
     )

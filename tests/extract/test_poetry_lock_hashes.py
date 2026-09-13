@@ -237,6 +237,23 @@ def test_filename_matches_version_anchored_rejects_name_version_substring() -> N
     )
 
 
+def test_filename_matches_version_case_insensitive_fallback() -> None:
+    """The string-fallback path must match case-insensitively, since
+    filenames can have different casing from the expected version string
+    (e.g. ``1.0RC1`` vs ``1.0rc1`` in legacy sdist archives)."""
+    # Non-PEP-440 version forces string fallback.
+    # With canon_name (anchored path): uppercase version vs lowercase filename
+    assert _filename_matches_version(
+        "mypkg-1.0rc1.tar.gz", "1.0RC1", canon_name="mypkg"
+    )
+    # Without canon_name (unanchored path): mixed casing
+    assert _filename_matches_version("MyPkg-1.0RC1.tar.gz", "1.0rc1")
+    # Wheel extension, anchored
+    assert _filename_matches_version(
+        "mypkg-1.0rc1-py3-none-any.whl", "1.0RC1", canon_name="mypkg"
+    )
+
+
 def test_parse_artifact_version_catches_invalid_filenames() -> None:
     """Invalid wheel or sdist filenames containing the target version string
     are caught and swallowed during PEP 427/625 local version normalization."""
