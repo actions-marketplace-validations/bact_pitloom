@@ -1,6 +1,6 @@
 ---
 Created: 2026-09-12
-Last-Modified: 2026-09-12
+Last-Modified: 2026-09-14
 SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 SPDX-FileType: DOCUMENTATION
 SPDX-License-Identifier: CC0-1.0
@@ -11,6 +11,14 @@ SPDX-License-Identifier: CC0-1.0
 See also: [roadmap.md](../design/roadmap.md), [lock-file-cascade.md](lock-file-cascade.md)
 (the pin-extraction cascade this feature builds on top of, unchanged by
 this work).
+
+**Status (2026-09-14):** shipped on `main` via PR
+[#212](https://github.com/bact/pitloom/pull/212) (merge commit `5c649a7`).
+`src/pitloom/extract/` was reorganized into subpackages (`lock/`,
+`ai_model/`, `project/`, `dataset/`) as part of this work -- every path
+below is current as of this doc's own Last-Modified date; if this doc is
+old, re-check with
+`find src/pitloom/extract -iname "*hash*"` before trusting a path.
 
 ## Problem
 
@@ -43,12 +51,21 @@ needed here.
   PyPI's hash lookup is the fallback only when no lock hash exists for
   that canonical package name.
 - **Tie-break for multiple hashes on one package**: prefer a wheel
-  artifact over any other (sdist), then sort by filename/URL --
-  mirrors the PyPI-path convention now shared via
+  artifact over any other (sdist), then sort by filename, then sort by
+  digest -- shared by every format and the PyPI path via
   `pitloom.extract.lock._hash_selection.select_sha256_hash`. A source with no
   filename at all (`Pipfile.lock`'s bare `hashes` list) falls back to
   sorting the raw digest strings; the artifact this picks is genuinely
   arbitrary by construction for that one format, not wheel-preferring.
+  **Important subtlety, fixed after an initial miss:** a URL-only artifact
+  (`uv.lock`, `pylock.toml`) must be reduced to its clean basename
+  (`pitloom.extract._extract_utils.filename_from_url`, via `urlparse().path`
+  + `PureWindowsPath(...).name`) *before* the tie-break sees it -- sorting
+  on the raw URL instead sorts by PyPI's content-addressable hash-directory
+  prefix (`/32/34/...`), not the artifact filename, making the selected
+  hash depend on an ordering this repo has no contract with. A pathless
+  URL (`https://example.com`) correctly resolves to `None`, not the
+  domain name.
 
 ## Data model
 
@@ -130,6 +147,22 @@ won. `_try_read_poetry()` therefore calls
   `packaging.utils.canonicalize_name(dep_name)`) *before* the
   `if not offline:` PyPI branch runs, so it applies in both online and
   offline mode.
+- **Version-conflict guard**: for the *direct*-dependency call, a lock
+  hash is only trusted when the resolved `dep_version` PEP 440-equals
+  the `locked_versions` entry for that canonical name (`locked_versions`
+  is also new, threaded down alongside `locked_hashes`) -- otherwise a
+  declared exact pin that overrides a conflicting locked version (see
+  lock-file-cascade.md's "explicit pin beats lock" rule) would apply a
+  hash describing a *different* artifact than the one the package claims
+  to be. The lock-resolved-transitive-only call passes no
+  `locked_versions` and trusts its hash unconditionally, since its own
+  dependency strings already carry the lock's version verbatim by
+  construction.
+- **Efficiency**: `_enrich_from_pypi()` returns early (`return set()`,
+  no network call) when `{"originator", "license", "hash"}` are already
+  all filled by local-environment introspection plus the lock hash --
+  the common case for a project with both an installed environment and
+  a lock file present.
 - `add_dependencies()` threads `locked_hashes` down; `document.py` passes
   `metadata.locked_dependency_hashes` at both of its `add_dependencies()`
   call sites (direct dependencies, and lock-resolved transitive-only
