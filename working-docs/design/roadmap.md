@@ -111,6 +111,26 @@ Poetry, PDM-backend, and Flit-core support are done (see priority
 table in [non-hatchling-file-discovery.md](non-hatchling-file-discovery.md));
 `uv_build` is next, without a committed version yet.
 
+**Suggested sequencing after that** (2026-09-14, not a commitment, just
+the current read of what's ready to pick up vs. what still needs a
+design pass):
+
+1. `uv_build` file discovery (above) -- ready to implement, priority
+   table already exists.
+2. [Generic multi-candidate field representation](#metadata-quality)
+   -- now concretely motivated: license (`deps_license.py`), dependency
+   version (`deps_installed.py`), and project metadata fields
+   (`extract/project/installed.py`, landed via
+   [installed-dist-info-source.md](installed-dist-info-source.md)) each
+   hand-build their own `ConflictCandidate` list at their own call
+   site -- a third, independent instance of the same duplication is
+   usually the right time to generalize.
+3. [OSV.dev vulnerability lookup](#metadata-quality) -- **not** ready to
+   hand to an implementer as-is; needed its own design pass first (SPDX3
+   mapping, which dependency pool to query, PEP 440-based range
+   matching) -- now resolved, see
+   [osv-vulnerability-lookup.md](osv-vulnerability-lookup.md#resolving-the-three-open-design-gaps-2026-09-14).
+
 ### Non-Hatchling file discovery (feature parity)
 
 - [ ] **`get_wheel_files()` file discovery is not backend-agnostic** --
@@ -142,10 +162,15 @@ table in [non-hatchling-file-discovery.md](non-hatchling-file-discovery.md));
 - [x] **`get_wheel_files()` option to skip Merkle root computation** --
   `embed-wheel`'s one caller now skips per-file hashing entirely. See
   [get-wheel-files-skip-merkle-root.md](../implementation/get-wheel-files-skip-merkle-root.md).
-- [ ] **Installed `.dist-info` / `.egg-info` as metadata source** -- treat
-  an existing installed package as a high-fidelity source when present
-  (editable installs, virtual environments).
-  See [metadata-sources.md](./metadata-sources.md).
+- [x] **In-tree `.egg-info`/`.dist-info` as a supplementary metadata
+  source** -- an editable-install byproduct left next to
+  `pyproject.toml` gap-fills undeclared fields; static source stays
+  authoritative on conflict (recorded, never silently substituted).
+  See [installed-dist-info-source.md](installed-dist-info-source.md).
+- [ ] **Real installed `.dist-info` (site-packages) as a metadata
+  source** -- the deferred, backend-agnostic phase: a user-supplied
+  venv/site-packages path, cross-checked via `direct_url.json`.
+  See ["Deferred: real installed dist-info (site-packages)"](installed-dist-info-source.md#deferred-real-installed-dist-info-site-packages).
 - [x] **CLI option `--no-use-lockfile`** -- opt-out flag (also
   `[tool.pitloom] use-lockfile = false`) disabling automatic lock-file
   discovery across every usage surface; on by default. Also fixed a

@@ -94,3 +94,40 @@ PEP 621 `dynamic` field resolved via `[tool.pdm.version] source =
 "file"`, and `[tool.pdm.build] package-dir = "src"` exercises the same
 `physical_path`/`distribution_path` divergence as the Flit/Poetry `-src`
 fixtures.
+
+## In-tree installed metadata (.egg-info / .dist-info)
+
+Small, hand-crafted (not real-`pip`-installed) fixtures exercising
+`pitloom.extract.project.installed` -- an in-tree `.egg-info`/`.dist-info`
+byproduct next to `pyproject.toml`, reconciled into the static metadata
+(see `working-docs/design/installed-dist-info-source.md`). Each pairs a
+minimal `pyproject.toml` with one or more marker files
+(`<name>.egg-info/PKG-INFO`, `<name>-<ver>.dist-info/METADATA`):
+
+- `installed-metadata-conflict/` -- a genuine `version` *and*
+  `requires_python` disagreement between the static and installed
+  sources (static wins, both recorded). Also used for the manual
+  determinism/CLI check in `CLAUDE.md`'s "Manual CLI integration checks".
+- `installed-metadata-agree/` -- PEP 440-equivalent `version`
+  (`"1.0"`/`"1.0.0"`) and spec-equivalent `requires_python`
+  (`">=3.9"`/`">= 3.9"`) -- not a conflict; static's `description`/
+  `keywords` win unconditionally over the installed side's (gap-fill-only
+  fields, both declared).
+- `installed-metadata-name-mismatch/` -- the in-tree egg-info declares an
+  unrelated package name; rejected entirely, not even used for gap-fill.
+- `installed-metadata-dynamic-gap-fill/` -- `dynamic = ["version"]` with
+  no statically-resolvable value; gap-filled from the installed side.
+- `installed-metadata-tiebreak/` -- both a `.egg-info` and a `.dist-info`
+  present, both name-matching; `.dist-info` wins the deterministic
+  tie-break.
+- `installed-metadata-tiebreak-mismatch/` -- two `.egg-info` dirs, only
+  one name-matching; the mismatched one is rejected by the name filter
+  before the tie-break ever runs (no "multiple candidates" warning).
+- `installed-metadata-malformed/` -- the egg-info's `PKG-INFO` is
+  invalid-UTF-8/binary garbage; decodes with `errors="replace"`, never
+  raises.
+- `installed-metadata-missing-marker/` -- a `.egg-info` directory exists
+  with no `PKG-INFO` file inside it.
+- `installed-metadata-decoy-vendor/` -- a decoy
+  `vendor/somepkg.egg-info/PKG-INFO` several directory levels deep, used
+  to confirm the bounded, non-recursive glob never descends into it.

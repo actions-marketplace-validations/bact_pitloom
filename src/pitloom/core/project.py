@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import dataclasses
 from dataclasses import dataclass, field
+from typing import TypedDict
 
 
 @dataclass
@@ -67,6 +68,25 @@ class ProjectFile:
     is_license_file: bool = False
 
 
+class _ConflictCandidateRequired(TypedDict):
+    value: str
+    role: str
+    source: str
+
+
+class ConflictCandidate(_ConflictCandidateRequired, total=False):
+    """One source's reported value for a field under dispute (G2).
+
+    Relocated here (rather than defined in
+    :mod:`pitloom.assemble.spdx3.provenance`, which re-exports it) so both
+    :mod:`pitloom.extract` and :mod:`pitloom.assemble` can use it without
+    :mod:`pitloom.extract` importing from the :mod:`pitloom.assemble`
+    layer -- see :attr:`ProjectMetadata.field_conflicts`.
+    """
+
+    ref: str
+
+
 @dataclass
 class PhantomDependency:
     """A bundled binary dependency not tracked by normal package metadata.
@@ -101,6 +121,13 @@ class ProjectMetadata:
     ``"Source: <location> | Field: <key>"`` or
     ``"Source: <location> | Method: <method>"``.
 
+    :attr:`field_conflicts` records a genuine disagreement between this
+    metadata's own value for a field and a second, independently-sourced
+    candidate (e.g. an in-tree ``.egg-info``/``.dist-info`` -- see
+    :mod:`pitloom.extract.project.installed`) that was rejected in favor of
+    this instance's value. Empty for metadata that was never reconciled
+    against a second source.
+
     Pitloom tool settings such as ``fragments`` and ``pretty`` are **not** stored
     here; they live in :class:`~pitloom.core.config.PitloomConfig` which is returned
     alongside this object by
@@ -123,6 +150,7 @@ class ProjectMetadata:
     locked_dependency_hashes: dict[str, str] = field(default_factory=dict)
     provenance: dict[str, str] = field(default_factory=dict)
     files: list[ProjectFile] = field(default_factory=list)
+    field_conflicts: dict[str, list[ConflictCandidate]] = field(default_factory=dict)
 
 
 #: Maps a :class:`ProjectMetadata` field name to the literal provenance key

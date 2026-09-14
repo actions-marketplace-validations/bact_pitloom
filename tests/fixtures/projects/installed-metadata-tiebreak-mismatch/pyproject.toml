@@ -1,0 +1,15 @@
+# SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
+# SPDX-License-Identifier: CC0-1.0
+
+# Two in-tree .egg-info dirs; only one's Name matches this project --
+# the mismatched one must be rejected in the name filter, and the
+# "multiple candidates" tie-break WARNING must NOT fire (only one
+# candidate survives to the tie-break step).
+
+[project]
+name = "sampleproject-installed-tbm"
+version = "1.0.0"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"

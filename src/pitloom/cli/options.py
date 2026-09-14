@@ -253,10 +253,13 @@ def _resolve_common_options(
         try:
             # Only [tool.pitloom] config is used here, shared across every
             # subcommand (including build-stage ones like embed-wheel) --
-            # skip the lock/pin cascade so it never runs for a caller that
-            # would discard the result anyway.
+            # skip the lock/pin cascade and in-tree installed-metadata
+            # resolution so neither ever runs for a caller that would
+            # discard the result anyway.
             _, pitloom_config, _ = read_project(
-                lookup_dir, include_locked_dependencies=False
+                lookup_dir,
+                include_locked_dependencies=False,
+                include_installed_metadata=False,
             )
         except FileNotFoundError:
             # No config file at all -- absent source data, not an error.

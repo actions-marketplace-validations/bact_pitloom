@@ -13,7 +13,9 @@ siblings, split from the original test_embed.py.
 from __future__ import annotations
 
 import json
+import logging
 import os
+import shutil
 import stat
 import subprocess
 import sys
@@ -238,6 +240,71 @@ def test_embed_wheel_sbom_with_project_fixture(tmp_path: Path) -> None:
     assert val_res.returncode == 0, (
         f"spdx3-validate failed: {val_res.stderr} {val_res.stdout}"
     )
+
+
+def test_embed_wheel_sbom_ignores_conflicting_in_tree_egg_info(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Real end-to-end regression (plan's Case 14) for the installed-
+    metadata source's ``include_installed_metadata=False`` gate on
+    embed-wheel's actual call sites (``embed.py``'s
+    ``_generate_embed_sbom_json``, ``cli/commands/embed_wheel.py``'s
+    ``_resolve_project_dir_and_config``) -- not just a direct
+    ``read_project()`` call. Unlike a bare ``read_project()`` unit test,
+    this exercises the real ``embed_wheel_sbom()`` entry point, so it
+    would catch a future edit that drops the kwarg from either call site.
+
+    ``embed_wheel_sbom()`` already sources its SBOM's project metadata
+    from the *wheel's own* embedded ``.dist-info/METADATA`` (via
+    ``extract/wheel.py``'s ``read_wheel()``), never from
+    ``read_project()`` -- so the assertion that actually matters here is
+    that the conflicting in-tree ``.egg-info`` produces zero observable
+    effect at all: no ``WARNING:`` on stderr/logs, and byte-identical
+    SBOM output whether or not it's present.
+    """
+    fixture = (
+        Path(__file__).parent.parent
+        / "fixtures"
+        / "projects"
+        / "installed-metadata-conflict"
+    )
+    project_with_conflict = tmp_path / "with_conflict"
+    shutil.copytree(fixture, project_with_conflict)
+    project_without_conflict = tmp_path / "without_conflict"
+    shutil.copytree(
+        fixture,
+        project_without_conflict,
+        ignore=shutil.ignore_patterns("*.egg-info"),
+    )
+    assert list(project_with_conflict.glob("*.egg-info"))
+    assert not list(project_without_conflict.glob("*.egg-info"))
+
+    wheel_with = _make_dummy_wheel(
+        tmp_path / "wheel_with", "sampleproject_installed_conflict", "1.0.0"
+    )
+    wheel_without = _make_dummy_wheel(
+        tmp_path / "wheel_without", "sampleproject_installed_conflict", "1.0.0"
+    )
+
+    # Pin the SBOM's `created` timestamp so the two runs are byte-for-byte
+    # comparable regardless of wall-clock skew between them (see
+    # test_embed_sbom_source_date_epoch_reproducibility above).
+    monkeypatch.setenv("SOURCE_DATE_EPOCH", "1700000000")
+
+    with caplog.at_level(logging.WARNING):
+        _, _, sbom_with_conflict, _, _ = embed_wheel_sbom(
+            wheel_with, project_dir=project_with_conflict
+        )
+    assert "disagrees on" not in caplog.text
+    assert "egg-info" not in caplog.text
+
+    _, _, sbom_without_conflict, _, _ = embed_wheel_sbom(
+        wheel_without, project_dir=project_without_conflict
+    )
+
+    assert json.loads(sbom_with_conflict) == json.loads(sbom_without_conflict)
 
 
 def test_cli_embed_wheel_single(

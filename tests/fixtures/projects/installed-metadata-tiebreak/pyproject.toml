@@ -1,0 +1,14 @@
+# SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
+# SPDX-License-Identifier: CC0-1.0
+
+# Both an in-tree .egg-info and a .dist-info exist, both name-matching --
+# the .dist-info must win the deterministic tie-break (more modern format),
+# with one WARNING naming both candidates and the winner.
+
+[project]
+name = "sampleproject-installed-tiebreak"
+version = "1.0.0"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"

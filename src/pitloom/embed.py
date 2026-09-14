@@ -373,8 +373,14 @@ def _generate_embed_sbom_json(
     if pitloom_config is None:
         # Only [tool.pitloom] config is used here -- skip the lock/pin
         # cascade (embed-wheel is build-stage; a source-stage lock file's
-        # resolved dependencies must never leak into an embedded SBOM).
-        _, cfg, _ = read_project(proj_root, include_locked_dependencies=False)
+        # resolved dependencies must never leak into an embedded SBOM) and
+        # skip in-tree installed-metadata resolution (same build-stage
+        # rationale, and this caller discards the metadata anyway).
+        _, cfg, _ = read_project(
+            proj_root,
+            include_locked_dependencies=False,
+            include_installed_metadata=False,
+        )
     else:
         cfg = pitloom_config
 

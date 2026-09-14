@@ -191,36 +191,66 @@ handling.
 
 ## Recommended metadata source priority for pitloom
 
-Recommended long-term priority order for project metadata resolution is:
+**Correction (see `working-docs/design/installed-dist-info-source.md`):**
+"installed `.dist-info`/`.egg-info`" is not one source ranked strictly
+above `pyproject.toml`/`setup.cfg`/`setup.py` -- it splits into two
+genuinely different things with two different priority rules:
+
+- **In-tree editable-install byproduct** (a build backend's `egg_info`
+  step leaves `<name>.egg-info/` next to `pyproject.toml` and never
+  cleans it up -- still common with `pip install -e .`) -- **implemented**
+  (`pitloom.extract.project.installed`). It is *not* ranked above the
+  static sources: it's a supplementary, simultaneously-consulted source
+  that only fills gaps the static source left undeclared (e.g. a
+  `dynamic = ["version"]` field only the build backend actually
+  resolved) -- on a genuine disagreement, the static source stays
+  authoritative and the disagreement is recorded as an SPDX G2 conflict
+  Annotation, never silently substituted. See
+  `working-docs/design/installed-dist-info-source.md`.
+- **Real installed dist-info** (a venv's `site-packages/<name>-<version>.dist-info/`,
+  the record any `pip install` -- editable or not, any backend -- actually
+  produces) -- **deferred**, not yet built. See "Deferred: real installed
+  dist-info (site-packages)" in
+  `working-docs/design/installed-dist-info-source.md`.
+
+Priority order for project metadata resolution:
 
 ```text
 1. PEP 517 prepare_metadata_for_build_wheel   [opt-in; future]
    └─ parses the resulting METADATA file via email.parser
 
-2. Installed .dist-info/METADATA              [future]
-   └─ present when running inside an editable install or venv
+2. Real installed .dist-info (site-packages)  [deferred]
+   └─ present in a venv for any pip install, editable or not
 
 3. pyproject.toml [project]                   [implemented]
    └─ read_pyproject() -> ProjectMetadata
-
 4. setup.cfg [metadata] / [options]           [implemented]
    └─ read_setup_cfg() -> ProjectMetadata
-
 5. setup.py setup() literal arguments         [implemented]
    └─ read_setup_py() (AST) -> ProjectMetadata
+
+   ── supplementary, not ranked in the above list; consulted
+      alongside whichever of 3-5 wins, gap-fill only, conflicts
+      recorded rather than resolved by rank ──
+   In-tree .egg-info/.dist-info editable-install byproduct [implemented]
+   └─ find_installed_metadata_candidate() / reconcile_installed_metadata()
 ```
 
 Tiers 3-5 are implemented as a single existence-based priority (not a
 field-level merge across tiers) in
 `pitloom.extract.project.read_project()`, used by both the CLI and
-`generate_project_sbom()`'s default parsing path. Tiers 1-2 remain future work --
-see `working-docs/implementation/setuptools-support.md` for the current
+`generate_project_sbom()`'s default parsing path. Tier 1 and the deferred
+site-packages tier 2 remain future work -- see
+`working-docs/implementation/setuptools-support.md` for the current
 conflict-resolution behaviour and its known limitations.
 
 Sources 3–5 are combined via `merge_metadata(primary, secondary)` so gaps at
 one level are filled by the next without overwriting already-resolved fields.
-Sources 1–2 (when implemented) will be treated the same way -- as a
-higher-priority primary passed to `merge_metadata`.
+Source 1 (when implemented) will be treated the same way -- as a
+higher-priority primary passed to `merge_metadata`. The in-tree installed
+source (implemented) and the deferred site-packages source instead use the
+static-wins-on-conflict rule described above, not a rank-based `merge_metadata`
+slot.
 
 The `METADATA` file format (RFC 822 / `email.parser`) is straightforward and
 already handled by `packaging.metadata.Metadata` in the `packaging` library,
