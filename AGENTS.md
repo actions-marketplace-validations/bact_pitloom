@@ -267,6 +267,37 @@ shape described, not just the module where each was first found.
   any other falsy-but-real value) needs its own value check, not just a
   presence check, even when every other key in the same set is fine with
   presence alone.
+- **An opt-out flag that makes a helper skip populating an accumulator
+  list breaks any pre-existing emptiness/exit check still keyed off
+  that same list.** A check like `if not <accumulator>: return <empty>`
+  implicitly assumes the accumulator is populated 1:1 with real work
+  done on every call -- once a flag makes population conditional (e.g.
+  a per-file hash list only appended to when hashing isn't skipped),
+  the check fires unconditionally whenever the flag is set, discarding
+  every real result instead of only a genuinely empty one. Caught in
+  `get_wheel_files()`'s `skip_merkle_root` option (PR #213) before
+  merge: `if not file_entries: return None, []` had to become
+  `if not project_files: return None, []`, re-keyed to the list still
+  populated regardless of the flag. When adding an opt-out that skips
+  populating an existing accumulator, grep every downstream emptiness/
+  length check on that accumulator in the same function and re-derive
+  it from a proxy that's still unconditionally populated.
+- **Removing a read/computation to save cost can silently remove an
+  error-surfacing side effect that read was also providing.** A full
+  `read_bytes()`/similar call kept only for its return value may also
+  be the one thing raising `PermissionError`/`OSError` for an
+  inaccessible file, caught by a broad outer `except` that degrades the
+  whole operation loudly and safely. Skipping the read because the
+  return value is no longer needed (e.g. hashing turned off) removes
+  that detection too, turning a loud whole-operation failure into a
+  silently-wrong per-item result instead. Caught in the same
+  `skip_merkle_root` option (PR #213): the full read was replaced with
+  a cheap access probe (`with source.open("rb"): pass`) that still
+  triggers the same failure path without paying for the read. When an
+  optimization removes a read/computation, check whether anything
+  downstream (an outer `except`, a caller's fail-loud contract) was
+  implicitly relying on that operation's failure mode, not just its
+  return value.
 
 ## CLI output
 

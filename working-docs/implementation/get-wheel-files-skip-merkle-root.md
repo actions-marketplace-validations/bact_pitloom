@@ -10,7 +10,8 @@ SPDX-License-Identifier: CC0-1.0
 
 See also: [roadmap.md](../design/roadmap.md) (feature-oriented plan).
 
-**Status (2026-09-14):** implemented, awaiting review/commit.
+**Status (2026-09-14):** shipped on `main` via PR
+[#213](https://github.com/bact/pitloom/pull/213) (merge commit `69f43c8`).
 
 ## What was built
 
