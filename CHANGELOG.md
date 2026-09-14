@@ -52,7 +52,7 @@ and this project adheres to
   builds and prioritised over PyPI online ([#212])
 - In-tree `.egg-info`/`.dist-info` as a supplementary project-metadata
   source: gap-fills undeclared fields, flags a genuine disagreement as
-  a G2 conflict Annotation instead of silently overriding ([#214])
+  a conflict Annotation instead of silently overriding ([#214])
 
 ### Fixed
 

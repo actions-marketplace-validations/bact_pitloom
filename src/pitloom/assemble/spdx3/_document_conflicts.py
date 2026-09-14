@@ -3,7 +3,7 @@
 # SPDX-FileType: SOURCE
 # SPDX-License-Identifier: Apache-2.0
 
-"""Emit a G2 conflict Annotation per :attr:`ProjectMetadata.field_conflicts`
+"""Emit a conflict Annotation per :attr:`ProjectMetadata.field_conflicts`
 entry on the main project package.
 
 See also: :mod:`pitloom.assemble.spdx3.deps_license`'s
@@ -31,7 +31,7 @@ def attach_metadata_field_conflicts(
     doc_uuid: str,
     exporter: Spdx3JsonExporter,
 ) -> None:
-    """Emit one G2 conflict Annotation per ``metadata.field_conflicts``
+    """Emit one conflict Annotation per ``metadata.field_conflicts``
     entry on the main project package.
 
     Iterates ``metadata.field_conflicts.items()`` in the dict's own

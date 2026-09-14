@@ -75,7 +75,7 @@ class _ConflictCandidateRequired(TypedDict):
 
 
 class ConflictCandidate(_ConflictCandidateRequired, total=False):
-    """One source's reported value for a field under dispute (G2).
+    """One source's reported value for a field under dispute.
 
     Relocated here (rather than defined in
     :mod:`pitloom.assemble.spdx3.provenance`, which re-exports it) so both
