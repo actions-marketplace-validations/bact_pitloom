@@ -19,7 +19,11 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from pitloom.core.ai_metadata import AiModelFormat
-from pitloom.extract.ai_model.numpy import _shim_read_array_header, read_numpy
+from pitloom.extract.ai_model.numpy import (
+    _detect_numpy_kind,
+    _shim_read_array_header,
+    read_numpy,
+)
 
 
 def test_shim_read_array_header_fallbacks() -> None:
@@ -96,3 +100,16 @@ def test_read_numpy_unrecognized_suffix_returns_empty_format_version() -> None:
         assert meta.format_info.format_version is None
     finally:
         bin_path.unlink(missing_ok=True)
+
+
+def test_detect_numpy_kind_nonexistent_file_falls_through_oserror() -> None:
+    """Non-existent path raises OSError during open which is caught and handled."""
+    assert _detect_numpy_kind(Path("nonexistent_model.bin")) is None
+    assert _detect_numpy_kind(Path("nonexistent_model.npy")) == "npy"
+    assert _detect_numpy_kind(Path("nonexistent_model.npz")) == "npz"
+
+
+def test_detect_numpy_kind_bad_zipfile_handled() -> None:
+    """BadZipFile or OSError from zipfile.is_zipfile is gracefully caught."""
+    with patch("zipfile.is_zipfile", side_effect=zipfile.BadZipFile("corrupt")):
+        assert _detect_numpy_kind(Path("test_model.npy")) == "npy"

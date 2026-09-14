@@ -20,6 +20,7 @@ from pitloom.extract._extract_utils import to_str_list as _to_str_list
 from pitloom.extract.dataset.croissant import (
     _collect_data_types,
     _extract_creator_name,
+    _extract_dataset_size,
     _infer_dataset_types,
     _normalize_sensitivity,
     read_croissant,
@@ -349,3 +350,46 @@ def test_read_croissant_url_string_sets_croissant_url() -> None:
         meta = read_croissant(url)
     assert meta.croissant_url == url
     assert meta.name == "Remote Dataset"
+
+
+def test_extract_dataset_size_top_level_total_items() -> None:
+    prov: dict[str, str] = {}
+    size = _extract_dataset_size({"cr:totalItems": "1500"}, "ds.json", prov)
+    assert size == 1500
+    assert prov.get("dataset_size") == "Source: ds.json | Field: cr:totalItems"
+
+
+def test_extract_dataset_size_invalid_top_level_falls_to_dict_record_set() -> None:
+    prov: dict[str, str] = {}
+    size = _extract_dataset_size(
+        {"totalItems": "invalid", "cr:recordSet": {"cr:totalItems": 42}},
+        "ds.json",
+        prov,
+    )
+    assert size == 42
+    assert (
+        prov.get("dataset_size")
+        == "Source: ds.json | Field: cr:recordSet, cr:totalItems"
+    )
+
+
+def test_extract_dataset_size_multiple_record_sets_with_missing_and_invalid() -> None:
+    prov: dict[str, str] = {}
+    data = {
+        "recordSet": [
+            {"name": "no_total"},
+            {"name": "valid", "totalItems": 100},
+            {"name": "invalid", "totalItems": "bad"},
+        ]
+    }
+    size = _extract_dataset_size(data, "ds.json", prov)
+    assert size == 100
+    assert (
+        prov.get("dataset_size")
+        == "Source: ds.json | Field: cr:recordSet, cr:totalItems"
+    )
+
+
+def test_extract_dataset_size_non_container_record_set_returns_none() -> None:
+    prov: dict[str, str] = {}
+    assert _extract_dataset_size({"recordSet": "not-a-list"}, "ds.json", prov) is None

@@ -177,3 +177,43 @@ def test_read_pyproject_resolves_pdm_dynamic_version() -> None:
     assert metadata.provenance["version"] == (
         "Source: pyproject.toml | Method: pdm_dynamic_version(file)"
     )
+
+
+def test_resolve_pdm_dynamic_version_quiet_unresolvable_source(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """When quiet=True, an unresolvable source does not emit a warning."""
+    data = {
+        "tool": {"pdm": {"version": {"source": "call", "getter": "pkg:get_version"}}}
+    }
+    with caplog.at_level(logging.WARNING):
+        version, source = resolve_pdm_dynamic_version(
+            PDM_FIXTURE, data, ["version"], quiet=True
+        )
+    assert version is None
+    assert source is None
+    assert "not resolvable" not in caplog.text
+
+
+def test_resolve_pdm_dynamic_version_quiet_resolution_failure(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """When quiet=True, resolution exceptions do not emit a warning."""
+    data = {
+        "tool": {
+            "pdm": {
+                "version": {
+                    "source": "file",
+                    "path": "src/sampleproject_pdm/__init__.py",
+                    "write_to": "should_not_be_used.py",
+                }
+            }
+        }
+    }
+    with caplog.at_level(logging.WARNING):
+        version, source = resolve_pdm_dynamic_version(
+            PDM_FIXTURE, data, ["version"], quiet=True
+        )
+    assert version is None
+    assert source is None
+    assert "failed for" not in caplog.text

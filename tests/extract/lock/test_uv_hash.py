@@ -176,3 +176,25 @@ def test_artifact_hash_candidates_handles_missing_or_invalid_url() -> None:
         }
     )
     assert candidates == [(None, digest), (None, digest)]
+
+
+def test_artifact_hash_candidates_supports_path() -> None:
+    digest = "f" * 64
+    candidates = _artifact_hash_candidates(
+        {
+            "wheels": [
+                {
+                    "path": "dist/pkg-1.0-py3-none-any.whl",
+                    "hash": "sha256:" + digest,
+                },
+                {
+                    "path": r"C:\dist\pkg-1.0-cp310-cp310-win_amd64.whl",
+                    "hash": "sha256:" + digest,
+                },
+            ]
+        }
+    )
+    assert candidates == [
+        ("pkg-1.0-py3-none-any.whl", digest),
+        ("pkg-1.0-cp310-cp310-win_amd64.whl", digest),
+    ]
