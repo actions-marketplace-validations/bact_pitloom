@@ -167,6 +167,47 @@ def test_reconcile_license_name_conflict_uses_spdx_normalization(
     assert "license_name" not in merged.field_conflicts
 
 
+def test_reconcile_requires_python_installed_declared_empty_vs_static_conflict(
+    tmp_path: Path,
+) -> None:
+    """Regression, mirror of the declared-empty-static case above: when
+    *installed*'s own declared-but-empty Requires-Python has already been
+    collapsed to None by the parser (the fix for the None-vs-empty-string
+    convention bug), the comparator call must not crash (SpecifierSet(None)
+    raises) and the disagreement must still be recorded, with the
+    installed candidate's ``value`` normalized to ``""``, never ``None``."""
+    static = _static(requires_python=">=3.9")
+    static.provenance["requires_python"] = "Source: pyproject.toml"
+    installed = ProjectMetadata(name="pkg", version="1.0.0", requires_python=None)
+    installed.provenance["version"] = "Source: pkg.egg-info"
+    installed.provenance["requires_python"] = "Source: pkg.egg-info"
+
+    merged = reconcile_installed_metadata(static, installed, "pkg.egg-info", tmp_path)
+
+    assert merged.requires_python == ">=3.9"
+    assert "requires_python" in merged.field_conflicts
+    assert merged.field_conflicts["requires_python"][1]["value"] == ""
+
+
+def test_reconcile_requires_python_gap_fill_from_installed_declared_empty_is_none(
+    tmp_path: Path,
+) -> None:
+    """Regression: gap-filling requires_python from an installed source
+    whose own value was already collapsed to None by the parser (declared
+    empty, PEP 621's "no constraint" convention) must leave
+    merged.requires_python as None, not the raw empty string, matching
+    every static producer's own convention for the same field."""
+    static = ProjectMetadata(name="pkg", version="1.0.0")  # requires_python undeclared
+    installed = ProjectMetadata(name="pkg", version="1.0.0", requires_python=None)
+    installed.provenance["requires_python"] = "Source: pkg.egg-info"
+
+    merged = reconcile_installed_metadata(static, installed, "pkg.egg-info", tmp_path)
+
+    assert merged.requires_python is None
+    assert merged.provenance["requires_python"] == "Source: pkg.egg-info"
+    assert merged.field_conflicts == {}
+
+
 def test_reconcile_license_name_declared_empty_vs_installed_conflict(
     tmp_path: Path,
 ) -> None:
@@ -346,6 +387,45 @@ def test_reconcile_does_not_mutate_static_provenance(tmp_path: Path) -> None:
     assert merged.requires_python == ">=3.9"
     assert static.requires_python is None
     assert not static.provenance
+
+
+def test_reconcile_gap_fill_does_not_alias_installed_container(tmp_path: Path) -> None:
+    """Regression: gap-filling a container-valued field (keywords/urls)
+    must copy installed's dict/list, never alias merged's field to
+    installed's own object -- the same dataclasses.replace()-style
+    aliasing hazard replace_with_fresh_containers() exists to close
+    elsewhere. A later mutation of merged's container must not leak back
+    into installed's."""
+    static = ProjectMetadata(name="pkg", version="1.0.0")  # keywords undeclared
+    installed = ProjectMetadata(
+        name="pkg", version="1.0.0", keywords=["from-installed"]
+    )
+    installed.provenance["keywords"] = "Source: pkg.egg-info"
+
+    merged = reconcile_installed_metadata(static, installed, "pkg.egg-info", tmp_path)
+
+    assert merged.keywords == ["from-installed"]
+    assert merged.keywords is not installed.keywords
+    merged.keywords.append("mutated-after-merge")
+    assert installed.keywords == ["from-installed"]
+
+
+def test_reconcile_gap_fill_urls_does_not_alias_installed_container(
+    tmp_path: Path,
+) -> None:
+    """Same aliasing regression as above, for the urls dict field."""
+    static = ProjectMetadata(name="pkg", version="1.0.0")  # urls undeclared
+    installed = ProjectMetadata(
+        name="pkg", version="1.0.0", urls={"Homepage": "https://example.com"}
+    )
+    installed.provenance["urls"] = "Source: pkg.egg-info"
+
+    merged = reconcile_installed_metadata(static, installed, "pkg.egg-info", tmp_path)
+
+    assert merged.urls == {"Homepage": "https://example.com"}
+    assert merged.urls is not installed.urls
+    merged.urls["Tracker"] = "https://example.com/issues"
+    assert installed.urls == {"Homepage": "https://example.com"}
 
 
 def test_reconcile_does_not_mutate_static_field_conflicts(tmp_path: Path) -> None:

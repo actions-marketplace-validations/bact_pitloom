@@ -318,17 +318,20 @@ def _parse_installed_metadata(
         metadata.description = msg.get("Summary")
         provenance["description"] = source_label
     if field_declared(msg, "Requires-Python"):
-        metadata.requires_python = msg.get("Requires-Python")
+        # Collapse a declared-but-empty value to None, matching every
+        # static producer's "no constraint" convention (`str(x) if x else
+        # None`) -- provenance still records it as declared either way.
+        metadata.requires_python = msg.get("Requires-Python", "") or None
         provenance["requires_python"] = source_label
 
     # Spec 2.4+ makes License-Expression/License mutually exclusive, but
     # real files can be non-compliant (hand-edited, buggy tool) -- never
     # assume exclusivity, just prefer License-Expression when both present.
     if field_declared(msg, "License-Expression"):
-        metadata.license_name = msg.get("License-Expression")
+        metadata.license_name = msg.get("License-Expression", "") or None
         provenance["license"] = source_label
     elif field_declared(msg, "License"):
-        metadata.license_name = msg.get("License")
+        metadata.license_name = msg.get("License", "") or None
         provenance["license"] = source_label
 
     if field_declared(msg, "Keywords"):
@@ -398,28 +401,32 @@ def _reconcile_conflict_checked_field(
         return
 
     static_value = getattr(static, field_name)
-    # static_value can be None even though static_declared is True: every
-    # producer of these three fields collapses an explicitly-declared-empty
-    # source value to None (`str(x) if x else None` -- `requires-python =
-    # ""`, PEP 621's "no constraint" convention matching Poetry's
-    # `python = "*"`; likewise an empty/undetected `license`). None is not
-    # a valid comparator input -- SpecifierSet(None) and
-    # normalize_license_expression(None) both raise instead of comparing
-    # -- so compare against the empty string it's semantically equivalent
-    # to. The real (possibly-None) static_value is still what's logged and
-    # what a future gap-fill would see; only the comparator call and the
-    # recorded candidate's ``value`` (typed ``str``, never ``None``) use
-    # the normalized form.
+    # Either side can be None even though its own *_declared is True: both
+    # this module's own parser and every static producer collapse an
+    # explicitly-declared-empty source value to None (`str(x) if x else
+    # None` -- `requires-python = ""`, PEP 621's "no constraint" convention
+    # matching Poetry's `python = "*"`; likewise an empty/undetected
+    # `license`). None is not a valid comparator input -- SpecifierSet(None)
+    # and normalize_license_expression(None) both raise instead of
+    # comparing -- so compare against the empty string it's semantically
+    # equivalent to. The real (possibly-None) values are still what's
+    # logged; only the comparator call and the recorded candidates'
+    # ``value`` (typed ``str``, never ``None``) use the normalized form.
     comparable_static_value = static_value if static_value is not None else ""
+    comparable_installed_value = installed_value if installed_value is not None else ""
     comparator = _FIELD_COMPARATORS[field_name]
-    if comparator(comparable_static_value, installed_value):
+    if comparator(comparable_static_value, comparable_installed_value):
         return
 
     static_source = static.provenance[provenance_key]
     installed_source = installed.provenance[provenance_key]
     candidates: list[ConflictCandidate] = [
         {"value": comparable_static_value, "role": "declared", "source": static_source},
-        {"value": installed_value, "role": "declared", "source": installed_source},
+        {
+            "value": comparable_installed_value,
+            "role": "declared",
+            "source": installed_source,
+        },
     ]
     # Keyed by provenance_key, not field_name, so license_name's conflict
     # lands under "license" -- matching deps_license.py's own declared-
@@ -449,7 +456,18 @@ def _reconcile_gap_fill_field(
         return
     if not field_declared(installed.provenance, provenance_key):
         return
-    setattr(merged, field_name, getattr(installed, field_name))
+    value = getattr(installed, field_name)
+    # keywords/urls are container-valued (list/dict) -- copy before handing
+    # to merged, never alias *installed*'s own object directly. installed
+    # is a throwaway ProjectMetadata discarded right after this call today,
+    # so this is dormant, not a live bug -- but it's the same aliasing
+    # hazard replace_with_fresh_containers() exists to close everywhere
+    # else, and a future caller that retains *installed* (e.g. to log or
+    # compare it afterwards) must not have merged's later mutations leak
+    # back into it.
+    if isinstance(value, (dict, list)):
+        value = value.copy()
+    setattr(merged, field_name, value)
     merged.provenance[provenance_key] = installed.provenance[provenance_key]
 
 

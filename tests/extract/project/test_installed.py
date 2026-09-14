@@ -21,6 +21,7 @@ from pathlib import Path
 import pytest
 
 from pitloom.extract.project.installed import (
+    _discover_candidate,
     _parse_installed_metadata,
     _requires_python_equal,
     find_installed_metadata_candidate,
@@ -190,6 +191,36 @@ def test_read_installed_metadata_quiet_suppresses_warning(
         result = read_installed_metadata(marker, "Source: pkg.egg-info", quiet=True)
     assert result is None
     assert caplog.text == ""
+
+
+def test_public_discovery_and_read_match_internal_discovery_and_parse() -> None:
+    """Drift guard: find_installed_metadata_candidate() +
+    read_installed_metadata() (the public API pair, unused by
+    reader.py's own read_project() -- see _discover_candidate/
+    _parse_installed_metadata in this module) must resolve to the exact
+    same ProjectMetadata as reader.py's internal, message-reusing path
+    for the same fixture. The two are separate implementations of "find
+    then parse"; this test is the mechanical tie that catches one being
+    fixed/changed without the other."""
+    fixture = _FIXTURES / "installed-metadata-conflict"
+
+    found = find_installed_metadata_candidate(
+        fixture, "sampleproject-installed-conflict"
+    )
+    assert found is not None
+    marker_path, label = found
+    source_label = f"Source: {label} | File: {marker_path.name}"
+    via_public_api = read_installed_metadata(marker_path, source_label)
+    assert via_public_api is not None
+
+    candidate = _discover_candidate(fixture, "sampleproject-installed-conflict")
+    assert candidate is not None
+    via_internal_path = _parse_installed_metadata(
+        candidate.message,
+        f"Source: {candidate.label} | File: {candidate.marker_path.name}",
+    )
+
+    assert via_public_api == via_internal_path
 
 
 # --- find_installed_metadata_candidate (discovery) --------------------------
@@ -483,3 +514,32 @@ def test_parse_installed_metadata_project_url_entry_without_comma_skipped() -> N
     metadata = _parse_installed_metadata(msg, "Source: pkg.egg-info")
     assert metadata.urls == {}
     assert "urls" not in metadata.provenance
+
+
+def test_parse_installed_metadata_requires_python_empty_becomes_none() -> None:
+    """Regression: an explicit but empty `Requires-Python:` header must
+    collapse to `requires_python=None`, matching every static producer's
+    "no constraint" convention (`str(x) if x else None`), not stay as the
+    raw empty string -- provenance still records it as declared either
+    way."""
+    msg = _msg("Name: pkg\nVersion: 1.0.0\nRequires-Python: \n")
+    metadata = _parse_installed_metadata(msg, "Source: pkg.egg-info")
+    assert metadata.requires_python is None
+    assert "requires_python" in metadata.provenance
+
+
+def test_parse_installed_metadata_license_declared_empty_collapses_to_none() -> None:
+    """Same convention for an explicit but empty `License:` header."""
+    msg = _msg("Name: pkg\nVersion: 1.0.0\nLicense: \n")
+    metadata = _parse_installed_metadata(msg, "Source: pkg.egg-info")
+    assert metadata.license_name is None
+    assert "license" in metadata.provenance
+
+
+def test_parse_installed_metadata_license_expression_empty_becomes_none() -> None:
+    """Same convention for an explicit but empty `License-Expression:`
+    header."""
+    msg = _msg("Name: pkg\nVersion: 1.0.0\nLicense-Expression: \n")
+    metadata = _parse_installed_metadata(msg, "Source: pkg.egg-info")
+    assert metadata.license_name is None
+    assert "license" in metadata.provenance

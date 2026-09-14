@@ -175,6 +175,17 @@ design pass):
   source** -- the deferred, backend-agnostic phase: a user-supplied
   venv/site-packages path, cross-checked via `direct_url.json`.
   See ["Deferred: real installed dist-info (site-packages)"](installed-dist-info-source.md#deferred-real-installed-dist-info-site-packages).
+- [ ] **Split `extract/project/installed.py`** -- 514 lines, over the
+  ~400-500 soft limit. Discovery+parsing vs. reconciliation is the
+  natural seam (a sibling `_installed_reconcile.py`); deferred rather
+  than split immediately, revisit alongside other file-size cleanup.
+- [ ] **`resolve_project_with_lockfile()`'s peek/reread pays for
+  installed-metadata discovery twice** (once per `read_project()` call)
+  when the lock cascade is auto-detected. Already an accepted,
+  documented cost; a fix needs care -- the peek's own read may be
+  load-bearing for surfacing errors the quiet re-read wouldn't catch on
+  its own, so any change here needs a closer look at that ordering
+  before changing it, not a quick patch.
 - [x] **CLI option `--no-use-lockfile`** -- opt-out flag (also
   `[tool.pitloom] use-lockfile = false`) disabling automatic lock-file
   discovery across every usage surface; on by default. Also fixed a
