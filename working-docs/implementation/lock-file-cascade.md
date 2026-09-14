@@ -515,9 +515,14 @@ it's a verb phrase describing behaviour, not a bool identifier.)
 
 Resolving the setting before the real metadata read requires a cheap
 "peek" call (`read_project(..., include_locked_dependencies=False)`,
-which does no lock-file I/O) purely to read `[tool.pitloom] use-lockfile`
-when no explicit CLI flag was given, reusing the peeked metadata/config
-when it already matches the final decision rather than reading twice.
+which does no lock-file I/O -- but does still do in-tree installed-
+metadata discovery/parsing, per
+[installed-dist-info-source.md](../design/installed-dist-info-source.md);
+that I/O is paid twice, once per `read_project` call, in the on-cascade
+case below, the same accepted-cost umbrella as the double metadata parse
+itself) purely to read `[tool.pitloom] use-lockfile` when no explicit CLI
+flag was given, reusing the peeked metadata/config when it already
+matches the final decision rather than reading twice.
 `generate_project_sbom()`, `loom project`'s own command handler,
 `loom generate`'s own command handler (for a project-directory target
 only -- see below), and `_project_doc_identity()` (see below) all need

@@ -167,6 +167,10 @@ design pass):
   `pyproject.toml` gap-fills undeclared fields; static source stays
   authoritative on conflict (recorded, never silently substituted).
   See [installed-dist-info-source.md](installed-dist-info-source.md).
+- [ ] **Unify `extract/project/installed.py`'s RFC 822 Core-Metadata
+  parser with `extract/wheel.py`'s** -- duplicated `Project-URL`-splitting
+  logic, deliberately left unmerged in V1. See
+  [installed-dist-info-source.md](installed-dist-info-source.md#relationship-to-extractwheelpys-parser).
 - [ ] **Real installed `.dist-info` (site-packages) as a metadata
   source** -- the deferred, backend-agnostic phase: a user-supplied
   venv/site-packages path, cross-checked via `direct_url.json`.

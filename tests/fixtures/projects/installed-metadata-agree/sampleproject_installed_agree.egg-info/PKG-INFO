@@ -1,0 +1,6 @@
+Metadata-Version: 2.1
+Name: sampleproject-installed-agree
+Version: 1.0.0
+Requires-Python: >= 3.9
+Summary: Installed-side summary, must never override the static description.
+Keywords: installed-keyword,another-keyword

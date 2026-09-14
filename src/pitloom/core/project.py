@@ -213,11 +213,25 @@ def merge_project_metadata(
     (see ``project.pyproject``/``project.setuptools_py``/
     ``project.setuptools_cfg``), not ``"license_name"``; :data:`_PROVENANCE_KEY_ALIASES`
     maps that known mismatch so the same presence check finds it.
+
+    ``field_conflicts`` is dict-merged the same way as ``provenance``
+    (*primary*'s entries winning on key conflict) rather than left to the
+    generic per-field loop below -- ``dataclasses.replace()`` shares
+    container-field objects with *primary* by reference for any field the
+    loop doesn't explicitly overwrite, and the loop's own "falsy ->
+    fall back to secondary" rule would otherwise alias ``merged.field_conflicts``
+    straight to *primary*'s or *secondary*'s own dict (see the identical
+    hazard fixed in :func:`pitloom.extract.project.installed.reconcile_installed_metadata`).
+    Both dicts are empty at every current call site (this merge always
+    runs before any conflict reconciliation), but a future caller or
+    ordering change must not silently corrupt either input's own dict via
+    this function's output.
     """
     merged = dataclasses.replace(primary)
     merged.provenance = {**secondary.provenance, **primary.provenance}
+    merged.field_conflicts = {**secondary.field_conflicts, **primary.field_conflicts}
     for f in dataclasses.fields(ProjectMetadata):
-        if f.name in ("name", "provenance"):
+        if f.name in ("name", "provenance", "field_conflicts"):
             continue
         primary_value = getattr(primary, f.name)
         provenance_key = _PROVENANCE_KEY_ALIASES.get(f.name, f.name)

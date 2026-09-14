@@ -22,6 +22,11 @@ var/
 wheels/
 share/python-wheels/
 *.egg-info/
+# Test fixtures deliberately commit an in-tree .egg-info/.dist-info to
+# exercise pitloom.extract.project.installed -- unignore them specifically
+# rather than the pattern above, which is still wanted everywhere else.
+!tests/fixtures/projects/**/*.egg-info/
+!tests/fixtures/projects/**/*.dist-info/
 .installed.cfg
 *.egg
 MANIFEST

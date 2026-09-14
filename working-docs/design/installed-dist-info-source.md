@@ -79,7 +79,7 @@ spec](https://packaging.python.org/en/latest/specifications/core-metadata/):
 | `requires_python` | `Requires-Python` | Conflict-checked, PEP 440 `SpecifierSet` equality |
 | `license_name` | `License-Expression` if present, else legacy `License` | Conflict-checked, SPDX expression equality |
 | `keywords` | `Keywords` | Gap-fill only; CSV split via `to_str_list` |
-| `urls` | `Project-URL` (+ legacy `Home-page` -> `"Homepage"`) | Gap-fill only; first-comma-only split |
+| `urls` | `Project-URL` (+ legacy `Home-page` -> `"Homepage"`) | Gap-fill only; first-comma-only split; **not** `Download-URL` (deliberately narrower than `extract/wheel.py`'s parser, see "Relationship to `extract/wheel.py`'s parser" below) |
 
 Not extracted in V1, each for its own real design reason:
 
@@ -117,6 +117,25 @@ descending into an accidentally-vendored `node_modules`/`vendor/` tree.
 Deterministic tie-break when multiple name-matching candidates survive:
 `.dist-info` before `.egg-info` (more modern/structured format), then
 alphabetical path.
+
+## Relationship to `extract/wheel.py`'s parser
+
+`extract/wheel.py`'s `_populate_metadata_from_email`/`_parse_metadata_urls`
+already parse a wheel's own embedded `.dist-info/METADATA` -- the closest
+existing code to this module's `_parse_installed_metadata`/
+`_parse_installed_urls`, and the two now duplicate the `Project-URL`
+first-comma-only split logic nearly verbatim. Deliberately not unified in
+V1: `wheel.py` is a separate, working, tested path (`embed-wheel`'s
+wheel-internal-METADATA source, unrelated to this in-tree feature) with
+its own known gaps (flattens all authors into one entry; takes every
+`Requires-Dist` including extras-only ones) that this module's parser was
+written to avoid, not inherit. `wheel.py`'s parser also handles
+`Download-URL` (-> `urls["Download"]`); this module's does not -- not an
+oversight, just not in this feature's V1 field scope (see the field
+mapping table above). Worth unifying into one shared RFC 822
+Core-Metadata parser later, once a second caller besides `wheel.py`
+actually needs `Download-URL`/author-list correctness, rather than
+speculatively generalizing now.
 
 ## Reuse note (not duplicated by the future phase)
 

@@ -290,14 +290,16 @@ def resolve_project_with_lockfile(
     The cascade decision has to be known before the real metadata read
     runs, but ``[tool.pitloom] use-lockfile`` only becomes known *from* a
     :func:`read_project` call -- so when *use_lockfile* is ``None``, this
-    "peeks" the config first via a cheap
-    ``include_locked_dependencies=False`` read (no lock-file I/O), then
-    only re-reads for real when that config says the cascade should run.
-    That re-read is passed ``quiet=True``: it parses the same file the peek
-    just did, so any ``WARNING:`` its content triggers was already emitted
-    once by the peek -- re-emitting it would violate this repo's "one
-    grep-able line per event" CLI-output contract. An sdist archive target
-    skips the peek/reread dance entirely: :func:`read_project` ignores
+    "peeks" the config first via a
+    ``include_locked_dependencies=False`` read (skips lock-file I/O only
+    -- ``include_installed_metadata`` deliberately stays at its default,
+    see the comment below), then only re-reads for real when that config
+    says the cascade should run. That re-read is passed ``quiet=True``: it
+    parses the same file the peek just did, so any ``WARNING:`` its
+    content triggers was already emitted once by the peek -- re-emitting
+    it would violate this repo's "one grep-able line per event"
+    CLI-output contract. An sdist archive target skips the peek/reread
+    dance entirely: :func:`read_project` ignores
     *include_locked_dependencies* for sdist targets (no lock/pin cascade
     support for archives yet), so peeking would always see the cascade as
     "on" and re-read (and re-extract the archive) for an identical result.
@@ -306,7 +308,13 @@ def resolve_project_with_lockfile(
     logic (and its remaining double-parse tradeoff for the on-cascade,
     non-sdist case -- an accepted cost, see
     ``working-docs/implementation/lock-file-cascade.md``) exists in one
-    place, not duplicated per caller.
+    place, not duplicated per caller. That tradeoff now also covers a
+    second cost: the peek's ``include_installed_metadata`` staying on
+    means a project with an in-tree ``.egg-info``/``.dist-info`` pays for
+    :mod:`pitloom.extract.project.installed`'s bounded glob and marker-file
+    read twice (once per ``read_project`` call below), not once -- the
+    same accepted-cost umbrella as the static-metadata double-parse, not a
+    separate tradeoff of its own.
     """
     if _is_sdist_archive(project_path):
         if use_lockfile is not None:
