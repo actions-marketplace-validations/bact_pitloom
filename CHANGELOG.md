@@ -86,8 +86,7 @@ and this project adheres to
   message names the affected SBOM field(s) via one grep-able shape,
   `... | Field(s) affected (skipped|degraded): <name>` ([#201])
 - `embed-wheel` skips per-file SHA-256 hashing in `get_wheel_files()`'s
-  source-tree rescan, since it only used the digests for a Merkle root
-  it already discarded ([#213])
+  source-tree rescan ([#213])
 
 [#198]: https://github.com/bact/pitloom/pull/198
 [#200]: https://github.com/bact/pitloom/pull/200

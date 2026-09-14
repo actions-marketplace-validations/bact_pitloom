@@ -12,7 +12,7 @@ root) regardless of which backend resolved the file list.
 
 See also: :mod:`pitloom.core.models` for SPDX model identifiers and
 Merkle calculation; :mod:`pitloom.core._models_wheel_types` for the
-shared ``IncludedFile``/``FileHeaderExtras`` types;
+shared ``IncludedFile``/``FileHeaderExtras``/``FileScanConfig`` types;
 :mod:`pitloom.core._models_wheel_hatchling`/
 :mod:`pitloom.core._models_wheel_setuptools` for the backend
 implementations; ``working-docs/implementation/sbom-lifecycle-stages.md``
@@ -26,23 +26,20 @@ import hashlib
 import logging
 import operator
 import threading
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 from pitloom.core import _models_wheel_hatchling
 from pitloom.core._models_wheel_types import (
     BackendDiscoverer,
     FileHeaderExtras,
+    FileScanConfig,
     IncludedFile,
     has_resolvable_pyproject_config,
 )
 from pitloom.core.content_type_config import ContentTypeOverride
 from pitloom.core.project import ProjectFile
-
-if TYPE_CHECKING:
-    from pitloom.extract._file_headers import FileHeaderMetadata
 
 log = logging.getLogger(__name__)
 
@@ -123,35 +120,31 @@ class _DiscoveryLock:
 _DISCOVERY_LOCK = _DiscoveryLock()
 
 
-# pylint: disable-next=too-many-arguments,too-many-positional-arguments
 def _resolve_file_header_extras(
     raw_bytes: bytes,
     filename: str,
     distribution_path: str,
-    parse_header: Callable[[bytes], FileHeaderMetadata | None] | None,
-    detect_content: Callable[[bytes, str, str], tuple[str | None, str | None]] | None,
-    content_type_overrides: tuple[ContentTypeOverride, ...],
-    content_type_method: str,
+    scan_config: FileScanConfig,
 ) -> FileHeaderExtras:
     """Resolve the optional per-file header/content-type fields for *raw_bytes*."""
-    header = parse_header(raw_bytes) if parse_header else None
+    header = scan_config.parse_header(raw_bytes) if scan_config.parse_header else None
     content_type: str | None = None
     resolved_method: str | None = None
-    if detect_content:
+    if scan_config.detect_content:
         override = None
-        if content_type_overrides:
+        if scan_config.content_type_overrides:
             # pylint: disable=import-outside-toplevel
             from pitloom.extract._file_headers import resolve_content_type_override
 
             override = resolve_content_type_override(
-                distribution_path, content_type_overrides
+                distribution_path, scan_config.content_type_overrides
             )
         if override is not None:
             content_type = override.content_type
             resolved_method = "config_override"
         else:
-            content_type, resolved_method = detect_content(
-                raw_bytes, filename, content_type_method
+            content_type, resolved_method = scan_config.detect_content(
+                raw_bytes, filename, scan_config.content_type_method
             )
     return FileHeaderExtras(
         copyright_text=header.copyright_text if header else None,
@@ -296,7 +289,6 @@ def _discover_included_files(
         return _models_wheel_hatchling.discover(project_dir) or []
 
 
-# pylint: disable=too-many-arguments,too-many-positional-arguments
 def _build_project_file_entry(
     source: Path,
     included_file: IncludedFile,
@@ -304,10 +296,7 @@ def _build_project_file_entry(
     *,
     need_bytes: bool,
     skip_merkle_root: bool,
-    parse_header: Callable[[bytes], FileHeaderMetadata | None] | None,
-    detect_content: Callable[[bytes, str, str], tuple[str | None, str | None]] | None,
-    content_type_overrides: tuple[ContentTypeOverride, ...],
-    content_type_method: str,
+    scan_config: FileScanConfig,
 ) -> tuple[ProjectFile, bytes | None]:
     """Build one *source*'s :class:`ProjectFile` entry (and its digest, if hashed).
 
@@ -341,13 +330,7 @@ def _build_project_file_entry(
         rel_path = source.as_posix()
 
     extras = _resolve_file_header_extras(
-        raw_bytes,
-        source.name,
-        distribution_path,
-        parse_header,
-        detect_content,
-        content_type_overrides,
-        content_type_method,
+        raw_bytes, source.name, distribution_path, scan_config
     )
     project_file = ProjectFile(
         physical_path=rel_path,
@@ -417,6 +400,13 @@ def get_wheel_files(
             require_magika_available()
         detect_content = guess_content_type
 
+    scan_config = FileScanConfig(
+        parse_header=parse_header,
+        detect_content=detect_content,
+        content_type_overrides=content_type_overrides,
+        content_type_method=content_type_method,
+    )
+
     try:
         included_files = _discover_included_files(
             project_dir, assume_backend=assume_backend
@@ -434,10 +424,7 @@ def get_wheel_files(
                 project_dir,
                 need_bytes=need_bytes,
                 skip_merkle_root=skip_merkle_root,
-                parse_header=parse_header,
-                detect_content=detect_content,
-                content_type_overrides=content_type_overrides,
-                content_type_method=content_type_method,
+                scan_config=scan_config,
             )
             project_files.append(project_file)
             if digest_bytes is not None:

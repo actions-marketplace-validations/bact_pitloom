@@ -60,8 +60,10 @@ that this caller throws away -- real, avoidable I/O for large projects.
   sites use `typing.cast(str, ...)` with a comment recording this
   invariant, rather than a defensive `if digest is None:` branch, which
   would silently misbehave (or drop a file) for a case that cannot
-  happen -- see `CLAUDE.md`'s "no error handling for scenarios that
-  can't happen" rule.
+  happen. `cast()` without a runtime guard already matches how this
+  codebase treats other statically-unreachable cases elsewhere (e.g.
+  `provenance.py`, `_fragments_unify.py`) -- not a rule this repo's
+  `CLAUDE.md` states explicitly, but the established local convention.
 - **A cheap access probe (`with source.open("rb"): pass`) replaces the
   full read on the skip path**, rather than skipping file access
   entirely. Without it, a file that passes `source.is_file()` but fails
@@ -93,12 +95,37 @@ that this caller throws away -- real, avoidable I/O for large projects.
   detection. `skip_merkle_root` defaults to `False` and only
   `embed.py`'s one caller opts in.
 
+## Follow-up: `FileScanConfig` bundling (2026-09-14, same PR)
+
+A code-review pass flagged that `_build_project_file_entry()` (the
+extraction above) re-split the 4-field
+`parse_header`/`detect_content`/`content_type_overrides`/
+`content_type_method` bundle that `_resolve_file_header_extras()`
+already took together, forwarding all 4 unbundled through both
+functions plus `get_wheel_files()` itself -- three call sites each
+threading the same 4 params by hand, each needing its own
+`too-many-arguments` suppression.
+
+Fixed by adding `FileScanConfig` (a `NamedTuple`) to
+`src/pitloom/core/_models_wheel_types.py`, alongside its existing
+`IncludedFile`/`FileHeaderExtras` sibling types -- matching this
+module's own established convention of bundling per-file
+discovery/scan data into a named type rather than passing it as loose
+parameters. `get_wheel_files()` builds one `FileScanConfig` instance
+and passes it down to `_build_project_file_entry()`, which forwards it
+untouched to `_resolve_file_header_extras()`. This dropped
+`_build_project_file_entry()`'s param count from 9 to 6 (no suppression
+needed any more) and removed the triplicated forwarding.
+
 ## Where
 
 - `src/pitloom/core/_models_wheel.py`: `get_wheel_files()`,
   `_build_project_file_entry()` (the per-file body was extracted into
   its own function to keep cognitive complexity under the project's
-  flake8 ceiling once the skip-path branching was added).
+  flake8 ceiling once the skip-path branching was added; its scan
+  params were then bundled into `FileScanConfig`, see above),
+  `_resolve_file_header_extras()`.
+- `src/pitloom/core/_models_wheel_types.py`: `FileScanConfig`.
 - `src/pitloom/core/project.py`: `ProjectFile.digest_sha256`.
 - `src/pitloom/embed.py`: `_build_sbom_from_project_and_wheel()`,
   `_compute_wheel_merkle_root()`.
