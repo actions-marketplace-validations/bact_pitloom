@@ -88,6 +88,7 @@ Syft's cataloger split maps cleanly onto pitloom's two paths:
 | :--- | :--- | :--- |
 | Hatchling / setuptools build hook | installed-package cataloger | `.dist-info/METADATA` (inside wheel) |
 | CLI (`loom <project_dir>`) | source-file cataloger | `pyproject.toml` -> `setup.cfg` -> `setup.py` |
+| Remote CLI (`loom project <url>`) | remote repository cataloger | Remote forge archive (`pitloom.extract.remote`) -> `read_project()` (see [remote-source-ingestion.md](remote-source-ingestion.md)) |
 
 The CLI should additionally consider checking for an existing `.dist-info` or
 `.egg-info` directory (from an editable install) as a high-fidelity supplement

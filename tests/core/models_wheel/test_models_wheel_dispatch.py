@@ -432,8 +432,12 @@ def test_get_wheel_files_assume_backend_skips_detection(
         read_calls.append(project_dir)
         return None
 
-    monkeypatch.setattr("pitloom.extract._setuptools.detect_build_backend", _spy_detect)
-    monkeypatch.setattr("pitloom.extract._setuptools.read_pyproject_toml", _spy_read)
+    monkeypatch.setattr(
+        "pitloom.extract.project.setuptools.detect_build_backend", _spy_detect
+    )
+    monkeypatch.setattr(
+        "pitloom.extract.project.setuptools.read_pyproject_toml", _spy_read
+    )
     monkeypatch.setattr(WheelBuilder, "recurse_included_files", lambda _self: iter([]))
 
     get_wheel_files(tmp_path, assume_backend="hatchling")

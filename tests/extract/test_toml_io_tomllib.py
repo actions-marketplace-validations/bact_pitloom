@@ -6,11 +6,11 @@
 """Tests for the Python-version-gated ``tomllib``/``tomli`` import in
 ``pitloom.extract._toml_io``.
 
-``pitloom.extract._setuptools``, ``pitloom.extract._poetry_lock``,
-``pitloom.extract.hatchling``, ``pitloom.extract._pyproject``,
+``pitloom.extract.project.setuptools``, ``pitloom.extract.lock.poetry``,
+``pitloom.extract.hatchling``, ``pitloom.extract.project.pyproject``,
 ``pitloom.core._config_parse``, and ``pitloom.cli.options`` all build on
 :func:`~pitloom.extract._toml_io.load_toml_file` instead of each carrying
-their own version-gated import; ``pitloom.extract._sdist`` parses TOML
+their own version-gated import; ``pitloom.extract.project.sdist`` parses TOML
 from in-memory bytes rather than a file path, so it can't use
 ``load_toml_file`` directly, but it still imports the resolved
 :data:`~pitloom.extract._toml_io.tomllib` module from here rather than

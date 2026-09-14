@@ -86,8 +86,8 @@ shape described, not just the module where each was first found.
     `install_requires =`) -- indistinguishable downstream from the field
     never having been mentioned at all. This recurred independently across
     five separate `ProjectMetadata` producers in one PR
-    (`_pyproject.py`, `_setuptools_py.py`, `_setuptools_cfg.py`,
-    `_poetry.py`, `hatchling.py`) before all five were fixed to check
+    (`project/pyproject.py`, `project/setuptools_py.py`, `project/setuptools_cfg.py`,
+    `project/poetry.py`, `project/hatchling.py`) before all five were fixed to check
     presence in the raw source (`"key" in raw_dict`/`kwargs`/`core.config`)
     instead. When adding a new container field or a new metadata producer,
     grep every existing producer's `provenance[...]` assignments for the
@@ -117,9 +117,9 @@ shape described, not just the module where each was first found.
     scalar field's `None` could ever be protected as a deliberate answer,
     only an absent one -- even when its own producer had confirmed
     provenance for it. Three producers worked around this instead of
-    fixing it: `_poetry.py`'s `python = "*"` (Poetry's "explicitly no
-    constraint" convention), `_setuptools_cfg.py`'s `python_requires =`,
-    and `_setuptools_py.py`'s `python_requires=""` all truthy-gated their
+    fixing it: `project/poetry.py`'s `python = "*"` (Poetry's "explicitly no
+    constraint" convention), `project/setuptools_cfg.py`'s `python_requires =`,
+    and `project/setuptools_py.py`'s `python_requires=""` all truthy-gated their
     own `provenance["requires_python"]` write -- correctly avoiding a
     provenance/value mismatch (claiming "declared" for a field the merge
     would then silently overwrite anyway), but at the cost of that field
@@ -238,7 +238,7 @@ shape described, not just the module where each was first found.
 - **A source that can legitimately resolve to zero entries needs its own
   "is this genuinely a file of this format" check, or an empty result
   becomes indistinguishable from a wrong file.** In a priority cascade
-  (e.g. `_locked_dependencies.py` picking among `poetry.lock`/`pdm.lock`/
+  (e.g. `lock/cascade.py` picking among `poetry.lock`/`pdm.lock`/
   `pylock.toml`/`uv.lock`/`Pipfile.lock`/`requirements.txt`), a resolver
   that genuinely produces zero packages must still look different from an
   unrelated/truncated/hand-edited file that merely happens to be found
@@ -388,7 +388,7 @@ For `working-docs/` standalone docs, include `Created` and `Last-Modified` (`YYY
 
 ## Naming
 
-- **Python module leading underscore**: a module gets a leading underscore (e.g. `_gguf.py`) when nothing outside its own package directory imports it. No prefix (e.g. `wheel.py`) when something outside the package imports it. Check actual importers (`grep`) or public API markers before renaming.
+- **Python module leading underscore**: a module gets a leading underscore (e.g. `_common.py`) when nothing outside its own package directory imports it. No prefix (e.g. `wheel.py`) when something outside the package imports it. Check actual importers (`grep`) or public API markers before renaming.
 - Consult Schema.org, NIEM Model, FIBO, and OBO Foundry for ontology naming.
 
 ## SPDX / Output Specifics

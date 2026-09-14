@@ -30,23 +30,21 @@ SPDX 3.0 compliant SBOMs in JSON-LD format.
    - Per-element sequential IDs (`generate_spdx_id`) reproducible across builds
 
 2. **Metadata extraction** (`src/pitloom/extract/`)
-   - `_pyproject.py` -- reads `pyproject.toml`; supports PEP 621 `[project]`,
+   - `project/pyproject.py` -- reads `pyproject.toml`; supports PEP 621 `[project]`,
      Poetry `[tool.poetry]` (fallback when `[project]` is absent), and merging
      of both when both sections are present (`[project]` wins field-by-field)
-   - `_poetry.py` -- extracts metadata from `[tool.poetry]` and
+   - `project/poetry.py` -- extracts metadata from `[tool.poetry]` and
      `[tool.poetry.dependencies]`; converts Poetry version specifiers
      (`^`, `~`, bare versions) to PEP 440; `[tool.poetry.group.*]` dev/deploy
      dependency groups are intentionally excluded from the SBOM
-   - `_setuptools.py`, `_setuptools_cfg.py`, `_setuptools_py.py` --
+   - `project/setuptools.py`, `project/setuptools_cfg.py`, `project/setuptools_py.py` --
      extract metadata from `setup.cfg` and `setup.py` for setuptools projects;
      `detect_build_backend()` auto-selects the right extractor;
      `merge_metadata()` fills gaps across sources (setup.cfg > setup.py)
-   - `project.py`/`wheel.py`/`env.py`/`ai_model.py`/`hatchling.py`/
-     `binary.py`/`scanner.py` are the public, cross-package-imported entry
-     points; `_pyproject.py`/`_poetry.py`/`_setuptools*.py`/`_sdist.py` and
-     the per-model-format parsers below them are internal-only (leading
-     underscore = nothing outside `extract/` imports it -- see `AGENTS.md`'s
-     Naming section for the rule)
+   - Domain-specific extractors are grouped into subpackages: `project/`
+     (build backends), `lock/` (lock files), `ai_model/` (model formats),
+     `dataset/` (datasets), `remote/` (remote registries/hubs), alongside
+     top-level modules `wheel.py`, `env.py`, `binary.py`, `scanner.py`
    - `wheel.py` -- reads metadata from built `.whl` files (Analyzed SBOM) and
      computes file-level SHA-256 hashes
    - `env.py` -- delegates to `pipdeptree` to extract a complete dependency
@@ -129,7 +127,7 @@ SPDX 3.0 compliant SBOMs in JSON-LD format.
 
 7. **Metadata provenance tracking**
    (`src/pitloom/assemble/spdx3/provenance.py`,
-   `src/pitloom/extract/_pyproject.py`, `src/pitloom/loom.py`)
+   `src/pitloom/extract/project/pyproject.py`, `src/pitloom/loom.py`)
    - Tracks source of each metadata field
    - Records extraction method (static, dynamic, or inferred)
    - Supports dynamic introspection via `loom.py` inspection

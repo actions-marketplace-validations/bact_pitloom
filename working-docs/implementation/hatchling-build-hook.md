@@ -53,15 +53,15 @@ the time `initialize()` runs, Hatchling has already:
   module), which canonicalizes via `packaging.utils.canonicalize_name()`.
 - When `[project]` is missing fields (`authors`, `keywords`, `urls`, ...),
   `metadata_from_hatchling()` reads the same `pyproject.toml` a second time
-  and reuses `_try_read_poetry()` (from `pitloom.extract._pyproject`) plus
+  and reuses `_try_read_poetry()` (from `pitloom.extract.project.pyproject`) plus
   the shared `merge_project_metadata()` (`pitloom.core.project`) to fill
   the gaps from `[tool.poetry]`, mirroring what `read_pyproject()` already
   does for the CLI path via the same shared merge helper.
 
 The build hook maps this object into Pitloom's format-neutral
 `ProjectMetadata` via
-`pitloom.extract.hatchling.metadata_from_hatchling(self.metadata,
-project_dir)` -- **not** via `pitloom.extract.pyproject.read_pyproject()`,
+`pitloom.extract.project.hatchling.metadata_from_hatchling(self.metadata,
+project_dir)` -- **not** via `pitloom.extract.project.pyproject.read_pyproject()`,
 which re-parses `pyproject.toml` from scratch and cannot see dynamic values
 resolved by Hatchling plugins. `read_pyproject()` remains the metadata source
 for the standalone CLI (`pitloom`/`loom project`), which has no build

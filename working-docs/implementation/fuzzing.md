@@ -28,7 +28,7 @@ targets:
   string in, string out, no filesystem/network. By its own contract it
   never raises for any input, so the harness needs no expected-exception
   allowlist at all -- the simplest possible target.
-- **GGUF header parsing** (`pitloom.extract._gguf.read_gguf`) --
+- **GGUF header parsing** (`pitloom.extract.ai_model.gguf.read_gguf`) --
   represents the AI-model-file parsing surface as a whole (GGUF, ONNX,
   Safetensors, etc. all share the same "arbitrary binary file the user
   points `loom model` at" threat model); GGUF was picked over the

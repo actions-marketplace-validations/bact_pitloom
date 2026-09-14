@@ -45,7 +45,7 @@ needed here.
 - **Tie-break for multiple hashes on one package**: prefer a wheel
   artifact over any other (sdist), then sort by filename/URL --
   mirrors the PyPI-path convention now shared via
-  `pitloom.extract._hash_selection.select_sha256_hash`. A source with no
+  `pitloom.extract.lock._hash_selection.select_sha256_hash`. A source with no
   filename at all (`Pipfile.lock`'s bare `hashes` list) falls back to
   sorting the raw digest strings; the artifact this picks is genuinely
   arbitrary by construction for that one format, not wheel-preferring.
@@ -59,15 +59,15 @@ every consumer of it are unchanged.
 
 ## Per-format extraction
 
-Each format gets a sibling `_<format>_hashes.py` module (kept out of the
-already-large `_<format>.py` pin-extractor modules for this repo's
-file-size discipline): `_pylock_hashes.py`, `_uv_lock_hashes.py`,
-`_poetry_lock_hashes.py`, `_pdm_lock_hashes.py`, `_pipfile_lock_hashes.py`.
+Each format gets a sibling `<format>_hash.py` module in `src/pitloom/extract/lock/`
+(kept out of the already-large `<format>.py` pin-extractor modules for this repo's
+file-size discipline): `pylock_hash.py`, `uv_hash.py`, `poetry_hash.py`,
+`pdm_hash.py`, `pipfile_hash.py`.
 
 Every one of them takes the pin extractor's own **already-resolved**
 winning `locked_dependencies` list as input, re-parses each
 `name==version` (or `name<op>version`) string via the shared
-`pitloom.extract._lock_common.canonical_name_and_pinned_version`, and
+`pitloom.extract.lock._common.canonical_name_and_pinned_version`, and
 looks that `(canonical_name, version)` pair back up in a fresh index of
 the raw lock data. This deliberately never re-derives which packages
 qualify (group membership, marker evaluation, non-registry-source
@@ -102,12 +102,12 @@ reading -- see the "verify docs against actual code" rule in the root
 
 ## Cascade integration
 
-`apply_locked_dependencies()` (`_locked_dependencies.py`) calls the
+`apply_locked_dependencies()` (`src/pitloom/extract/lock/cascade.py`) calls the
 winning source's hash extractor immediately after computing its pin
 list, storing the result on `metadata.locked_dependency_hashes`.
 
 `poetry.lock` has a **second** write path that bypasses this cascade
-entirely: `_try_read_poetry()` (`_pyproject.py`) applies
+entirely: `_try_read_poetry()` (`src/pitloom/extract/project/pyproject.py`) applies
 `poetry.lock`-resolved dependencies directly during `pyproject.toml`
 reading, before the cascade ever runs, and the cascade's own priority
 logic (`sources_to_try = _LOCK_SOURCES[:previous_rank]`) means the

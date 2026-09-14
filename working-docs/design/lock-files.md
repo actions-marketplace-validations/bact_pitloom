@@ -41,7 +41,7 @@ not shaped to this codebase: Pitloom uses stdlib dataclasses
 plus `generate_spdx_id()`'s UUID5-namespaced scheme (not hand-built
 `SPDXRef-*` strings), `build_relationship()`, and per-field provenance
 tracking via `emit_provenance()` throughout. A real implementation for
-any format below should follow `_poetry_lock.py` (extraction) and
+any format below should follow `poetry.py` (`src/pitloom/extract/lock/poetry.py`, extraction) and
 `deps.py`/`document.py` (assembly)'s established pattern instead of
 adapting this sketch's shapes.
 

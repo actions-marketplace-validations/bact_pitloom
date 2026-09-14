@@ -305,10 +305,11 @@ def resolve_license_file_entries(
                 exc,
             )
             continue
+        posix_rel = rel_path.replace("\\", "/")
         entries.append(
             ProjectFile(
                 physical_path=rel_path,
-                distribution_path=f"{dist_info_prefix}/licenses/{rel_path}",
+                distribution_path=f"{dist_info_prefix}/licenses/{posix_rel}",
                 digest_sha256=hashlib.sha256(raw_bytes).hexdigest(),
                 is_license_file=True,
             )

@@ -366,3 +366,21 @@ def test_target_resolves_to_project_model_file(tmp_path: Path) -> None:
     non_model_file = tmp_path / "weights.safetensors.txt"
     non_model_file.write_bytes(b"")
     assert target_resolves_to_project(non_model_file) is True
+
+
+def test_generate_prints_output_path(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """loom generate must print PITLOOM_SBOM_OUTPUT_PATH=<path> on success."""
+    project_dir = _make_simple_project(tmp_path)
+    output_path = tmp_path / "custom_sbom.json"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["loom", "generate", str(project_dir), "-o", str(output_path), "--offline"],
+    )
+    assert __main__.main() == 0
+    captured = capsys.readouterr()
+    assert f"PITLOOM_SBOM_OUTPUT_PATH={output_path}" in captured.out

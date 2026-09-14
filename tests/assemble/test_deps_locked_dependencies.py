@@ -8,7 +8,7 @@ resolved transitive dependencies) flowing into the assembled SPDX 3 graph.
 
 See also: tests/assemble/test_deps_relationship_edges.py for the
 ``add_dependencies``/``add_phantom_dependencies`` defensive-guard tests
-this module's low-level test mirrors; tests/extract/test_poetry_lock.py
+this module's low-level test mirrors; tests/extract/lock/test_poetry.py
 for the ``poetry.lock`` parsing tests this assemble-layer wiring builds on.
 """
 

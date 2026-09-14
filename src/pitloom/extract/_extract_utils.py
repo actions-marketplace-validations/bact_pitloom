@@ -9,11 +9,13 @@ from __future__ import annotations
 
 import http.client
 import json
+import re
 import urllib.request
 from collections.abc import Iterable
 from importlib.metadata import PackageMetadata
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Any
+from urllib.parse import urlparse
 
 
 def sanitize_provenance_text(text: str) -> str:
@@ -138,14 +140,19 @@ def to_str_list(value: Any) -> list[str]:
     return [s] if s else []
 
 
-def fetch_json(source: str | Path, *, timeout: float = 30) -> dict[str, Any]:
-    """Load and parse JSON from an HTTP/HTTPS URL or a local ``Path``.
+def fetch_json(
+    source: str | Path,
+    timeout: float = 30.0,
+    max_bytes: int = 50 * 1024 * 1024,
+) -> dict[str, Any]:
+    """Fetch and parse JSON from a local file path or an HTTP/HTTPS URL.
 
     Args:
         source: A URL string (``http://`` or ``https://``) or a
             :class:`~pathlib.Path` to a local file.
         timeout: Socket timeout in seconds for a URL *source* (ignored for a
             local file). Default matches the historical hardcoded value.
+        max_bytes: Maximum allowed byte size for the response or file.
 
     Returns:
         Parsed JSON as a ``dict``.
@@ -157,7 +164,12 @@ def fetch_json(source: str | Path, *, timeout: float = 30) -> dict[str, Any]:
     try:
         if isinstance(source, str) and source.startswith(("http://", "https://")):
             with urllib.request.urlopen(source, timeout=timeout) as resp:  # nosec B310
-                raw = resp.read()
+                raw = resp.read(max_bytes + 1)
+                if len(raw) > max_bytes:
+                    raise ValueError(
+                        f"Source {source!r} response exceeds maximum limit of "
+                        f"{max_bytes} bytes"
+                    )
         else:
             raw = Path(source).read_bytes()
     except (OSError, http.client.HTTPException) as exc:
@@ -177,3 +189,28 @@ def fetch_json(source: str | Path, *, timeout: float = 30) -> dict[str, Any]:
             f"Source {source!r}: expected a JSON object, got {type(data).__name__}"
         )
     return data
+
+
+def sanitize_url_credentials(text: str) -> str:
+    """Redact username and password from URLs in *text* (e.g.
+    ``https://user:pass@host/`` -> ``https://***:***@host/``).
+
+    Used across extractors, build backends, and error loggers to prevent
+    sensitive auth tokens from leaking into error messages or SBOM output.
+    """
+    return re.sub(r"://([^:@/\s]+)(?::[^@/\s]*)?@", r"://***:***@", text)
+
+
+def filename_from_url(url: str) -> str | None:
+    """Extract a clean basename from a URL, stripping any query string
+    and fragment (e.g. ``https://host/pkg-1.0.whl?sig=...#sha256=...`` ->
+    ``pkg-1.0.whl``).
+
+    Returns ``None`` when *url* has no path component or ends in a trailing
+    slash. Handles both POSIX and Windows-style path separators.
+    """
+    clean_url = url.split("?", 1)[0].split("#", 1)[0]
+    path = urlparse(clean_url).path
+    if not path or path.endswith(("/", "\\")):
+        return None
+    return PureWindowsPath(path).name or None

@@ -50,7 +50,7 @@ from pitloom.core.models import build_pypi_purl, build_relationship, generate_sp
 from pitloom.core.project import PhantomDependency
 from pitloom.core.provenance import ProvenanceConfig
 from pitloom.export.spdx3_json import Spdx3JsonExporter, require_spdx_id, sha256_hash
-from pitloom.extract._lock_common import is_same_version
+from pitloom.extract.lock._common import is_same_version
 
 __all__ = [
     "_DOWNLOAD_LABELS",

@@ -20,7 +20,7 @@ from packaging.utils import canonicalize_name
 
 from pitloom.assemble.spdx3.deps_originator import _extract_name_email_pairs
 from pitloom.extract._extract_utils import fetch_json
-from pitloom.extract._hash_selection import select_sha256_hash
+from pitloom.extract.lock._hash_selection import select_sha256_hash
 
 # Best-effort PyPI JSON API fetch timeout -- short enough that a blocked or
 # slow network doesn't meaningfully stall a build; see _fetch_pypi_release_info.
@@ -114,7 +114,7 @@ def _extract_release_hash(release_info: dict[str, Any]) -> str | None:
     A release commonly ships several ``bdist_wheel`` entries (one per
     platform/ABI tag); picking one deterministically among artifacts of
     the same preference tier is
-    :func:`~pitloom.extract._hash_selection.select_sha256_hash`'s job --
+    :func:`~pitloom.extract.lock._hash_selection.select_sha256_hash`'s job --
     shared with every lock-file hash extractor so a package's selected
     hash follows the same tie-break rule regardless of source. The tiering
     itself is decided here via PyPI's own authoritative ``packagetype``

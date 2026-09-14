@@ -17,7 +17,7 @@ build instructions.
 
 `sampleproject-poetry/` is a verbatim copy of a real project's
 (mistral-inference) `pyproject.toml`/`poetry.lock`, used to exercise
-Pitloom's Poetry metadata extraction (`pitloom.extract._poetry`). It has
+Pitloom's Poetry metadata extraction (`pitloom.extract.project.poetry`). It has
 no `src/` package directory on disk -- metadata-only, not usable for wheel
 file discovery.
 
@@ -77,7 +77,7 @@ parses identically to the more common inline-table form (`license =
 ## Flit
 
 `sampleproject-flit/` is a minimal `src/`-layout Flit-core package that
-exercises Pitloom's Flit metadata extraction (`pitloom.extract._flit`)
+exercises Pitloom's Flit metadata extraction (`pitloom.extract.project.flit`)
 and wheel file discovery (`pitloom.core._models_wheel_flit`):
 `version`/`description` are PEP 621 `dynamic` fields resolved from the
 module's `__version__` assignment and docstring (flit-core's own
@@ -88,7 +88,7 @@ does.
 ## PDM
 
 `sampleproject-pdm/` is a minimal `src/`-layout PDM-backend package that
-exercises Pitloom's PDM metadata extraction (`pitloom.extract._pdm`) and
+exercises Pitloom's PDM metadata extraction (`pitloom.extract.project.pdm`) and
 wheel file discovery (`pitloom.core._models_wheel_pdm`): `version` is a
 PEP 621 `dynamic` field resolved via `[tool.pdm.version] source =
 "file"`, and `[tool.pdm.build] package-dir = "src"` exercises the same

@@ -37,7 +37,7 @@ def run_enrichers(
     that enables but raises is logged and skipped -- one failing source
     must not prevent the others from running, same discipline already
     used for extraction sources elsewhere (e.g.
-    ``_huggingface.py``'s own catch-and-log helpers).
+    ``pitloom.extract.remote.huggingface``'s own catch-and-log helpers).
     """
     sources: list[tuple[bool, Enricher]] = [
         (config.local, ReadmeEnricher()),

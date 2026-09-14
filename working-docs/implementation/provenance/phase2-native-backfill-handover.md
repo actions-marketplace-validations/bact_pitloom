@@ -210,7 +210,7 @@ shape directly (the real merge path is separately covered by
 coverage lives in `test_generator.py`/`test_main_cli.py`/
 `test_hatch_hook.py` instead (see PR #124; those three files have
 since been split into `tests/core/generator/test_generator_*.py`,
-`tests/cli/*.py`, and `tests/extract/test_hatch_hook_*.py`
+`tests/cli/*.py`, and `tests/extract/project/test_hatch_hook_*.py`
 respectively).
 
 ## Workflow notes carried from Phase 1

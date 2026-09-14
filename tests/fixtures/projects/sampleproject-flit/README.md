@@ -7,7 +7,7 @@ SPDX-License-Identifier: CC0-1.0
 # Sample project
 
 A minimal `src/`-layout Flit-core package used as a test fixture for
-Pitloom's Flit metadata extraction (`pitloom.extract._flit`) and wheel
+Pitloom's Flit metadata extraction (`pitloom.extract.project.flit`) and wheel
 file discovery (`pitloom.core._models_wheel_flit`).
 
 `version`/`description` are PEP 621 `dynamic` fields, resolved from

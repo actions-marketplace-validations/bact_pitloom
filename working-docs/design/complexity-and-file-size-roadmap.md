@@ -41,8 +41,8 @@ still crossed by organic growth, none of it individually large enough to
 trip review attention:
 
 - **`src/`** (soft limit 400-500, hard cap 800): 6 files exceed 400 lines,
-  worst is `deps_originator.py` at 438 (`_setuptools_cfg.py` 431,
-  `_huggingface_fields.py` 426, `_pytorch_pt2.py` 417, `_loom_active_run.py`
+  worst is `deps_originator.py` at 438 (`setuptools_cfg.py` 431,
+  `huggingface_field.py` 426, `pytorch_pt2.py` 417, `_loom_active_run.py`
   411, `export/spdx3_json.py` 401).
 - **`tests/`** (excluding `tests/extract/huggingface/` mock fixture
   catalogs): 9 files exceed 415 lines, worst is `test_hdf5.py` at 552
@@ -57,7 +57,7 @@ trip review attention:
 
 None have crossed the 800-line hard cap, so nothing is currently broken --
 but per AGENTS.md, a file should be split *before* crossing the soft
-limit. `deps_originator.py` and `_setuptools_cfg.py` are the best next
+limit. `deps_originator.py` and `setuptools_cfg.py` are the best next
 candidates: both were split once already (via the facade pattern used
 throughout this pass) and have regrown past a third of their original
 decomposed size.

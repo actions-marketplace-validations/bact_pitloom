@@ -94,8 +94,8 @@ and which half is genuinely Annotation-only.
 
 Citations: native inventory — `document.py:60-97,173-281`, `ai.py:124-357`,
 `dataset.py:104-235`, `deps.py:75-347`, `creation_info.py:84-210`. Provenance vocabulary —
-`pyproject.py:147-345`, `_huggingface.py:453-768`, `_gguf.py:135-198`,
-`_safetensors.py:77-120`, `_pytorch_pt2.py:132-297`, `deps.py:52-54,116,302`,
+`pyproject.py:147-345`, `remote/huggingface.py:453-768`, `ai_model/gguf.py:135-198`,
+`ai_model/safetensors.py:77-120`, `ai_model/pytorch_pt2.py:132-297`, `deps.py:52-54,116,302`,
 `document.py:609,646`. Aggregation — `fragments.py:423-464` (`_merge_fragment_set` holds
 `remap` + matched criterion, discards both), `ids.py:240-331` (registry overwrites prior
 identity). Enrichment — `skills/enrich/SKILL.md:40-60` (`Source: AI agent | Method: inference`
@@ -109,7 +109,7 @@ rides only in `comment`), `sbom-enrichment.md:145-169`.
   SPDX stores `software_copyrightText`, the license, `ai_typeOfModel` as bare values with
   no marker of whether they were *read* or *guessed*. Pitloom already computes this
   distinction: `copyright_text = "... | Method: inferred_from_authors"` (`pyproject.py:183`),
-  license via `Method: licenseid_detection` (`pyproject.py:285`, `_huggingface.py:485`),
+  license via `Method: licenseid_detection` (`pyproject.py:285`, `remote/huggingface.py:485`),
   fastText `type_of_model` inferred from internal args. A compliance auditor **must** know
   an `Apache-2.0` was heuristically detected from a LICENSE file vs. declared by the author.
   SPDX has no assertedness/confidence field → Annotation is the only home.
@@ -192,7 +192,7 @@ relevant subset is still emitted as SPDX classes/properties/relationships — ra
   self-contained, durable record. No native SPDX construct can hold an arbitrary vendor metadata blob.
   Config-gated because blobs can be large and are redundant when the artifact is bundled and
   re-extractable. Precedent for the extractors already retaining most of this: `properties` /
-  `extra_data` maps in `_gguf.py`, `_safetensors.py`, `_huggingface.py` — see step below on retaining
+  `extra_data` maps in `ai_model/gguf.py`, `ai_model/safetensors.py`, `remote/huggingface.py` — see step below on retaining
   the *complete* raw map.
 
 ## Phase 2 (documented now, built after the Annotation work): native-first backfill
@@ -210,9 +210,9 @@ corresponding Annotation content.**
 | **N1** | Element originates from fragment document F | `SpdxDocument.imports` + `ExternalMap` (one per source fragment) | Fragment origin discarded at merge (`fragments.py:461-464`); `imports` unbuilt (`sbom-fragments/fragment-merge-design.md`) | Unification *criterion* only (registry-id/sha256/structural) — A1 |
 | **N2** | Declared vs. concluded license | Distinct `hasDeclaredLicense` (author-stated) and `hasConcludedLicense` (Pitloom-detected from LICENSE/licenseid evidence) | Concluded is set equal to declared, "no inference yet" (`deps.py:246-252`) | The *evidence* (which file/heuristic) behind the concluded license — G1/G2 |
 | **N3** | Who/when enriched | A second `CreationInfo` (createdBy = enricher agent, createdUsing = enricher tool, created = enrichment time) attached to enriched elements | Enrichers mutate in-place under the original `CreationInfo`; agent path only tags a comment | Which field + before/after value + inferred-marker — E1/E2 |
-| **N4** | External identifiers (DOI, arXiv, repo URL, model-card URL) | `ExternalIdentifier` (type `doi`, …) / `ExternalRef` on the AI package | Captured into `extra_data`/provenance only (`_huggingface.py:710-764`) | none once mapped (fully native) |
+| **N4** | External identifiers (DOI, arXiv, repo URL, model-card URL) | `ExternalIdentifier` (type `doi`, …) / `ExternalRef` on the AI package | Captured into `extra_data`/provenance only (`remote/huggingface.py:710-764`) | none once mapped (fully native) |
 | **N5** | Base-model lineage (HF `base_model` / `base_model_relation`) | A `Relationship` to a base-model element if a suitable `relationshipType` exists, else `ExternalRef` | In `extra_data` only | none once mapped, or the raw relation string if no native type fits |
-| **N6** | Dataset `creator` | `Agent` + a creation/attribution relationship on the dataset package | Extracted (`_croissant.py:208`) but not wired onto the `dataset_DatasetPackage` | none once mapped |
+| **N6** | Dataset `creator` | `Agent` + a creation/attribution relationship on the dataset package | Extracted (`dataset/croissant.py:208`) but not wired onto the `dataset_DatasetPackage` | none once mapped |
 
 Relationship to Phase 1 (this plan): every use case splits into a **native part** (Phase 2 above)
 and an **Annotation part** (this plan). E.g. G2 license = N2 native relationships + Annotation
@@ -329,8 +329,8 @@ conflict, `fragments.py`), so structured override needs the enricher to run in-p
 - `src/pitloom/assemble/spdx3/fragments.py` — record unification events in `_merge_fragment_set`,
   emit annotations; thread fragment path.
 - `src/pitloom/assemble/spdx3/ai.py` — P1 gate + preservation-blob emission; possibly
-  `src/pitloom/core/ai_metadata.py` + AI extractors (`_gguf.py`, `_safetensors.py`, `_onnx.py`,
-  `_huggingface.py`) to retain the complete raw metadata map.
+  `src/pitloom/core/ai_metadata.py` + AI extractors (`ai_model/gguf.py`, `ai_model/safetensors.py`, `ai_model/onnx.py`,
+  `remote/huggingface.py`) to retain the complete raw metadata map.
 - `src/pitloom/assemble/spdx3/{document,dataset,deps}.py`, `assemble/__init__.py`,
   `plugins/hatch.py`, `loom.py` — thread `provenance_detail` (+ preserve flag where AI models flow);
   drop the two relationship annotations.

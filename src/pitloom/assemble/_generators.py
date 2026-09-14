@@ -249,7 +249,7 @@ def generate_project_sbom(
 
     doc = DocumentModel(
         project=project_metadata,
-        creation_metadata=creation_metadata or CreationMetadata(),
+        creation_metadata=creation_metadata or pitloom_config.creation_metadata,
         ai_models=ai_models,
     )
     exporter = build(

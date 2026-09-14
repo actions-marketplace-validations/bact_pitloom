@@ -30,10 +30,10 @@ produced it.
 
 That convergence is a design intent, not an automatic guarantee: the
 project-metadata extraction step upstream of `DocumentModel` still has one
-implementation per surface family (`_pyproject.py`'s `[project]` path for
-the CLI/library, `hatchling.py` for the build hook, `_poetry.py` and
-`_setuptools.py` for the poetry-only/setuptools-only fallback paths, and
-`_pdm.py`/`_flit.py` for those two backends' own dynamic-field
+implementation per surface family (`project/pyproject.py`'s `[project]` path for
+the CLI/library, `project/hatchling.py` for the build hook, `project/poetry.py` and
+`project/setuptools.py` for the poetry-only/setuptools-only fallback paths, and
+`project/pdm.py`/`project/flit.py` for those two backends' own dynamic-field
 resolution within the `[project]` path), and each has drifted out of
 sync with the others before -- see
 [design/adoption-surfaces.md](../design/adoption-surfaces.md)'s "Keeping

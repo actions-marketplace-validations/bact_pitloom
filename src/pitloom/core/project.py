@@ -101,7 +101,7 @@ class ProjectMetadata:
     Pitloom tool settings such as ``fragments`` and ``pretty`` are **not** stored
     here; they live in :class:`~pitloom.core.config.PitloomConfig` which is returned
     alongside this object by
-    :func:`~pitloom.extract._pyproject.read_pyproject`.
+    :func:`~pitloom.extract.project.pyproject.read_pyproject`.
     """
 
     name: str
@@ -125,8 +125,8 @@ class ProjectMetadata:
 #: Maps a :class:`ProjectMetadata` field name to the literal provenance key
 #: its extractors actually record it under, for the cases where they differ:
 #:
-#: - ``license_name``: every producer (``_pyproject.py``, ``_setuptools_py.py``,
-#:   ``_setuptools_cfg.py``) writes ``provenance["license"]``.
+#: - ``license_name``: every producer (``project.pyproject``, ``project.setuptools_py``,
+#:   ``project.setuptools_cfg``) writes ``provenance["license"]``.
 #: - ``locked_dependency_hashes``: companion to ``locked_dependencies``,
 #:   sharing its ``provenance["locked_dependencies"]`` record so hashes stay
 #:   bound to the winning lock-derived dependency set and never drift.
@@ -147,14 +147,9 @@ def merge_project_metadata(
     field-by-field; *secondary* fills gaps where *primary*'s value is absent.
 
     Iterates :func:`dataclasses.fields` instead of hand-listing every field,
-    so a newly added :class:`ProjectMetadata` field (like ``license_concluded``,
-    added for G2) is merged automatically with the same default rule -- no
-    call site needs updating when the schema grows. This replaces two
-    previously-duplicated, independently-drifting implementations
-    (``pyproject.py``'s old ``_merge_with_poetry``, ``setuptools.py``'s old
-    ``merge_metadata``) that each hand-listed every field and had to be kept
-    in sync by hand; ``license_concluded`` was missing from one of them until
-    this fix, precisely because that discipline had already lapsed once.
+    so a newly added :class:`ProjectMetadata` field (like ``license_concluded``)
+    is merged automatically with the same default rule -- no call site needs
+    updating when the schema grows.
 
     Two fields are special-cased rather than "primary when present else
     secondary":
@@ -183,10 +178,10 @@ def merge_project_metadata(
 
     The "explicitly declared" check looks up *provenance* by the field's own
     name (e.g. ``provenance["keywords"]``) -- except ``license_name``, whose
-    extractors have historically recorded its provenance under the literal
-    key ``"license"`` (see ``_pyproject.py``/``_setuptools_py.py``/
-    ``_setuptools_cfg.py``), not ``"license_name"``; :data:`_PROVENANCE_KEY_ALIASES`
-    maps that one known mismatch so the same presence check still finds it.
+    extractors record its provenance under the literal key ``"license"``
+    (see ``project.pyproject``/``project.setuptools_py``/
+    ``project.setuptools_cfg``), not ``"license_name"``; :data:`_PROVENANCE_KEY_ALIASES`
+    maps that known mismatch so the same presence check finds it.
     """
     merged = dataclasses.replace(primary)
     merged.provenance = {**secondary.provenance, **primary.provenance}

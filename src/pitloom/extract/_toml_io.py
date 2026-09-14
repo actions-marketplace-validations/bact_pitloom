@@ -5,15 +5,15 @@
 
 """Shared ``tomllib``/``tomli`` compat import and raw TOML-file read.
 
-See also: :mod:`pitloom.extract._setuptools` (``pyproject.toml`` reads),
-:mod:`pitloom.extract._poetry_lock` (``poetry.lock`` reads) -- both build
+See also: :mod:`pitloom.extract.project.setuptools` (``pyproject.toml`` reads),
+:mod:`pitloom.extract.lock.poetry` (``poetry.lock`` reads) -- both build
 on :func:`load_toml_file` instead of duplicating the version-gated import
 and the ``open()``/``tomllib.load()`` pair. Exception handling (which
 errors to log, at what level, and what to return) stays with each caller,
 since that policy differs per file (e.g. a missing ``pyproject.toml`` vs.
 a missing, purely-optional ``poetry.lock``).
 
-:mod:`pitloom.extract._sdist` parses TOML from in-memory archive-member
+:mod:`pitloom.extract.project.sdist` parses TOML from in-memory archive-member
 bytes rather than a filesystem path, so :func:`load_toml_file` (which is
 hardwired to ``open(path, "rb")``) doesn't fit its case -- it instead
 imports the compat-resolved :data:`tomllib` module directly from here and

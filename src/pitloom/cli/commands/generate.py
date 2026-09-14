@@ -17,7 +17,11 @@ from pitloom.assemble import (
     generate_project_sbom,
     target_resolves_to_project,
 )
-from pitloom.cli.commands.utils import cli_error_handler, resolve_effective_provenance
+from pitloom.cli.commands.utils import (
+    _print_sbom_output_path,
+    cli_error_handler,
+    resolve_effective_provenance,
+)
 from pitloom.cli.options import (
     _resolve_common_options,
     _resolve_project_generation_settings,
@@ -83,6 +87,7 @@ def _run_generate_command(args: argparse.Namespace) -> int:
             content_type=args.content_type,
             content_type_method=args.content_type_method,
         )
+        _print_sbom_output_path(args.output)
         return 0
 
     # Every other target (env / wheel / model file / HF URL / sdist
@@ -110,6 +115,7 @@ def _run_generate_command(args: argparse.Namespace) -> int:
         content_type=args.content_type,
         content_type_method=args.content_type_method,
     )
+    _print_sbom_output_path(args.output)
     return 0
 
 

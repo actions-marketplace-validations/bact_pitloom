@@ -36,8 +36,8 @@ from pitloom.embed import (
     embed_wheel_sbom,
     find_embedded_sbom,
 )
-from pitloom.extract._huggingface import is_huggingface_source
 from pitloom.extract.project import warn_use_lockfile_no_effect
+from pitloom.extract.remote import is_huggingface_source
 from pitloom.ids import IdRegistry
 
 __all__ = [

@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import dataclasses
+import logging
 import sys
 from pathlib import Path
 
@@ -19,14 +20,16 @@ from pitloom.core.models import compute_doc_uuid, get_wheel_files
 from pitloom.core.provenance import ProvenanceConfig
 from pitloom.enrich import run_enrichers
 from pitloom.enrich.base import EnrichmentResult
-from pitloom.extract._huggingface import is_huggingface_source, read_huggingface
 from pitloom.extract.ai_model import read_ai_model
 from pitloom.extract.project import (
     resolve_project_with_lockfile,
     warn_use_lockfile_no_effect,
 )
+from pitloom.extract.remote import is_huggingface_source, read_huggingface
 from pitloom.ids import IdRegistry, resolve_registry
 from pitloom.logging_config import configure_logging
+
+log = logging.getLogger(__name__)
 
 
 def _write_output_file(sbom_json: str, output_path: Path | None) -> None:
@@ -47,6 +50,9 @@ def _resolve_local_offline_default(directory: Path) -> bool:
         return read_pitloom_config(directory / "pyproject.toml").offline
     except FileNotFoundError:
         return False
+    except ValueError as exc:
+        log.warning("Ignoring invalid pyproject.toml in %s: %s", directory, exc)
+        return False
 
 
 def _resolve_model_enrich_config(model_dir: Path) -> EnrichConfig:
@@ -54,6 +60,9 @@ def _resolve_model_enrich_config(model_dir: Path) -> EnrichConfig:
     try:
         return read_pitloom_config(model_dir / "pyproject.toml").enrich
     except FileNotFoundError:
+        return EnrichConfig()
+    except ValueError as exc:
+        log.warning("Ignoring invalid pyproject.toml in %s: %s", model_dir, exc)
         return EnrichConfig()
 
 

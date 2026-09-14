@@ -30,13 +30,13 @@ is not kept in sync with post-ship changes.
 - [x] Metadata provenance tracking (per-field source attribution)
 - [x] CLI (`loom`) with verbose mode and creator info options
 - [x] Setuptools support -- initial implementation
-  (`src/pitloom/extract/_setuptools.py`; `pyproject.toml` > `setup.cfg` >
+  (`src/pitloom/extract/project/setuptools.py`; `pyproject.toml` > `setup.cfg` >
   `setup.py` conflict resolution)
 - [x] Poetry support -- initial implementation
-  (`src/pitloom/extract/_poetry.py`; `read_pyproject()` falls back to
+  (`src/pitloom/extract/project/poetry.py`; `read_pyproject()` falls back to
   `[tool.poetry]` when `[project]` is absent, merges both when present)
 - [x] **PDM-backend and Flit-core support** -- metadata extraction
-  (`src/pitloom/extract/_pdm.py`, `_flit.py`: dynamic `version`/
+  (`src/pitloom/extract/project/pdm.py`, `flit.py`: dynamic `version`/
   `description` resolved via each backend's own logic --
   `[tool.pdm.version]`'s `file`/`scm` sources, Flit's module
   `__version__`/docstring convention) and wheel file discovery
@@ -162,6 +162,10 @@ table in [non-hatchling-file-discovery.md](non-hatchling-file-discovery.md));
   preservation above. `Element.verifiedUsing`'s 0..* cardinality means this
   can append to the same list without restructuring it.
   See [lock-hash-preservation.md](../implementation/lock-hash-preservation.md#scope).
+- [ ] **Transitive dependency resolution and lock-hash support in Hatchling build hook** --
+  gather transitive dependencies down the n-level dependency tree during build-stage
+  hook execution to resolve dependencies and obtain integrity hashes, populating
+  `verifiedUsing` in embedded build SBOMs without relying on source-stage lock files.
 
 ### PEP 770 / embed-wheel
 
@@ -208,11 +212,9 @@ table in [non-hatchling-file-discovery.md](non-hatchling-file-discovery.md));
   3.0.1 lacks (`finetunedOn`, `validatedOn`, `pretrainedOn`). Wired in from
   `assemble/spdx3/ai.py` and `_document_model.py`. See
   [sbom-enrichment.md](sbom-enrichment.md).
-- [ ] **Croissant dataset size calculation** -- `dataset_DatasetSize` is
-  currently always `0` (see `_extract_croissant_core_fields()` in
-  `_croissant.py`); needs real logic summing `cr:totalItems` across
-  `cr:recordSet` entries (and handling the string-vs-int value variance
-  seen in real Croissant files).
+- [x] **Croissant dataset size calculation** -- `dataset_DatasetSize`
+  extracted dynamically by summing `cr:totalItems` across `cr:recordSet`
+  entries (or top-level `cr:totalItems`), with graceful `None` fallback.
 
 ### Metadata quality
 
@@ -273,6 +275,14 @@ table in [non-hatchling-file-discovery.md](non-hatchling-file-discovery.md));
   enrichment only (no exploitability judgement); VEX generation under
   Medium-term is the follow-on triage step. See
   [osv-vulnerability-lookup.md](osv-vulnerability-lookup.md).
+
+### Remote source ingestion
+
+- [ ] **Remote repository and forge ingestion (`loom project <url>`)** --
+  generate SBOMs directly from remote git repositories/forges (GitHub, GitLab)
+  or remote release archives, capturing upstream VCS provenance (commit SHA,
+  tag, repo URL) and delegating parsing to `extract.project` and `extract.lock`.
+  See [remote-source-ingestion.md](remote-source-ingestion.md).
 
 ### Diagnostics / logging
 

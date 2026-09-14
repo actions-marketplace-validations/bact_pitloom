@@ -117,8 +117,8 @@ def test_merge_project_metadata_explicit_empty_container_preserved() -> None:
 
 def test_merge_project_metadata_explicit_empty_license_name_preserved() -> None:
     """Regression: every ``license_name`` producer
-    (``_pyproject.py``/``_setuptools_py.py``/``_setuptools_cfg.py``) records
-    its provenance under the literal key ``"license"``, not
+    (``project.pyproject``/``project.setuptools_py``/``project.setuptools_cfg``)
+    records its provenance under the literal key ``"license"``, not
     ``"license_name"`` -- the field/provenance-key name mismatch the
     ``_PROVENANCE_KEY_ALIASES`` map exists to bridge. An explicitly
     declared-but-empty ``license_name`` in *primary* (e.g. `license = ""`)

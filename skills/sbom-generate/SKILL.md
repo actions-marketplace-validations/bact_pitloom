@@ -202,7 +202,7 @@ counterpart against standalone (non-embedded) SPDX 3 documents.
 
 - `-o FILE` / `--output FILE` -- explicit output path.
 - `--pretty` -- indent the JSON for human reading (default: compact).
-- `--offline` -- enforce offline execution for `loom model` / `loom generate`.
+- `--offline` -- enforce offline execution across `project`, `wheel`, `model`, `env`, `embed-wheel`, and `generate`.
 - `-v` / `--verbose` -- print effective options and where each came from.
 - `--creator-name NAME`, `--creator-email EMAIL` -- name who created the SBOM.
 - `--enrich` / `--no-enrich` -- opt in to (or force off) Pitloom's own

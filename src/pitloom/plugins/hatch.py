@@ -34,7 +34,7 @@ from pitloom.enrich.base import EnrichmentResult
 from pitloom.export.spdx3_json import SPDX3_JSONLD_EXTENSION
 from pitloom.extract._license import resolve_license_file_entries
 from pitloom.extract.binary import find_phantom_dependencies
-from pitloom.extract.hatchling import metadata_from_hatchling
+from pitloom.extract.project.hatchling import metadata_from_hatchling
 from pitloom.extract.scanner import scan_project_for_ai_models
 from pitloom.ids import resolve_registry
 from pitloom.logging_config import configure_logging
@@ -317,6 +317,7 @@ class PitloomBuildHook(BuildHookInterface[BuilderConfig]):
             provenance=pitloom_config.provenance,
             enrichment_results_by_model=enrichment_results_by_model,
             offline=pitloom_config.offline,
+            content_type_method=pitloom_config.content_type.method,
         )
         merge_fragments(project_dir, pitloom_config.fragments, exporter)
 

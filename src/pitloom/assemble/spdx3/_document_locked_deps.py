@@ -16,7 +16,7 @@ internal to this module -- ``document.py`` imports the former for its own
 use in :func:`build` but omits it from ``__all__``, and never imports the
 latter at all.
 
-See also: :mod:`pitloom.extract._lock_common` for the shared
+See also: :mod:`pitloom.extract.lock._common` for the shared
 canonical-name-grouping and version-equality helpers this module builds on.
 """
 
@@ -30,7 +30,7 @@ from pitloom.assemble.spdx3.deps import _parse_dep_name, _resolve_version
 from pitloom.assemble.spdx3.deps_installed import _extract_exact_pin
 from pitloom.assemble.spdx3.deps_pypi import _prefetch_pypi_release_infos
 from pitloom.core.project import ProjectMetadata
-from pitloom.extract._lock_common import (
+from pitloom.extract.lock._common import (
     group_by_canonical_name,
     is_same_version,
     warn_conflicting_versions,
@@ -158,7 +158,7 @@ def _locked_transitive_only_dependencies(
     ``"Django"``) may not be -- comparing raw, unnormalized names would
     treat those as different packages and double-emit the edge this
     function exists to avoid. See ``_try_read_poetry()`` in
-    ``pitloom.extract._pyproject`` for why this is source-stage-only.
+    ``pitloom.extract.project.pyproject`` for why this is source-stage-only.
 
     *deduplicated_locked*, when given, is used as-is instead of calling
     :func:`_deduplicated_locked_dependencies` again -- :func:`build` computes

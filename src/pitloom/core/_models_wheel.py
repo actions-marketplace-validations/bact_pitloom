@@ -237,7 +237,10 @@ def _discover_included_files(
     from pitloom.core._models_wheel_pdm import discover as discover_pdm
     from pitloom.core._models_wheel_poetry import discover as discover_poetry
     from pitloom.core._models_wheel_setuptools import discover as discover_setuptools
-    from pitloom.extract._setuptools import detect_build_backend, read_pyproject_toml
+    from pitloom.extract.project.setuptools import (
+        detect_build_backend,
+        read_pyproject_toml,
+    )
 
     backend_discoverers: dict[str, BackendDiscoverer] = {
         "setuptools": discover_setuptools,

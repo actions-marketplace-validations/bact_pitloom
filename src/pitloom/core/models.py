@@ -127,7 +127,7 @@ def compute_doc_uuid(
     ``ProjectMetadata.provenance["locked_dependencies"]`` string, e.g.
     ``"Source: pylock.toml | Method: resolved_lockfile"``) is folded in
     too, alongside *locked_dependencies* itself: as more lock/pin formats
-    land in ``pitloom.extract._locked_dependencies``'s cascade, two
+    land in ``pitloom.extract.lock.cascade``'s cascade, two
     different formats can plausibly resolve to the identical dependency
     set for a small
     project -- e.g. a ``poetry.lock``-only run and a ``pylock.toml``-only

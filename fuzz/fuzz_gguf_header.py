@@ -5,7 +5,7 @@
 
 """Atheris fuzz harness for GGUF model header parsing.
 
-Target: ``pitloom.extract._gguf.read_gguf``, an untrusted-input boundary --
+Target: ``pitloom.extract.ai_model.gguf.read_gguf``, an untrusted-input boundary --
 it parses an AI model file (via the third-party ``gguf`` package's
 ``GGUFReader``) that could come from anywhere a user points ``loom model``
 or ``loom generate`` at. ``read_gguf`` deliberately catches ``GGUFReader``
@@ -33,7 +33,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 # pylint: disable=wrong-import-position
-from pitloom.extract._gguf import read_gguf  # noqa: E402
+from pitloom.extract.ai_model.gguf import read_gguf  # noqa: E402
 
 _FUZZ_INPUT_PATH = Path(tempfile.gettempdir()) / "pitloom-fuzz-gguf-input.gguf"
 

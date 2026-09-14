@@ -9,7 +9,7 @@ See also: :mod:`pitloom.core._models_wheel` (dispatch facade -- this
 backend is registered as a "writer", see ``_WRITER_BACKENDS`` there),
 :mod:`pitloom.core._models_wheel_types`,
 :mod:`pitloom.core._models_wheel_setuptools` (the other "writer"
-backend, same ``_chdir`` contract); :mod:`pitloom.extract._pdm` (the
+backend, same ``_chdir`` contract); :mod:`pitloom.extract.project.pdm` (the
 sibling metadata-side module, sharing this ``Builder``/``Context``
 construction pattern and its custom-build-hook caveat, documented there).
 """
@@ -24,7 +24,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-from pitloom.core._models_wheel_types import IncludedFile
+from pitloom.core._models_wheel_types import IncludedFile, to_posix_distribution_path
 
 log = logging.getLogger(__name__)
 
@@ -150,7 +150,10 @@ def discover(
             # pylint: disable-next=protected-access
             files.extend(builder._get_wheel_data(context))
         return [
-            IncludedFile(path=str(full_path), distribution_path=rel_path)
+            IncludedFile(
+                path=str(full_path),
+                distribution_path=to_posix_distribution_path(rel_path),
+            )
             for rel_path, full_path in files
         ]
     # pylint: disable=broad-exception-caught

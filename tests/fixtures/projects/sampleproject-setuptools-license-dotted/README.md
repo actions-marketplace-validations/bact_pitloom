@@ -19,5 +19,5 @@ Both forms parse to an identical Python dict once read by any TOML
 library (`{"license": {"text": "Apache-2.0"}}`) -- dotted keys are just
 TOML's syntax for building up a nested table inline. This fixture exists
 to document that equivalence explicitly, not because Pitloom's
-`_pyproject.py`/`_models_wheel_setuptools.py` need separate code paths
+`project/pyproject.py`/`_models_wheel_setuptools.py` need separate code paths
 for it.

@@ -24,7 +24,7 @@ only), as compact canonical JSON.
 
 ```toml
 [build-system]
-requires = ["hatchling>=1.32.0", "pitloom>=0.17.0"]
+requires = ["hatchling>=1.29.0", "pitloom>=0.17.0"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.hooks.pitloom]
@@ -35,7 +35,7 @@ That's all -- `hatch build` and `python -m build` now embed the SBOM.
 
 ## Installation
 
-Add `pitloom` as a build requirement (Hatchling **1.32.0+** required) and
+Add `pitloom` as a build requirement (Hatchling **1.29.0+** required) and
 add the `[tool.hatch.build.hooks.pitloom]` table to `pyproject.toml`
 (as shown above) -- both parts are required. Listing `pitloom` under
 `[build-system] requires` alone does not activate the hook: Hatchling
@@ -50,11 +50,18 @@ dependency automatically, the same way it installs Hatchling itself.
 
 Every `hatch build`/`python -m build` invocation now:
 
-1. Generates a Source SBOM for the project being built.
+1. Generates a Build SBOM (`software_SbomType.build`) for the project being built.
 2. Merges in any fragments registered under `[tool.pitloom.fragment]`
    (see the [Python API](python-api.md#tracking-decorator) tracking
    decorator, or a hand-authored fragment).
 3. Embeds the result into the wheel's `.dist-info/sboms/` directory.
+
+> [!NOTE]
+> Lock-file resolution and lock-file SHA-256 hash preservation are
+> source-stage only (`loom project` / `loom generate`). Wheels built via
+> `hatch build` do not consult source-stage lock files; dependency
+> integrity hashes in embedded build SBOMs are resolved via PyPI (when
+> online) or omitted (when offline).
 
 The table's `enabled` key defaults to `true`, so an empty
 `[tool.hatch.build.hooks.pitloom]` is enough. Set `enabled = false`

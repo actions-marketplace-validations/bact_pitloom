@@ -80,14 +80,14 @@ with; now the independent scan always runs alongside it.
 
 `resolve_license_concluded` (also in `_license.py`) is the single, shared
 G2 entry point every project-metadata extractor calls — not just
-`_pyproject.py`'s `[project]` path. It exists because the extraction
-paths (CLI's [`_pyproject.py`](../../../src/pitloom/extract/_pyproject.py)
+`pyproject.py`'s `[project]` path. It exists because the extraction
+paths (CLI's [`project/pyproject.py`](../../../src/pitloom/extract/project/pyproject.py)
 `read_pyproject` -- including its poetry-only fallback through
-[`_poetry.py`](../../../src/pitloom/extract/_poetry.py)
+[`project/poetry.py`](../../../src/pitloom/extract/project/poetry.py)
 `extract_poetry_metadata` -- the
-[`hatchling.py`](../../../src/pitloom/extract/hatchling.py) build-hook
+[`project/hatchling.py`](../../../src/pitloom/extract/project/hatchling.py) build-hook
 path, and the setuptools-only
-[`_setuptools.py`](../../../src/pitloom/extract/_setuptools.py)
+[`project/setuptools.py`](../../../src/pitloom/extract/project/setuptools.py)
 `read_setuptools`) were each written and evolving independently. G2 first
 shipped wired only into the CLI path; a later review found the Hatchling
 build hook called `detect_license_for_project` directly and never ran the
@@ -98,14 +98,14 @@ paths, the same directory-detection fallback when nothing is declared) so
 a future fifth extraction path can't reintroduce the same gap by omission.
 Cross-path regression tests
 (`test_metadata_from_hatchling_matches_read_pyproject_for_license_conflict`
-in `tests/extract/test_hatch_hook_metadata_parity.py`,
+in `tests/extract/project/test_hatch_hook_metadata_parity.py`,
 `test_read_poetry_matches_read_pyproject_fallback_for_license_conflict` in
-`tests/extract/test_poetry_pyproject.py` -- paths since renamed and moved,
+`tests/extract/project/test_poetry_pyproject.py` -- paths since renamed and moved,
 see `cli-test-coverage-roadmap.md`) assert the paths agree on the same
 project. The
 same review also found the Hatchling and CLI paths each hand-listed their
 own `[tool.poetry]`-gap-fill field merge (`_merge_with_poetry` in
-`_pyproject.py`, `merge_metadata` in `_setuptools.py`); both were replaced
+`project/pyproject.py`, `merge_metadata` in `project/setuptools.py`); both were replaced
 by [`core/project.py`](../../../src/pitloom/core/project.py)'s
 `merge_project_metadata`, which iterates `dataclasses.fields()` instead of
 naming every field by hand, so a newly added `ProjectMetadata` field

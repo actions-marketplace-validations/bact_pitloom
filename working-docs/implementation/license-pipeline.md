@@ -40,7 +40,7 @@ LICENSE / LICENCE /
 ──────────────────────────────────────────────────────────────────────────────
 EXTRACT LAYER  (src/pitloom/extract/)
 ──────────────────────────────────────────────────────────────────────────────
-pyproject.py         _pytorch_pt2.py        _huggingface.py
+pyproject.py         pytorch_pt2.py         huggingface.py
 setuptools.py        (zip entry            ┌──────────────────────────────┐
 poetry.py             extra/license)       │ 1. card YAML license:        │
                                            │    if vague/missing:         │
@@ -94,7 +94,7 @@ Spdx3JsonExporter.to_json()
 
 ### Python project sources
 
-`src/pitloom/extract/_pyproject.py` calls
+`src/pitloom/extract/project/pyproject.py` calls
 `detect_license_for_project()` from `_license.py` after parsing
 `pyproject.toml`. That function tries four sources in priority order:
 
@@ -120,10 +120,10 @@ Only formats that embed metadata in the file itself can carry a licence:
 
 | Format      | Extractor              | Licence field               |
 | :---------- | :--------------------- | :-------------------------- |
-| PyTorch PT2 | `_pytorch_pt2.py`      | `extra/license` zip entry   |
-| GGUF        | `_gguf.py`             | not yet mapped              |
-| Safetensors | `_safetensors.py`      | not yet mapped              |
-| ONNX        | `_onnx.py`             | not yet mapped              |
+| PyTorch PT2 | `pytorch_pt2.py`       | `extra/license` zip entry   |
+| GGUF        | `gguf.py`              | not yet mapped              |
+| Safetensors | `safetensors.py`       | not yet mapped              |
+| ONNX        | `onnx.py`              | not yet mapped              |
 | Others      | various                | not yet mapped              |
 
 The `AiModelMetadata.license` field is `None` when no embedded licence
@@ -132,7 +132,7 @@ relationships.
 
 ### HuggingFace Hub source
 
-`_huggingface.py` implements a two-step resolution in `_resolve_license()`:
+`huggingface.py` implements a two-step resolution in `_resolve_license()`:
 
 1. **Card YAML** -- reads `license:` from the model card frontmatter. If
    the value is not a vague sentinel (`other`, `custom`, `proprietary`,
@@ -270,12 +270,12 @@ expression string itself.
 
 ### Extraction
 
-Neither `_pyproject.py` nor `hatchling.py` re-implements PEP 639's glob
+Neither `pyproject.py` nor `hatchling.py` re-implements PEP 639's glob
 matching -- both read an already-resolved, project-root-relative path
 list from their respective metadata libraries, and both resolve to an
 empty list unless `[project.license-files]` was **explicitly declared**:
 
-- `_pyproject.py`: `pyproject_metadata.StandardMetadata.license_files`
+- `pyproject.py`: `pyproject_metadata.StandardMetadata.license_files`
   (`list[pathlib.Path] | None`), converted to POSIX strings. This
   library has no implicit default -- absent the key, it's `None`.
 - `hatchling.py`: `_resolve_hatchling_license_files()` checks
@@ -286,12 +286,12 @@ empty list unless `[project.license-files]` was **explicitly declared**:
   convention `setuptools`' `_finalize_license_files()` and the `wheel`
   package document) when the field is absent, so reading it
   unconditionally would misreport an auto-discovered LICENSE file as an
-  explicit declaration and silently diverge from `_pyproject.py` for
+  explicit declaration and silently diverge from `pyproject.py` for
   any project that has a root LICENSE file but never declared the
   field -- i.e. nearly every Hatchling project. Confirmed with a
   regression test against real Hatchling `CoreMetadata` (not a mock,
   which can't reproduce this lazy, config-driven default):
-  `tests/extract/test_hatch_hook_metadata.py::test_metadata_from_hatchling_no_license_files_with_real_core`.
+  `tests/extract/project/test_hatch_hook_metadata.py::test_metadata_from_hatchling_no_license_files_with_real_core`.
   Whether Pitloom should ever replicate that ecosystem-wide default
   itself (for *both* paths, with its own distinct provenance) is a
   separate, not-yet-scoped roadmap item -- see
@@ -363,7 +363,7 @@ Hatchling build hook (`pitloom.plugins.hatch`) call
 `project_files` *before* their `metadata.files = project_files`
 assignment, so the entries survive that overwrite. Out of scope for now:
 the sdist-archive target path (`read_project()` on a `.tar.gz`/`.zip`) --
-`_sdist.py`'s metadata extraction doesn't resolve `license_files` at all
+`sdist.py`'s metadata extraction doesn't resolve `license_files` at all
 (a pre-existing, separate limitation of that shallower path, not
 introduced by this feature); and `embed-wheel --project-dir`, whose
 merge path (`_build_sbom_from_project_and_wheel()` in
@@ -438,19 +438,19 @@ path.
 | `src/pitloom/extract/_license.py` | `detect_license_from_text()`,
   `find_license_files()`, `detect_license_for_project()`,
   `resolve_license_file_entries()` |
-| `src/pitloom/extract/_pyproject.py` | Python project licence
+| `src/pitloom/extract/project/pyproject.py` | Python project licence
   extraction and detection, including `[project.license-files]` |
-| `src/pitloom/extract/hatchling.py` | Hatchling build-hook licence
+| `src/pitloom/extract/project/hatchling.py` | Hatchling build-hook licence
   extraction, including `[project.license-files]` |
 | `src/pitloom/assemble/_generators.py`,
   `src/pitloom/plugins/hatch.py` | Merge `resolve_license_file_entries()`
   results into `project_files` before the file list is finalized |
-| `src/pitloom/extract/_setuptools.py` | setuptools project licence
+| `src/pitloom/extract/project/setuptools.py` | setuptools project licence
   extraction |
-| `src/pitloom/extract/_poetry.py` | Poetry project licence extraction |
-| `src/pitloom/extract/_huggingface.py` | HuggingFace Hub card YAML
+| `src/pitloom/extract/project/poetry.py` | Poetry project licence extraction |
+| `src/pitloom/extract/remote/huggingface.py` | HuggingFace Hub card YAML
   and file-based detection |
-| `src/pitloom/extract/_pytorch_pt2.py` | PT2 archive `extra/license`
+| `src/pitloom/extract/ai_model/pytorch_pt2.py` | PT2 archive `extra/license`
   entry |
 | `src/pitloom/core/project.py` | `ProjectMetadata.license_name`,
   `ProjectMetadata.license_files`, `ProjectFile.is_license_file` fields |
@@ -475,9 +475,9 @@ path.
   licence export tests with fixture files (originally
   `tests/test_generator.py`, since split by generation target and
   further by section -- see `cli-test-coverage-roadmap.md`) |
-| `tests/extract/test_pyproject.py`,
-  `tests/extract/test_hatch_hook_metadata.py` | `license_files`
-  extraction tests (`_pyproject.py`/`hatchling.py` paths) |
+| `tests/extract/project/test_pyproject.py`,
+  `tests/extract/project/test_hatch_hook_metadata.py` | `license_files`
+  extraction tests (`pyproject.py`/`hatchling.py` paths) |
 | `tests/assemble/test_license_files_bundling.py` | End-to-end
   `[project.license-files]` bundling tests against the vendored
   real-world fixtures |

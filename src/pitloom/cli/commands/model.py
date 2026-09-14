@@ -27,7 +27,7 @@ from pitloom.cli.options import (
     _resolve_model_output_path,
     add_offline_argument,
 )
-from pitloom.extract._huggingface import is_huggingface_source, parse_hf_model_id
+from pitloom.extract.remote import is_huggingface_source, parse_hf_model_id
 
 
 @cli_error_handler("model command failed")
