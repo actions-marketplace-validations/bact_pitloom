@@ -8,7 +8,7 @@
 See also: :mod:`pitloom.core._models_wheel` (dispatch facade),
 :mod:`pitloom.core._models_wheel_types`,
 :mod:`pitloom.core._models_wheel_poetry` (same delegate-to-the-real-
-library pattern this module follows); :mod:`pitloom.extract._flit`
+library pattern this module follows); :mod:`pitloom.extract.project.flit`
 (the sibling metadata-side module, sharing the same
 ``flit_core.config.read_flit_config`` + ``flit_core.common.Module``
 lookup).
@@ -52,7 +52,7 @@ def discover(
     literal assignment (e.g. computed by a function call), flit-core's
     own ``get_info_from_module()`` falls back to *importing* (executing)
     the target module -- exactly the code-execution risk this static
-    rescan must never take (see :mod:`pitloom.extract._setuptools`'s
+    rescan must never take (see :mod:`pitloom.extract.project.setuptools`'s
     same stance on ``setup.py``). Reads ``loaded_cfg.metadata`` (the
     statically-declared ``[project]`` fields) first; if ``version`` is
     dynamic, tries an AST-only scan
@@ -98,7 +98,7 @@ def discover(
             version = loaded_cfg.metadata.get("version")
             if version is None:
                 # Dynamic version: AST-only resolution, same as
-                # pitloom.extract._flit's own approach -- never falls
+                # pitloom.extract.project.flit's own approach -- never falls
                 # back to importing the module the way flit-core's own
                 # get_info_from_module()/make_metadata() would.
                 _, version = get_docstring_and_version_via_ast(module)

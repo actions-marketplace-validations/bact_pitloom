@@ -1,6 +1,6 @@
 ---
 Created: 2026-08-17
-Last-Modified: 2026-08-27
+Last-Modified: 2026-09-14
 SPDX-FileCopyrightText: 2026 Arthit Suriyawongkul
 SPDX-FileType: DOCUMENTATION
 SPDX-License-Identifier: CC0-1.0
@@ -36,14 +36,24 @@ Following PR #161's decomposition passes, the ratchet ceilings are now lowered t
 
 ## File-size limits status (DRIFTED -- needs a follow-up pass)
 
-As of 2026-08-21, both boundaries this doc previously reported clean are
+As of 2026-09-14, both boundaries this doc previously reported clean are
 still crossed by organic growth, none of it individually large enough to
 trip review attention:
 
-- **`src/`** (soft limit 400-500, hard cap 800): 6 files exceed 400 lines,
-  worst is `deps_originator.py` at 438 (`_setuptools_cfg.py` 431,
-  `_huggingface_fields.py` 426, `_pytorch_pt2.py` 417, `_loom_active_run.py`
-  411, `export/spdx3_json.py` 401).
+- **`src/`** (soft limit 400-500, hard cap 800): 15 files exceed 400 lines,
+  worst is `extract/lock/_common.py` at 610 -- new since the lock-hash-
+  preservation work (PR #212; see
+  [lock-hash-preservation.md](../implementation/lock-hash-preservation.md)),
+  which consolidated shared lock-parsing helpers here rather than
+  duplicating them per format. `assemble/spdx3/deps.py` also grew past the
+  soft limit in the same PR (525, was under 500 before it). Next worst:
+  `extract/project/pyproject.py` 530, `assemble/spdx3/deps_license.py` 500,
+  `extract/project/setuptools_cfg.py` 471, `extract/lock/uv.py` 462,
+  `extract/ai_model/pytorch_pt2.py` 457, `assemble/spdx3/deps_installed.py`
+  441, `assemble/spdx3/provenance.py` 440, `cli/options.py` 438,
+  `assemble/spdx3/deps_originator.py` 438, `embed.py` 435,
+  `extract/lock/pylock.py` 431, `extract/project/poetry.py` 428,
+  `extract/remote/huggingface_field.py` 426.
 - **`tests/`** (excluding `tests/extract/huggingface/` mock fixture
   catalogs): 9 files exceed 415 lines, worst is `test_hdf5.py` at 552
   (`test_pytorch_pt2.py` 459, `test_assembly_edge_cases.py` 456,
@@ -57,7 +67,7 @@ trip review attention:
 
 None have crossed the 800-line hard cap, so nothing is currently broken --
 but per AGENTS.md, a file should be split *before* crossing the soft
-limit. `deps_originator.py` and `_setuptools_cfg.py` are the best next
+limit. `deps_originator.py` and `setuptools_cfg.py` are the best next
 candidates: both were split once already (via the facade pattern used
 throughout this pass) and have regrown past a third of their original
 decomposed size.

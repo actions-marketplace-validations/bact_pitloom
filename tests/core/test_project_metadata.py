@@ -117,8 +117,8 @@ def test_merge_project_metadata_explicit_empty_container_preserved() -> None:
 
 def test_merge_project_metadata_explicit_empty_license_name_preserved() -> None:
     """Regression: every ``license_name`` producer
-    (``_pyproject.py``/``_setuptools_py.py``/``_setuptools_cfg.py``) records
-    its provenance under the literal key ``"license"``, not
+    (``project.pyproject``/``project.setuptools_py``/``project.setuptools_cfg``)
+    records its provenance under the literal key ``"license"``, not
     ``"license_name"`` -- the field/provenance-key name mismatch the
     ``_PROVENANCE_KEY_ALIASES`` map exists to bridge. An explicitly
     declared-but-empty ``license_name`` in *primary* (e.g. `license = ""`)
@@ -197,6 +197,37 @@ def test_merge_project_metadata_does_not_mutate_inputs() -> None:
     assert primary.version is None
     assert primary.provenance == {"name": "Source: primary"}
     assert secondary.provenance == {"version": "Source: secondary"}
+
+
+def test_merge_project_metadata_hashes_bound_to_locked_dependencies() -> None:
+    """`locked_dependency_hashes` shares `locked_dependencies` provenance,
+    so an authoritative lock result with zero hashes is never polluted by
+    secondary's hashes."""
+    primary = ProjectMetadata(
+        name="pkg",
+        locked_dependencies=["foo==1.0"],
+        locked_dependency_hashes={},
+        provenance={
+            "locked_dependencies": "Source: poetry.lock | Method: resolved_lockfile"
+        },
+    )
+    secondary = ProjectMetadata(
+        name="pkg",
+        locked_dependencies=["bar==2.0"],
+        locked_dependency_hashes={"bar": "a" * 64},
+        provenance={
+            "locked_dependencies": "Source: uv.lock | Method: resolved_lockfile"
+        },
+    )
+    merged = merge_project_metadata(primary, secondary)
+    assert merged.locked_dependencies == ["foo==1.0"]
+    assert merged.locked_dependency_hashes == {}
+
+    # When primary has no locked_dependencies at all, both fall back together
+    unlocked_primary = ProjectMetadata(name="pkg")
+    merged_fallback = merge_project_metadata(unlocked_primary, secondary)
+    assert merged_fallback.locked_dependencies == ["bar==2.0"]
+    assert merged_fallback.locked_dependency_hashes == {"bar": "a" * 64}
 
 
 # ---------------------------------------------------------------------------

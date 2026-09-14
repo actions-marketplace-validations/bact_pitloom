@@ -47,8 +47,7 @@ def test_import_sbom_harvests_files_and_entities(tmp_path: Path) -> None:
 
 
 def test_import_sbom_harvests_any_named_element_as_entity(tmp_path: Path) -> None:
-    """Not just the historically-special-cased File/Dataset/AIPackage types
-    -- any element with a name and spdxId is importable, typed by its own
+    """Any element with a name and spdxId is importable, typed by its own
     SPDX 3 compact type. A hash-less File also falls back here instead of
     being dropped entirely."""
     sbom_path = tmp_path / "sample.spdx3.json"
@@ -57,7 +56,7 @@ def test_import_sbom_harvests_any_named_element_as_entity(tmp_path: Path) -> Non
     registry = IdRegistry.new("proj")
     registry.import_sbom(sbom_path)
 
-    # A software_Package (not one of the old three hardcoded types).
+    # A software_Package.
     assert registry.entities["requests"] == EntityEntry(
         type="software_Package", spdx_id=ids["dep_package_id"]
     )

@@ -37,10 +37,10 @@ project regardless of build backend, unlike the already-shipped
 
 | File | Role |
 | :--- | :--- |
-| `src/pitloom/extract/_pylock.py` | `pylock.toml` resolved-dependency extraction (source-stage only) |
-| `src/pitloom/extract/_locked_dependencies.py` | Cascade wiring `pylock.toml` (and every other lock format) into `read_project()` -- see [lock-file-cascade.md](lock-file-cascade.md) |
-| `tests/extract/test_pylock.py` | `pylock.toml` parsing unit and integration tests |
-| `tests/extract/test_locked_dependencies.py` | Cascade mechanism tests (priority ordering, override note, `setup.py`-only wiring) |
+| `src/pitloom/extract/lock/pylock.py` | `pylock.toml` resolved-dependency extraction (source-stage only) |
+| `src/pitloom/extract/lock/cascade.py` | Cascade wiring `pylock.toml` (and every other lock format) into `read_project()` -- see [lock-file-cascade.md](lock-file-cascade.md) |
+| `tests/extract/lock/test_pylock.py` | `pylock.toml` parsing unit and integration tests |
+| `tests/extract/lock/test_cascade.py` | Cascade mechanism tests (priority ordering, override note, `setup.py`-only wiring) |
 
 No changes were needed in `src/pitloom/assemble/spdx3/deps.py` or
 `document.py` -- both already operate on the generic
@@ -126,7 +126,7 @@ looking at:
   ["default"]`, and its `dev`-only packages (`alabaster`, `arpeggio`,
   etc.) are correctly excluded from `locked_dependencies`.
 
-Both shapes are covered by dedicated tests in `tests/extract/test_pylock.py`
+Both shapes are covered by dedicated tests in `tests/extract/lock/test_pylock.py`
 (`test_non_default_group_package_excluded`,
 `test_extras_gated_package_excluded_by_default`,
 `test_package_with_no_marker_included_regardless_of_default_groups`),
@@ -140,7 +140,7 @@ tables has no meaningful PyPI version pin, so including it as
 (wrong PURL, bogus PyPI enrichment lookup downstream). These are
 skipped with a `WARNING:` naming the package and source kind --
 mirrors `poetry.lock`'s equivalent `directory`/`file`/`git`/`url` skip
-in `_poetry_lock.py`. A package sourced via `sdist`/`wheels` (or with no
+in `poetry.py` (`src/pitloom/extract/lock/poetry.py`). A package sourced via `sdist`/`wheels` (or with no
 source table at all) is included whenever it has a version.
 
 ## Wiring and priority

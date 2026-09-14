@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: CC0-1.0
 
 # Minimal Flit-core project used as a fixture for testing Pitloom's Flit
-# metadata extraction (pitloom.extract._flit) and wheel file discovery
+# metadata extraction (pitloom.extract.project.flit) and wheel file discovery
 # (pitloom.core._models_wheel_flit).
 #
 # Exercises the src/ layout (flit_core.common.Module's own `src/<name>`

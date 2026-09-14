@@ -37,7 +37,7 @@ class BackendDiscoverer(Protocol):
     module implementing this signature plus one registry entry, never a
     special case at the call site. *pyproject_data*, when given, is the
     already-parsed ``pyproject.toml`` (see
-    :func:`pitloom.extract._setuptools.read_pyproject_toml`); a backend
+    :func:`pitloom.extract.project.setuptools.read_pyproject_toml`); a backend
     that doesn't need it (e.g. Hatchling, which re-reads config itself via
     ``WheelBuilder``) still accepts and ignores the keyword."""
 

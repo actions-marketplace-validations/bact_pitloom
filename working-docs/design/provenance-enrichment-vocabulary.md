@@ -142,27 +142,24 @@ All are the literal string that follows `Method:` in a
 `parse_provenance_value` in `src/pitloom/assemble/spdx3/provenance.py:74-96`,
 keyed `method` in the JSON statement).
 
-Line numbers below predate the `extract/` leading-underscore renames
-(`pyproject.py` → `_pyproject.py`, `poetry.py` → `_poetry.py`,
-`setuptools.py` → `_setuptools.py`, see `AGENTS.md` Naming) and haven't
-been re-verified against the current file contents -- paths are current,
-line numbers are approximate.
+Paths below reflect the subpackage layout under `src/pitloom/extract/`
+(`project/`, `remote/`, `lock/`, `ai_model/`, `dataset/`). Line numbers are approximate.
 
 | `method` value | Meaning | Emission site(s) |
 | --- | --- | --- |
-| `dynamic_extraction` | Value read from a Python file at build time (e.g. `__version__`/`__about__.py`), not `pyproject.toml` directly | `src/pitloom/extract/_pyproject.py:342`, `:363` |
-| `licenseid_detection` | License matched against a known SPDX id via the `licenseid` library -- detected, not declared | `src/pitloom/extract/_pyproject.py:301`; `src/pitloom/extract/_huggingface_fetch.py:233`, `:327`; `src/pitloom/extract/_license.py:354`, `:417` |
-| `inferred_from_authors` | Copyright text derived from the `authors` list, not read verbatim | `src/pitloom/extract/_setuptools.py:284`, `:432`; `src/pitloom/extract/_poetry.py:169`; `src/pitloom/extract/hatchling.py:143`; `src/pitloom/extract/_pyproject.py:202` |
+| `dynamic_extraction` | Value read from a Python file at build time (e.g. `__version__`/`__about__.py`), not `pyproject.toml` directly | `src/pitloom/extract/project/pyproject.py:342`, `:363` |
+| `licenseid_detection` | License matched against a known SPDX id via the `licenseid` library -- detected, not declared | `src/pitloom/extract/project/pyproject.py:301`; `src/pitloom/extract/remote/huggingface_fetch.py:233`, `:327`; `src/pitloom/extract/_license.py:354`, `:417` |
+| `inferred_from_authors` | Copyright text derived from the `authors` list, not read verbatim | `src/pitloom/extract/project/setuptools_cfg.py:285`, `setuptools_py.py:214`; `src/pitloom/extract/project/poetry.py:169`; `src/pitloom/extract/project/hatchling.py:143`; `src/pitloom/extract/project/pyproject.py:202` |
 | `parsed_author_list` | Multiple individual entities extracted by splitting a single, comma-separated author string | `src/pitloom/assemble/spdx3/deps_originator.py:347` |
-| `file_directive` | `pyproject.toml` dynamic field pointed at a file (`{file = "..."}`) | `src/pitloom/extract/_setuptools.py:500` |
-| `attr_directive` | `pyproject.toml` dynamic field pointed at a Python attribute (`{attr = "..."}`) | `src/pitloom/extract/_setuptools.py:519` |
+| `file_directive` | `pyproject.toml` dynamic field pointed at a file (`{file = "..."}`) | `src/pitloom/extract/project/pyproject_dynamic.py` |
+| `attr_directive` | `pyproject.toml` dynamic field pointed at a Python attribute (`{attr = "..."}`) | `src/pitloom/extract/project/pyproject_dynamic.py` |
 | `inspect_caller` | Recorded automatically by the `pitloom.loom` SDK via stack inspection | `src/pitloom/_loom_active_run.py:62`, `:67`, `:73` |
 | `synthetic environment root` | The element is Pitloom's own synthesized placeholder root package for an installed environment | `src/pitloom/extract/env.py:42-43` |
 | `extension_guess` | File content-type resolved by filename-extension fallback (no `magika` / no confident result) | `src/pitloom/assemble/spdx3/_document_files.py:138` |
 | `magika_content_detection` | File content-type resolved by the `magika` content-detection library; includes a `Tool: magika==<ver>` segment | `src/pitloom/assemble/spdx3/_document_files.py:135` |
 | `yaml_frontmatter` | Value read from a local README/model-card's YAML frontmatter block (the `enrich/readme.py` enricher) | `src/pitloom/enrich/readme.py:100` |
-| `resolved_lockfile` | `ProjectMetadata.locked_dependencies` populated from a real lock-solver output (`pylock.toml`, `uv.lock`, `poetry.lock`, `pdm.lock`, `Pipfile.lock`) via the lock/pin cascade (added in PR #208) | `src/pitloom/extract/_locked_dependencies.py:71-93` (the `_LOCK_SOURCES` table) |
-| `pinned_requirements` | `ProjectMetadata.locked_dependencies` populated from a fully-pinned `requirements.txt` -- tagged separately from `resolved_lockfile` since it's not a lock-solver output, a weaker guarantee (added in PR #208) | `src/pitloom/extract/_locked_dependencies.py:94` |
+| `resolved_lockfile` | `ProjectMetadata.locked_dependencies` populated from a real lock-solver output (`pylock.toml`, `uv.lock`, `poetry.lock`, `pdm.lock`, `Pipfile.lock`) via the lock/pin cascade | `src/pitloom/extract/lock/cascade.py:71-93` (the `_LOCK_SOURCES` table) |
+| `pinned_requirements` | `ProjectMetadata.locked_dependencies` populated from a fully-pinned `requirements.txt` -- tagged separately from `resolved_lockfile` since it's not a lock-solver output, a weaker guarantee | `src/pitloom/extract/lock/cascade.py:94` |
 
 **As of 2026-08-13, `sbomAuthorSupplied` and `inference` are no longer
 `method` values** -- both retired from this table; see the `role` table
@@ -290,7 +287,7 @@ sharing the field name `role`. Defined in
 
 Mapping logic: `_role_to_rel()` in `src/pitloom/assemble/spdx3/dataset.py:18-49`.
 Only `trainedOn`/`testedOn` are actually produced today
-(`enrich/readme.py:144`; `extract/_huggingface_fields.py:248`, `:268`).
+(`enrich/readme.py:144`; `extract/remote/huggingface_field.py:248`, `:268`).
 
 No confidence-score or evidence-type controlled vocabulary exists.
 Pitloom's detector has no confidence score today (explicitly noted as a

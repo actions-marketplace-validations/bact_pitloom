@@ -135,6 +135,9 @@ When a lock file is present:
   back to host environment introspection.
 - Transitive dependencies from the lock file are emitted as SPDX 3
   `software_Package` elements connected via `dependsOn` relationships.
+- SHA-256 package hashes are extracted directly from supported lock files
+  for `verifiedUsing` integrity validation, preserved in offline builds and
+  prioritised over PyPI lookups.
 - Relationship completeness is conservatively left unset (`None`) to
   avoid overstating completeness for partial closures (e.g. omitted
   VCS/path dependencies or marker-ambiguous variants).
@@ -199,7 +202,7 @@ counterpart against standalone (non-embedded) SPDX 3 documents.
 
 - `-o FILE` / `--output FILE` -- explicit output path.
 - `--pretty` -- indent the JSON for human reading (default: compact).
-- `--offline` -- enforce offline execution for `loom model` / `loom generate`.
+- `--offline` -- enforce offline execution across `project`, `wheel`, `model`, `env`, `embed-wheel`, and `generate`.
 - `-v` / `--verbose` -- print effective options and where each came from.
 - `--creator-name NAME`, `--creator-email EMAIL` -- name who created the SBOM.
 - `--enrich` / `--no-enrich` -- opt in to (or force off) Pitloom's own

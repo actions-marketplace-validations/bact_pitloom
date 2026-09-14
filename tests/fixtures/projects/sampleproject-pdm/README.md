@@ -7,7 +7,7 @@ SPDX-License-Identifier: CC0-1.0
 # Sample project
 
 A minimal `src/`-layout PDM-backend package used as a test fixture for
-Pitloom's PDM metadata extraction (`pitloom.extract._pdm`) and wheel
+Pitloom's PDM metadata extraction (`pitloom.extract.project.pdm`) and wheel
 file discovery (`pitloom.core._models_wheel_pdm`).
 
 `[tool.pdm.build] package-dir = "src"` exercises the `physical_path` vs

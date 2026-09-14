@@ -34,13 +34,13 @@ under `[tool.poetry]`.  Issue [#64].
 
 | File | Role |
 | :--- | :--- |
-| `src/pitloom/extract/_poetry.py` | Metadata extraction module (renamed from `poetry.py`) |
-| `src/pitloom/extract/_poetry_lock.py` | `poetry.lock` transitive-dependency extraction (source-stage only) |
-| `src/pitloom/extract/_pyproject.py` | Falls back to / merges Poetry metadata; wires in `poetry.lock` reading |
+| `src/pitloom/extract/project/poetry.py` | Metadata extraction module |
+| `src/pitloom/extract/lock/poetry.py` | `poetry.lock` transitive-dependency extraction (source-stage only) |
+| `src/pitloom/extract/project/pyproject.py` | Falls back to / merges Poetry metadata; wires in `poetry.lock` reading |
 | `src/pitloom/core/_models_wheel_poetry.py` | Wheel file discovery, delegating to poetry-core's own `WheelBuilder` |
 | `src/pitloom/assemble/spdx3/deps.py`, `document.py` | Additive locked-transitive-dependency `dependsOn` edges, `completeness` tagging |
-| `tests/extract/test_poetry_parsing.py`, `tests/extract/test_poetry_extract.py`, `tests/extract/test_poetry_pyproject.py` | Unit and integration tests for metadata extraction (originally `tests/test_poetry.py`, later split into these files -- see `working-docs/design/cli-test-coverage-roadmap.md`; `test_poetry_extract.py` holds `extract_poetry_metadata()` tests, split out of `test_poetry_parsing.py` to stay under the file-size soft limit) |
-| `tests/extract/test_poetry_lock.py` | `poetry.lock` parsing unit and integration tests |
+| `tests/extract/project/test_poetry_parsing.py`, `tests/extract/project/test_poetry_extract.py`, `tests/extract/project/test_poetry_pyproject.py` | Unit and integration tests for metadata extraction (originally `tests/test_poetry.py`, later split into these files -- see `working-docs/design/cli-test-coverage-roadmap.md`; `test_poetry_extract.py` holds `extract_poetry_metadata()` tests, split out of `test_poetry_parsing.py` to stay under the file-size soft limit) |
+| `tests/extract/lock/test_poetry.py` | `poetry.lock` parsing unit and integration tests |
 | `tests/core/models_wheel/test_models_wheel_poetry.py` | Wheel file discovery unit tests |
 | `tests/assemble/test_deps_locked_dependencies.py` | Assemble-layer additive-edge/`completeness` tests |
 | `tests/fixtures/projects/sampleproject-poetry/` | Real-world metadata fixture (mistral-inference; no `src/` package dir, not usable for file discovery) |
@@ -184,7 +184,7 @@ wrong for `loom env` (live introspection of what's actually installed is
 strictly more authoritative than a lock that may be stale relative to
 it).
 
-`_poetry_lock.py`'s `extract_poetry_lock_dependencies()` reads
+`poetry.py`'s (`src/pitloom/extract/lock/poetry.py`) `extract_poetry_lock_dependencies()` reads
 `[[package]]` tables from a sibling `poetry.lock`, keeping only packages
 in the main/default group -- `groups` includes `"main"` (Poetry
 1.2+'s dependency-groups feature) or, for a legacy Poetry 1.x lock with
@@ -286,11 +286,11 @@ case for Poetry support (issue [#62]).  It has:
 - **Path / git / URL dependencies** -- entries with `path`, `git`, or `url`
   sources are skipped because they cannot be expressed as PEP 508
   specifiers, logging a `WARNING:` naming the dependency and the source
-  kind (`_poetry_dep_to_pep508()` in `_poetry.py`). `poetry.lock` entries
+  kind (`_poetry_dep_to_pep508()` in `src/pitloom/extract/project/poetry.py`). `poetry.lock` entries
   resolved from the equivalent `directory`/`file`/`git`/`url` sources, or
   marked `optional = true` (an extra, not a default runtime dependency),
   are excluded from `locked_dependencies` for the same reason
-  (`_main_group_package_or_none()` in `_poetry_lock.py`).
+  (`_main_group_package_or_none()` in `src/pitloom/extract/lock/poetry.py`).
 - **`[tool.poetry.extras]`** -- optional extras are not yet mapped to
   `ProjectMetadata`. This is a schema-wide gap, not Poetry-specific:
   `ProjectMetadata` has no extras/optional-dependencies field for any

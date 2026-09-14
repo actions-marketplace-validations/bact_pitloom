@@ -179,7 +179,7 @@ being the pre-existing default for every project).
     classifiers`.
   - Source: [pyproject-metadata](https://github.com/pypa/pyproject-metadata)'s
     own strict PEP 639 validation in the shared, backend-agnostic
-    metadata path (`src/pitloom/extract/_pyproject.py`) -- not specific
+    metadata path (`src/pitloom/extract/project/pyproject.py`) -- not specific
     to Hatchling, and not something any of the setuptools packages
     above happened to trigger.
   - Why it's common: real projects mid-PEP-639-migration routinely
@@ -195,7 +195,7 @@ being the pre-existing default for every project).
     639 source). Any other `project.license` failure still raises
     unchanged.
   - See `_is_license_classifier_conflict()` and
-    `_drop_redundant_license_classifiers()` in `_pyproject.py`.
+    `_drop_redundant_license_classifiers()` in `project/pyproject.py`.
 - **Environment gap, not a code issue**: httpx additionally failed
   Hatchling's own wheel-file discovery.
   - Error: `Unknown metadata hook: fancy-pypi-readme`, until the
@@ -272,7 +272,7 @@ maturin.
 
 First systematic real-world validation of `_models_wheel_flit.py`'s and
 `_models_wheel_pdm.py`'s `discover()`, alongside their metadata-side
-siblings `pitloom.extract._flit`/`pitloom.extract._pdm`. Vendored as
+siblings `pitloom.extract.project.flit`/`pitloom.extract.project.pdm`. Vendored as
 persistent fixtures (see the Policy section above) rather than cloned
 and discarded -- see
 [`tests/fixtures/real-world-projects/README.md`](../../tests/fixtures/real-world-projects/README.md)
@@ -390,13 +390,13 @@ README for their own notes.
     `make_metadata()`, which falls back to *importing* (executing) the
     target module whenever a dynamic `version`/`description` isn't an
     AST-resolvable literal (e.g. computed by a function call).
-  - `pitloom.extract._flit.resolve_flit_dynamic_metadata()` had the
+  - `pitloom.extract.project.flit.resolve_flit_dynamic_metadata()` had the
     identical exposure via the same `make_metadata()` call, for the
     same reason.
   - **Fixed**: both now call flit-core's
     `get_docstring_and_version_via_ast()` directly and stop there --
     never falling back to import -- matching the same no-execution
-    stance `pitloom.extract._setuptools` already takes for `setup.py`.
+    stance `pitloom.extract.project.setuptools` already takes for `setup.py`.
     A dynamic field that isn't AST-resolvable is left unresolved (with
     a `WARNING:` from the discovery side) rather than resolved by
     running project code.
@@ -406,7 +406,7 @@ README for their own notes.
     `test_discover_external_data_never_executes_project_code`
     (`tests/core/models_wheel/test_models_wheel_flit.py`) and
     `test_resolve_flit_dynamic_metadata_never_executes_project_code`
-    (`tests/extract/test_flit.py`).
+    (`tests/extract/project/test_flit.py`).
 
 ## Setuptools license-form diversity (6 packages, 2026-09-03)
 
@@ -414,13 +414,13 @@ Extends the setuptools fixture set specifically for license-declaration
 diversity -- PEP 621 vs. PEP 639 vs. legacy classifier-only forms, and
 projects old enough to mix `pyproject.toml`/`setup.cfg`/`setup.py`
 non-trivially, per the multi-file precedence contract documented in
-`pitloom.extract._setuptools`' own module docstring
+`pitloom.extract.project.setuptools`' own module docstring
 (`pyproject.toml [project]` > `setup.cfg` > `setup.py`) and
 `_models_wheel_setuptools.py`'s (`setup.cfg` applied first, then
 `pyproject.toml` on top).
 
 | Package | Version | Config style | Result |
-| :--- | :--- | :--- | :--- |
+| :--- | :--- | :--- | :--- | :--- |
 | tkem/cachetools | 7.1.8 | Strict PEP 639 (`license = "MIT"` + `license-files`), `setuptools-scm` dynamic version | Perfect match |
 | PyCQA/flake8 | 7.3.0 | No `pyproject.toml` at all -- `setup.cfg [metadata]` is the sole source (`version = attr:`, `src/`-layout `where =`), bare `setup.py` shim | Perfect match |
 | pallets/markupsafe | 3.0.3 | PEP 639 + `license-files`, real C accelerator (`_speedups.c`, compiled `build_ext`) | Perfect match except the C source/compiled extension (known gap) |
@@ -437,7 +437,7 @@ PyPI) covering PEP 621's TOML dotted-key license form (`license.text =
 the inline-table form (`license = {text = "..."}`) -- no code-level
 handling needed either way, just a regression test
 (`test_read_pyproject_license_toml_dotted_key_matches_inline_table` in
-`tests/extract/test_pyproject_license.py`) documenting the equivalence.
+`tests/extract/project/test_pyproject_license.py`) documenting the equivalence.
 
 ### Findings
 
@@ -476,14 +476,14 @@ handling needed either way, just a regression test
   - Remaining limit: PyYAML itself still can't be fully resolved even
     with this fix -- its `setup.py` passes `setup(name=NAME,
     version=VERSION, ...)` referencing module-level constants, not
-    literals, which `_setuptools_py.py`'s AST scan deliberately never
+    literals, which `setuptools_py.py`'s AST scan deliberately never
     resolves (documented scope boundary, same as any other
     unresolvable dynamic value). `read_project()` now raises
     `FileNotFoundError` for it instead of silently succeeding with
     empty metadata -- loud-and-correct beats quiet-and-wrong.
   - See `test_read_project_falls_back_past_build_system_only_pyproject`/
     `test_read_project_build_system_only_pyproject_no_setuptools_fallback`
-    in `tests/extract/test_project.py`.
+    in `tests/extract/project/test_project.py`.
 - **netcal surfaced a second real metadata-extraction gap.**
   - Directive: `[tool.setuptools.dynamic] version = {attr =
     "netcal.__version__"}` -- setuptools' own dynamic-version
@@ -494,23 +494,23 @@ handling needed either way, just a regression test
     PyYAML's case above).
   - Why: `pyproject-metadata`'s `StandardMetadata` is backend-agnostic
     and has no concept of `[tool.setuptools.dynamic]` at all, and
-    `_extract_dynamic_version()` (`_pyproject_dynamic.py`) only checked
+    `_extract_dynamic_version()` (`pyproject_dynamic.py`) only checked
     `[tool.hatch].version.path` plus a generic
     `__about__.py`/`__version__.py` file-candidate scan -- neither
     covers this setuptools-specific directive.
   - **Fixed**: added `_extract_setuptools_dynamic_version()` to
-    `_pyproject_dynamic.py`, checked first, delegating to
-    `_setuptools_cfg.py`'s existing `_resolve_cfg_attr_directive()`/
+    `pyproject_dynamic.py`, checked first, delegating to
+    `setuptools_cfg.py`'s existing `_resolve_cfg_attr_directive()`/
     `_resolve_cfg_version_file_directive()` -- the exact same AST-scan/
     file-read logic `read_setuptools()` already uses for `setup.cfg`'s
     `version = attr: ...`, not a second implementation. Falls through
     to the Hatchling/generic-candidate checks unchanged when the
-    directive is absent or doesn't resolve. (`_pyproject.py` was also
+    directive is absent or doesn't resolve. (`pyproject.py` was also
     split at this point -- all PEP 621 `dynamic` field resolution now
-    lives in `_pyproject_dynamic.py`, keeping the parent module from
+    lives in `pyproject_dynamic.py`, keeping the parent module from
     growing into a dumping ground.)
   - See `test_extract_dynamic_version_setuptools_dynamic_attr`/`_file`/
-    `_missing_falls_through` in `tests/extract/test_pyproject_dynamic.py`.
+    `_missing_falls_through` in `tests/extract/project/test_pyproject_dynamic.py`.
 - **Every other license style in this round needed no code changes.**
   - Covered: PEP 639 strings, compound expressions, classifier-only, a
     table-header `[project.license]` section, `setuptools_scm`-driven

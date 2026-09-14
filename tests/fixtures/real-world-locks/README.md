@@ -15,7 +15,7 @@ single-behaviour lock fixtures, e.g. malformed/edge-case content written
 inline in each format's own test file, not vendored here);
 [`../../../working-docs/implementation/lock-file-cascade.md`](../../../working-docs/implementation/lock-file-cascade.md)
 for the priority-cascade mechanism these fixtures exercise;
-[`../../extract/test_locked_dependencies.py`](../../extract/test_locked_dependencies.py)
+[`../../extract/lock/test_cascade.py`](../../extract/lock/test_cascade.py)
 for the cascade's own mechanism tests.
 
 ## What's here
@@ -39,7 +39,7 @@ Each `<format>/<project>-<version>/` directory holds:
 
 No sdist archive, no `.git` history, no source code -- these fixtures
 exist only to exercise `pitloom.extract.project.read_project()`'s lock
-cascade (`pitloom.extract._locked_dependencies.apply_locked_dependencies`),
+cascade (`pitloom.extract.lock.cascade.apply_locked_dependencies`),
 which only ever reads a project's metadata file and a sibling lock file
 by name. Each pair is a few KB to a couple hundred KB of plain text.
 
@@ -72,7 +72,7 @@ artifact.
   `lock-file-cascade.md`. Both `requests-html`'s and `responder`'s
   `setup.py` declare `name`/`version` via module-level constants
   (`NAME = 'requests-html'`, `setup(name=NAME, ...)`), which
-  `_setuptools_py.py`'s AST-literal extractor can't resolve (a known,
+  `setuptools_py.py`'s AST-literal extractor can't resolve (a known,
   separate, pre-existing gap -- see the `pyyaml` entry in
   `real-world-projects/README.md`) -- so `metadata.name` won't resolve
   for either. Tests against these two fixtures assert on
@@ -135,7 +135,7 @@ artifact.
   `requirements.txt` was found during research (see
   `working-docs/implementation/lock-file-cascade.md` for the candidates
   checked and ruled out) -- the accept path is instead covered by small,
-  synthetic, inline content in `tests/extract/test_requirements_txt.py`
+  synthetic, inline content in `tests/extract/lock/test_requirements.py`
   itself, per this directory's own "synthetic content isn't vendored
   here" convention (see the top of this file).
 

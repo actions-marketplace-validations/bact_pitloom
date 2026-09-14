@@ -144,39 +144,19 @@ pitloom/
 │       │   └── readme.py           # README.md/MODEL_CARD.md YAML frontmatter enricher
 │       ├── export/                 # Layer 4 -- serialise to physical format
 │       │   └── spdx3_json.py       # SPDX 3 JSON-LD serialiser
-│       ├── extract/                # Layer 1 -- read sources (_prefix = internal, see AGENTS.md)
-│       │   ├── _croissant.py       # Croissant metadata parser
-│       │   ├── _croissant_keys.py  # Croissant JSON-LD key constants
+│       ├── extract/                # Layer 1 -- read sources
+│       │   ├── ai_model/           # AI model extractors (fasttext, gguf, hdf5, keras, numpy, onnx, pytorch, pytorch_pt2, safetensors, reader)
+│       │   ├── dataset/            # Dataset extractors (croissant, croissant_key, reader)
+│       │   ├── lock/               # Lockfile extractors (cascade, poetry, pdm, uv, pylock, pipfile, requirements, _common, _hash, etc.)
+│       │   ├── project/            # Build backend & project metadata extractors (pyproject, poetry, pdm, flit, setuptools, sdist, hatchling, reader)
+│       │   ├── remote/             # Remote registries/hubs (huggingface, huggingface_fetch, huggingface_field)
 │       │   ├── _extract_utils.py   # Shared extraction utilities (incl. provenance sanitization)
-│       │   ├── _fasttext.py        # fastText (.ftz, .bin)
 │       │   ├── _file_headers.py    # SPDX-File* comment-header scanner
-│       │   ├── _gguf.py            # GGUF (.gguf)
-│       │   ├── _hdf5.py            # HDF5 / Keras v1-v2 (.h5, .hdf5)
-│       │   ├── _huggingface.py     # Hugging Face Hub model extraction (facade)
-│       │   ├── _huggingface_fetch.py # HF API/card fetching + license detection
-│       │   ├── _huggingface_fields.py # HF metadata field parsing
-│       │   ├── _keras.py           # Keras v3 (.keras)
-│       │   ├── _license_detect.py  # License text detection and file scanning
 │       │   ├── _license.py         # License normalization and resolution facade
-│       │   ├── _numpy.py           # NumPy (.npy, .npz)
-│       │   ├── _onnx.py            # ONNX (.onnx)
-│       │   ├── _poetry.py          # [tool.poetry] extractor; Poetry -> PEP 440 conversion
-│       │   ├── _poetry_lock.py     # poetry.lock main-group transitive deps (source-stage only)
-│       │   ├── _pyproject.py       # pyproject.toml extractor ([project] + [tool.poetry] merge)
-│       │   ├── _pytorch.py         # PyTorch classic (.pt, .pth)
-│       │   ├── _pytorch_pt2.py     # PyTorch PT2 / ExecuTorch (.pt2)
-│       │   ├── _safetensors.py     # Safetensors (.safetensors)
-│       │   ├── _sdist.py           # sdist archive (.tar.gz/.zip) unpacking
-│       │   ├── _setuptools_cfg.py  # setup.cfg parser and [tool:pitloom] config extraction
-│       │   ├── _setuptools_py.py   # setup.py AST parser
-│       │   ├── _setuptools.py      # Setuptools extractor facade and backend detection
+│       │   ├── _license_detect.py  # License text detection and file scanning
 │       │   ├── _toml_io.py         # Shared tomllib/tomli compat import + raw TOML-file read
-│       │   ├── ai_model.py         # AI model dispatcher + format detection (public entry point)
 │       │   ├── binary.py           # Bundled third-party binary ("phantom dependency") detection
-│       │   ├── dataset.py          # Dataset metadata extraction public API (Croissant)
 │       │   ├── env.py              # Deployed SBOM: installed-environment dependency tree
-│       │   ├── hatchling.py        # Metadata from Hatchling's own resolved ProjectMetadata
-│       │   ├── project.py          # pyproject.toml/setup.cfg/setup.py -> dispatcher (public entry point)
 │       │   ├── scanner.py          # Heuristic scanner for AI model files
 │       │   └── wheel.py            # Analyzed SBOM: project metadata + file records from a built .whl
 │       ├── plugins/                # Build-system integrations

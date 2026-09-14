@@ -37,7 +37,7 @@ Field names below are the 2021 originals; CISA 2026's Appendix B documents each 
 
 | 2021 element | Pitloom/SPDX 3 field | Status |
 | :--- | :--- | :--- |
-| Supplier Name | dependency: `suppliedBy` -> `Agent` via `_apply_supplier`/PyPI JSON API (`deps.py`); main package: `software_Package.suppliedBy`, but only set when `[[tool.pitloom.creator]]` is configured (`document.py`'s `_build_main_package`) | conditional (deps, PyPI-resolvable only); **gap** for the main package unless `[[tool.pitloom.creator]]` is set -- same config also fixes `Author of SBOM Data` below, see the note there |
+| Supplier Name | dependency: `originatedBy` -> `Agent` via `_apply_originator`/PyPI JSON API (`deps_originator.py`, called from `deps.py`'s `_enrich_from_pypi`); main package: `software_Package.suppliedBy`, but only set when `[[tool.pitloom.creator]]` is configured (`document.py`'s `_build_main_package`) | conditional (deps, PyPI-resolvable only); **gap** for the main package unless `[[tool.pitloom.creator]]` is set -- same config also fixes `Author of SBOM Data` below, see the note there. Note the field differs: deps get `originatedBy`, only the main package gets `suppliedBy` |
 | Component Name | `software_Package.name` / `ai_AIPackage.name` | covered |
 | Version of the Component | `software_packageVersion` (explicit `"unknown"` string when not resolvable -- already matches the 2021/2026 "indicate unknown" guidance) | covered |
 | Other Unique Identifiers | `software_packageUrl` (PURL); main package always, deps only when resolvable | conditional |
@@ -74,9 +74,9 @@ Automation Support (SPDX 3 JSON-LD is machine-processable -- covered), Frequency
 
 | Element | Pitloom/SPDX 3 field | Status |
 | :--- | :--- | :--- |
-| Component Producer | dependency: `suppliedBy` via `_apply_supplier` from PyPI JSON API; main package: `software_Package.suppliedBy`, only when `[[tool.pitloom.creator]]` is configured | conditional (deps, PyPI-resolvable only); **gap** for the main package unless `[[tool.pitloom.creator]]` is set -- see NTIA's "Supplier Name" row above |
+| Component Producer | dependency: `originatedBy` via `_apply_originator` (`deps_originator.py`) from PyPI JSON API; main package: `software_Package.suppliedBy`, only when `[[tool.pitloom.creator]]` is configured | conditional (deps, PyPI-resolvable only); **gap** for the main package unless `[[tool.pitloom.creator]]` is set -- see NTIA's "Supplier Name" row above |
 | Component Dependency Relationship | `Relationship`/`LifecycleScopedRelationship` | covered |
-| Component Hash Value / Algorithm | `verifiedUsing` (`{"algorithm": "sha256", "hashValue": ...}`); set on dataset files/packages and on PyPI-resolved deps (`_extract_release_hash`); **not** set on the main project package (a `loom project`-level SBOM describes source, not a built artifact) | conditional -- present on deps only when a definite version resolves; absent by design on a source-level main package (ask whether a built-artifact hash is even expected before treating this as a gap) |
+| Component Hash Value / Algorithm | `verifiedUsing` (`{"algorithm": "sha256", "hashValue": ...}`); set on dataset files/packages, lock-file-resolved dependencies (via SHA-256 digests in supported lock files, taking priority and applied in both online and offline builds), and PyPI-resolved deps (`_extract_release_hash` fallback, `deps_pypi.py`); **not** set on the main project package (a `loom project`-level SBOM describes source, not a built artifact) | conditional -- present on deps only when a definite version resolves; absent by design on a source-level main package (ask whether a built-artifact hash is even expected before treating this as a gap) |
 | Component Identifiers | `software_packageUrl` (PURL) | conditional, same as NTIA's "Other Unique Identifiers" |
 | Component License | `simplelicensing_SimpleLicensingText` + relationship (main package, from `project.license`); deps via PyPI JSON API (`_extract_pypi_license`) | conditional (deps, PyPI-resolvable only); main package usually covered when `pyproject.toml` declares a license |
 | Component Name | `software_Package.name` | covered |

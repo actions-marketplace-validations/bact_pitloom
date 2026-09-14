@@ -11,7 +11,7 @@ from pathlib import Path
 
 from pitloom.assemble import generate_project_sbom
 from pitloom.core.creation import CreationMetadata, Creator
-from pitloom.extract._pyproject import read_pyproject
+from pitloom.extract.project.pyproject import read_pyproject
 
 
 def test_provenance_basic_fields() -> None:

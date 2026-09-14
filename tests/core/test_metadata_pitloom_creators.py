@@ -19,7 +19,7 @@ from pathlib import Path
 import pytest
 
 from pitloom.core.creation import Creator, Tool
-from pitloom.extract._pyproject import read_pyproject
+from pitloom.extract.project.pyproject import read_pyproject
 
 
 def test_extract_pitloom_bad_creator_type_raises_at_config_read() -> None:

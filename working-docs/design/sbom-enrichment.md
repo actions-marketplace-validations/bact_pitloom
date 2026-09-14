@@ -53,7 +53,7 @@ types between `ai_AIPackage` and `dataset_DatasetPackage`:
   `list[DatasetReference]` (`pitloom.core.dataset_metadata`) carrying each
   dataset's role, name, URI, and license -- populated today by the
   README/model-card frontmatter enricher (`enrich/readme.py`) and the
-  Hugging Face extractor (`extract/_huggingface.py`).
+  Hugging Face extractor (`extract/remote/huggingface.py`).
 - `add_datasets_for_model()` (`src/pitloom/assemble/spdx3/dataset.py`)
   creates the `dataset_DatasetPackage` element and emits the relationship,
   mapping each role to its native SPDX 3.0.1 `RelationshipType` where one
@@ -381,7 +381,7 @@ inference (or no enrichment) for anything these would have covered.
    model's enrichment look in" is decided, shared rather than
    reimplemented per caller. Only the local-file path runs `readme.py` --
    a Hugging Face Hub source already gets model-card frontmatter natively
-   via `_load_model_card()` in `_huggingface.py`.
+   via `_load_model_card()` in `pitloom.extract.remote.huggingface_fetch`.
 4. `enrich_model()` (same file) is the standalone-fragment counterpart:
    runs the same `run_enrichers()` call but skips full document assembly,
    producing just the new elements via `build_enrichment_fragment()`
