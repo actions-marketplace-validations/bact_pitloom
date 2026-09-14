@@ -1,6 +1,6 @@
 ---
 Created: 2026-04-14
-Last-Modified: 2026-09-12
+Last-Modified: 2026-09-14
 SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 SPDX-FileType: DOCUMENTATION
 SPDX-License-Identifier: CC0-1.0
@@ -139,9 +139,9 @@ table in [non-hatchling-file-discovery.md](non-hatchling-file-discovery.md));
   set from static config, instead of Hatchling's `WheelBuilder`. See
   [setuptools-support.md](../implementation/setuptools-support.md) and
   [sbom-lifecycle-stages.md](../implementation/sbom-lifecycle-stages.md).
-- [ ] **`get_wheel_files()` option to skip Merkle root computation** --
-  avoidable I/O for `embed-wheel`'s one current caller. See
-  [performance-optimizations.md](performance-optimizations.md#skip-merkle-root-in-get_wheel_files).
+- [x] **`get_wheel_files()` option to skip Merkle root computation** --
+  `embed-wheel`'s one caller now skips per-file hashing entirely. See
+  [get-wheel-files-skip-merkle-root.md](../implementation/get-wheel-files-skip-merkle-root.md).
 - [ ] **Installed `.dist-info` / `.egg-info` as metadata source** -- treat
   an existing installed package as a high-fidelity source when present
   (editable installs, virtual environments).

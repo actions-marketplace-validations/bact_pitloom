@@ -15,6 +15,7 @@ from functools import lru_cache
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
 from pathlib import Path
+from typing import cast
 
 from spdx_python_model.bindings import v3_0_1 as spdx3
 
@@ -309,6 +310,14 @@ def _add_package_files(
             if rel1:
                 exporter.add_relationship(rel1)
 
+        # ProjectFile.digest_sha256 is typed Optional to accommodate
+        # get_wheel_files(skip_merkle_root=True) (see embed.py), but
+        # metadata.files here is always either the wheel's own
+        # post-merge files or a get_wheel_files() call with the default
+        # skip_merkle_root=False -- never the skip-hashing path -- so
+        # the digest is always populated in practice.
+        file_digest = cast(str, package_file.digest_sha256)
+
         registered_id = None
         if registry is not None:
             # physical_path (project-root-relative, e.g. from `pitloom ids
@@ -320,10 +329,8 @@ def _add_package_files(
             # differ for any src/-layout project, where auto-harvest's
             # entries would otherwise never be found again.
             registered_id = registry.lookup_file(
-                package_file.physical_path, package_file.digest_sha256
-            ) or registry.lookup_file(
-                package_file.distribution_path, package_file.digest_sha256
-            )
+                package_file.physical_path, file_digest
+            ) or registry.lookup_file(package_file.distribution_path, file_digest)
         package_entry = spdx3.software_File(
             spdxId=registered_id
             or generate_spdx_id("File", doc_name=metadata.name, doc_uuid=doc_uuid),
@@ -331,7 +338,7 @@ def _add_package_files(
             creationInfo=spdx_ci,
         )
         package_entry.software_fileKind = spdx3.software_FileKindType.file
-        package_entry.verifiedUsing = [sha256_hash(package_file.digest_sha256)]
+        package_entry.verifiedUsing = [sha256_hash(file_digest)]
         exporter.add_file(package_entry)
         _emit_file_header_metadata(
             package_entry,

@@ -13,7 +13,7 @@ from __future__ import annotations
 import dataclasses
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from spdx_python_model.bindings import v3_0_1 as spdx3
 
@@ -138,7 +138,12 @@ def _compute_wheel_merkle_root(files: list[ProjectFile]) -> str | None:
     if not files:
         return None
     ordered = sorted(files, key=lambda f: f.distribution_path)
-    leaf_hashes = [bytes.fromhex(f.digest_sha256) for f in ordered]
+    # ProjectFile.digest_sha256 is Optional to accommodate
+    # get_wheel_files(skip_merkle_root=True), but `files` here is always
+    # _merge_file_extras()'s output, which inherits every entry's digest
+    # from wheel_metadata.files (the wheel's own real hashes) -- never
+    # from the skip-hashing rescan -- so it's always populated.
+    leaf_hashes = [bytes.fromhex(cast(str, f.digest_sha256)) for f in ordered]
     return _build_merkle_tree(leaf_hashes)
 
 
@@ -153,13 +158,17 @@ def _build_sbom_from_project_and_wheel(
     # merkle_root (the rescan's own, over project_dir's on-disk bytes) is
     # deliberately discarded here -- see _compute_wheel_merkle_root below,
     # which recomputes it from the wheel's own (post-merge) file hashes so
-    # it can't diverge from what merged_files actually reports.
+    # it can't diverge from what merged_files actually reports. Per-file
+    # digest_sha256 is skipped for the same reason: _merge_file_extras
+    # below only adopts project_files' content-type/header extras, never
+    # its digest, so hashing every file here would be wasted I/O too.
     _, project_files = get_wheel_files(
         project_dir,
         scan_file_headers=pitloom_config.extract_file_header,
         detect_content_type=pitloom_config.content_type.enabled,
         content_type_method=pitloom_config.content_type.method,
         content_type_overrides=pitloom_config.content_type.overrides,
+        skip_merkle_root=True,
     )
     # Layer content-type/file-header extras onto the wheel's own file
     # records rather than replacing them outright: replacing would drop

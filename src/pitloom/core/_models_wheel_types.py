@@ -12,8 +12,14 @@ See also: :mod:`pitloom.core._models_wheel` (dispatch facade),
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import NamedTuple, Protocol, TypedDict
+from typing import TYPE_CHECKING, NamedTuple, Protocol, TypedDict
+
+from pitloom.core.content_type_config import ContentTypeOverride
+
+if TYPE_CHECKING:
+    from pitloom.extract._file_headers import FileHeaderMetadata
 
 
 class IncludedFile(NamedTuple):
@@ -78,6 +84,23 @@ def to_posix_distribution_path(path: str) -> str:
     Poetry, Flit each needed it independently) -- see CLAUDE.md's note
     that a pattern repeated across 3+ call sites drifts."""
     return path.replace("\\", "/")
+
+
+class FileScanConfig(NamedTuple):
+    """Optional per-file header/content-type scanner config, bundled so
+    it threads through :mod:`pitloom.core._models_wheel`'s per-file
+    helpers as one object instead of four separate parameters each.
+
+    ``parse_header``/``detect_content`` are ``None`` when their
+    respective scan (``scan_file_headers``/``detect_content_type``) is
+    off -- see :func:`~pitloom.core._models_wheel._resolve_file_header_extras`,
+    the sole consumer.
+    """
+
+    parse_header: Callable[[bytes], FileHeaderMetadata | None] | None
+    detect_content: Callable[[bytes, str, str], tuple[str | None, str | None]] | None
+    content_type_overrides: tuple[ContentTypeOverride, ...]
+    content_type_method: str
 
 
 class FileHeaderExtras(TypedDict):

@@ -12,7 +12,7 @@ root) regardless of which backend resolved the file list.
 
 See also: :mod:`pitloom.core.models` for SPDX model identifiers and
 Merkle calculation; :mod:`pitloom.core._models_wheel_types` for the
-shared ``IncludedFile``/``FileHeaderExtras`` types;
+shared ``IncludedFile``/``FileHeaderExtras``/``FileScanConfig`` types;
 :mod:`pitloom.core._models_wheel_hatchling`/
 :mod:`pitloom.core._models_wheel_setuptools` for the backend
 implementations; ``working-docs/implementation/sbom-lifecycle-stages.md``
@@ -26,23 +26,20 @@ import hashlib
 import logging
 import operator
 import threading
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 from pitloom.core import _models_wheel_hatchling
 from pitloom.core._models_wheel_types import (
     BackendDiscoverer,
     FileHeaderExtras,
+    FileScanConfig,
     IncludedFile,
     has_resolvable_pyproject_config,
 )
 from pitloom.core.content_type_config import ContentTypeOverride
 from pitloom.core.project import ProjectFile
-
-if TYPE_CHECKING:
-    from pitloom.extract._file_headers import FileHeaderMetadata
 
 log = logging.getLogger(__name__)
 
@@ -123,35 +120,31 @@ class _DiscoveryLock:
 _DISCOVERY_LOCK = _DiscoveryLock()
 
 
-# pylint: disable-next=too-many-arguments,too-many-positional-arguments
 def _resolve_file_header_extras(
     raw_bytes: bytes,
     filename: str,
     distribution_path: str,
-    parse_header: Callable[[bytes], FileHeaderMetadata | None] | None,
-    detect_content: Callable[[bytes, str, str], tuple[str | None, str | None]] | None,
-    content_type_overrides: tuple[ContentTypeOverride, ...],
-    content_type_method: str,
+    scan_config: FileScanConfig,
 ) -> FileHeaderExtras:
     """Resolve the optional per-file header/content-type fields for *raw_bytes*."""
-    header = parse_header(raw_bytes) if parse_header else None
+    header = scan_config.parse_header(raw_bytes) if scan_config.parse_header else None
     content_type: str | None = None
     resolved_method: str | None = None
-    if detect_content:
+    if scan_config.detect_content:
         override = None
-        if content_type_overrides:
+        if scan_config.content_type_overrides:
             # pylint: disable=import-outside-toplevel
             from pitloom.extract._file_headers import resolve_content_type_override
 
             override = resolve_content_type_override(
-                distribution_path, content_type_overrides
+                distribution_path, scan_config.content_type_overrides
             )
         if override is not None:
             content_type = override.content_type
             resolved_method = "config_override"
         else:
-            content_type, resolved_method = detect_content(
-                raw_bytes, filename, content_type_method
+            content_type, resolved_method = scan_config.detect_content(
+                raw_bytes, filename, scan_config.content_type_method
             )
     return FileHeaderExtras(
         copyright_text=header.copyright_text if header else None,
@@ -296,7 +289,59 @@ def _discover_included_files(
         return _models_wheel_hatchling.discover(project_dir) or []
 
 
-# pylint: disable=too-many-locals
+def _build_project_file_entry(
+    source: Path,
+    included_file: IncludedFile,
+    project_dir: Path,
+    *,
+    need_bytes: bool,
+    skip_merkle_root: bool,
+    scan_config: FileScanConfig,
+) -> tuple[ProjectFile, bytes | None]:
+    """Build one *source*'s :class:`ProjectFile` entry (and its digest, if hashed).
+
+    *source* must already be known to exist as a regular file (the
+    caller's ``source.is_file()`` check). When *need_bytes* is
+    ``False``, *source* is still opened and immediately closed (no
+    read) -- a genuine access failure (permissions, a TOCTOU race)
+    still raises here, same as a full read would, instead of silently
+    producing an entry for an unreadable file.
+
+    Returns the built :class:`ProjectFile` and the raw SHA-256 digest
+    bytes (or ``None`` when *skip_merkle_root* left it uncomputed).
+    """
+    distribution_path = included_file.distribution_path
+    if need_bytes:
+        raw_bytes = source.read_bytes()
+    else:
+        with source.open("rb"):
+            pass
+        raw_bytes = b""
+
+    digest_bytes: bytes | None = None
+    digest_sha256: str | None = None
+    if not skip_merkle_root:
+        digest_bytes = hashlib.sha256(raw_bytes).digest()
+        digest_sha256 = digest_bytes.hex()
+
+    try:
+        rel_path = source.relative_to(project_dir).as_posix()
+    except ValueError:
+        rel_path = source.as_posix()
+
+    extras = _resolve_file_header_extras(
+        raw_bytes, source.name, distribution_path, scan_config
+    )
+    project_file = ProjectFile(
+        physical_path=rel_path,
+        distribution_path=distribution_path,
+        digest_sha256=digest_sha256,
+        **extras,
+    )
+    return project_file, digest_bytes
+
+
+# pylint: disable=too-many-locals,too-many-arguments,too-many-positional-arguments
 def get_wheel_files(
     project_dir: Path,
     *,
@@ -305,6 +350,7 @@ def get_wheel_files(
     content_type_method: str = "auto",
     content_type_overrides: tuple[ContentTypeOverride, ...] = (),
     assume_backend: str | None = None,
+    skip_merkle_root: bool = False,
 ) -> tuple[str | None, list[ProjectFile]]:
     """Get all files included in the wheel and compute their SHA-256 Merkle root.
 
@@ -322,6 +368,17 @@ def get_wheel_files(
     ``physical_path`` that diverges from *project_dir*'s own on-disk
     identity -- see :class:`~pitloom.core.project.ProjectFile`'s
     ``physical_path`` contract.
+
+    *skip_merkle_root* skips per-file SHA-256 hashing and the Merkle
+    root computation: the returned root is always ``None`` and every
+    returned :class:`~pitloom.core.project.ProjectFile` has
+    ``digest_sha256=None``. Only meaningful when *scan_file_headers*
+    and *detect_content_type* are both off too -- otherwise each
+    file's bytes are already read for those scanners and hashing them
+    on top is nearly free. A file that fails to open is still detected
+    (a cheap open/close probe replaces the full read) so a genuine
+    access failure still degrades the whole call to ``(None, [])``,
+    same as when hashing is on.
     """
     project_dir = project_dir.resolve()
     parse_header = None
@@ -343,46 +400,40 @@ def get_wheel_files(
             require_magika_available()
         detect_content = guess_content_type
 
+    scan_config = FileScanConfig(
+        parse_header=parse_header,
+        detect_content=detect_content,
+        content_type_overrides=content_type_overrides,
+        content_type_method=content_type_method,
+    )
+
     try:
         included_files = _discover_included_files(
             project_dir, assume_backend=assume_backend
         )
         project_files: list[ProjectFile] = []
         file_entries: list[tuple[str, bytes]] = []
+        need_bytes = scan_file_headers or detect_content_type or not skip_merkle_root
         for included_file in included_files:
             source = Path(included_file.path)
-            if source.is_file():
-                distribution_path = included_file.distribution_path
-                raw_bytes = source.read_bytes()
-                digest_bytes = hashlib.sha256(raw_bytes).digest()
-                file_entries.append((distribution_path, digest_bytes))
-                try:
-                    rel_path = source.relative_to(project_dir).as_posix()
-                except ValueError:
-                    rel_path = source.as_posix()
-
-                extras = _resolve_file_header_extras(
-                    raw_bytes,
-                    source.name,
-                    distribution_path,
-                    parse_header,
-                    detect_content,
-                    content_type_overrides,
-                    content_type_method,
-                )
-                project_files.append(
-                    ProjectFile(
-                        physical_path=rel_path,
-                        distribution_path=distribution_path,
-                        digest_sha256=digest_bytes.hex(),
-                        **extras,
-                    )
-                )
+            if not source.is_file():
+                continue
+            project_file, digest_bytes = _build_project_file_entry(
+                source,
+                included_file,
+                project_dir,
+                need_bytes=need_bytes,
+                skip_merkle_root=skip_merkle_root,
+                scan_config=scan_config,
+            )
+            project_files.append(project_file)
+            if digest_bytes is not None:
+                file_entries.append((project_file.distribution_path, digest_bytes))
     # pylint: disable=broad-exception-caught
     except Exception:
         return None, []
 
-    if not file_entries:
+    if not project_files:
         return None, []
 
     # Discovery order isn't guaranteed stable across runs/filesystems
@@ -390,8 +441,11 @@ def get_wheel_files(
     # sort) -- sort both the Merkle-root input and the returned file
     # list by distribution_path so the SBOM is bit-for-bit identical
     # across builds of the same, unchanged project.
-    file_entries.sort(key=operator.itemgetter(0))
     project_files.sort(key=lambda project_file: project_file.distribution_path)
+    if skip_merkle_root:
+        return None, project_files
+
+    file_entries.sort(key=operator.itemgetter(0))
     # pylint: disable-next=import-outside-toplevel,cyclic-import
     from pitloom.core.models import _build_merkle_tree
 

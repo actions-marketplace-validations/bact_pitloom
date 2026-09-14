@@ -19,6 +19,9 @@ class ProjectFile:
         physical_path: Absolute or relative path to the physical file on disk.
         distribution_path: Canonical path of the file inside the wheel/package.
         digest_sha256: Hex-encoded SHA-256 digest of the file contents.
+            ``None`` when discovered via
+            ``pitloom.core._models_wheel.get_wheel_files(skip_merkle_root=True)``,
+            which skips per-file hashing entirely.
         copyright_text: The file's own declared copyright text, from an
             ``SPDX-FileCopyrightText:`` tag or a bare ``Copyright (c) ...``
             fallback line in its header. ``None`` when neither is present
@@ -53,7 +56,7 @@ class ProjectFile:
 
     physical_path: str
     distribution_path: str
-    digest_sha256: str
+    digest_sha256: str | None = None
     copyright_text: str | None = None
     copyright_source: str | None = None
     file_contributors: list[str] = field(default_factory=list)
