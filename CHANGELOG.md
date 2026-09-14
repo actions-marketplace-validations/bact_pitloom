@@ -76,9 +76,6 @@ and this project adheres to
 
 ### Changed
 
-- `embed-wheel` skips per-file SHA-256 hashing in `get_wheel_files()`'s
-  source-tree rescan, since it only used the digests for a Merkle root
-  it already discarded
 - Promote 18 log messages from `DEBUG:` to `WARNING:` (shown by
   default, not just under `--debug`) where a failure silently drops
   data from the generated SBOM: Hugging Face Hub fetch failures
@@ -88,6 +85,9 @@ and this project adheres to
   parsing, and `pitloom.loom` caller-provenance detection. Each promoted
   message names the affected SBOM field(s) via one grep-able shape,
   `... | Field(s) affected (skipped|degraded): <name>` ([#201])
+- `embed-wheel` skips per-file SHA-256 hashing in `get_wheel_files()`'s
+  source-tree rescan, since it only used the digests for a Merkle root
+  it already discarded ([#213])
 
 [#198]: https://github.com/bact/pitloom/pull/198
 [#200]: https://github.com/bact/pitloom/pull/200
@@ -100,6 +100,7 @@ and this project adheres to
 [#210]: https://github.com/bact/pitloom/pull/210
 [#211]: https://github.com/bact/pitloom/pull/211
 [#212]: https://github.com/bact/pitloom/pull/212
+[#213]: https://github.com/bact/pitloom/pull/213
 
 ## [0.17.0] - 2026-08-30
 
