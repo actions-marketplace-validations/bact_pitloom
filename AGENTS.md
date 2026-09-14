@@ -411,6 +411,25 @@ For `working-docs/` standalone docs, include `Created` and `Last-Modified` (`YYY
 - **No non-deterministic assertions**: Never assert against real wall-clock time (`datetime.now()`, `time.time()`, `date.today()`), unseeded random/UUID values, or set/dict iteration order. Use a fixed/frozen timestamp, mock the random source, or sort before comparing. Elapsed-duration checks (e.g. concurrency regression tests bounding `time.monotonic()` deltas) are a different category and fine with a generous bound.
 - **Don't couple tests to undocumented internals**: A `pytest.raises(match=...)` or log-message assertion should target wording the source documents as intentional (a deliberate user-facing error/warning, a documented format's field/member name), not an incidental internal string that could change during a harmless refactor. Prefer a short, stable substring over the full message. SPDX3 field/type assertions must come from the spec (`spdx_python_model.bindings`), not an undocumented Pitloom-internal layout.
 - **Runtime warnings are test failures**: `filterwarnings = ["error"]` (OpenSSF `warnings_strict`) turns every `DeprecationWarning`/`ResourceWarning`/pytest-internal warning into a hard failure -- there is no silent "printed but ignored" path. If a genuinely unavoidable third-party warning appears, add a specific, narrowly-scoped `ignore::` filter entry (module/category-qualified), never a blanket one, and say why in a comment next to it.
+- **Drift-guard test for two independent implementations of the same
+  operation**: when a public-API path and an internal path both do
+  "find then parse" (or similar) over separate code, don't refactor one
+  into the other just to kill the duplication -- add a test asserting
+  both resolve to the exact same result for one shared fixture. Cheap,
+  catches one side changing without the other, no risk to working code.
+- **Adversarial edge-case tests pay off most on tri-state (None/empty/
+  absent) and cascade/tie-break logic**: per new field or merge path,
+  one test per boundary -- declared-but-empty vs. absent, spec-
+  equivalent-but-differently-formatted values (not a real conflict),
+  multiple candidates needing a deterministic tie-break, malformed/
+  truncated input. Catches the bug classes under "Recurring bug
+  patterns" above before real-world input does.
+- **Manual CLI checks (below) complement pytest, not redundant with
+  it**: pytest catches in-process logic bugs; a real CLI run against a
+  hand-crafted adversarial fixture catches what in-process tests can't
+  -- correct `WARNING:` wording/count on real stderr, `--debug`/env-var
+  threading, determinism, CLI/library-API parity. Run both for any
+  change touching a metadata source or reconciliation/cascade logic.
 
 ### Manual CLI integration checks (post-pytest, pre-commit)
 
