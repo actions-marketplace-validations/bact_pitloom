@@ -53,9 +53,22 @@ log = logging.getLogger(__name__)
 #: ``.egg-info``/``.dist-info`` directory -- never ``rglob``/a recursive
 #: walk (perf and safety: must not descend into an accidentally-vendored
 #: ``node_modules``/``vendor/`` tree sitting inside the project directory).
+#:
+#: ``src/*.egg-info``/``src/*.dist-info`` (one path segment under ``src/``)
+#: is the empirically-verified real case: setuptools' own ``egg_info``
+#: command writes ``<name>.egg-info`` directly under ``src/`` for a
+#: ``package_dir={"": "src"}`` project (verified via a real
+#: ``python setup.py egg_info`` run against a ``src/``-layout project --
+#: it does **not** nest it inside an extra package-name directory).
+#: ``src/*/*.egg-info``/``src/*/*.dist-info`` (two segments) is kept
+#: alongside it defensively for a layout/backend this project hasn't
+#: independently verified writes there, since the bounded, shallow glob
+#: costs little to keep broad.
 _CANDIDATE_GLOBS = (
     "*.egg-info",
     "*.dist-info",
+    "src/*.egg-info",
+    "src/*.dist-info",
     "src/*/*.egg-info",
     "src/*/*.dist-info",
 )
@@ -179,15 +192,18 @@ def _evaluate_candidate_dir(
     return _Candidate(marker_path=marker_path, label=label, message=msg)
 
 
-def find_installed_metadata_candidate(
+def _discover_candidate(
     project_dir: Path, resolved_name: str, *, quiet: bool = False
-) -> tuple[Path, str] | None:
+) -> _Candidate | None:
     """Search *project_dir* for an in-tree ``.egg-info``/``.dist-info``
-    directory whose declared ``Name`` canonically matches *resolved_name*.
-
-    Returns ``(marker_file_path, human_label)`` for the single winning
-    candidate (e.g. ``(Path(".../mypkg.egg-info/PKG-INFO"),
-    "mypkg.egg-info")``), or ``None`` when nothing usable was found.
+    directory whose declared ``Name`` canonically matches *resolved_name*,
+    returning the winning :class:`_Candidate` -- marker path, human label,
+    and its already-parsed :class:`email.message.Message` -- so a caller
+    that needs the parsed metadata (:func:`reconcile_installed_metadata`'s
+    caller in ``reader.py``) never has to re-read and re-parse the exact
+    bytes this function already read. :func:`find_installed_metadata_candidate`
+    is the public, tuple-returning wrapper for callers that only need the
+    path/label.
 
     A name-mismatched candidate is rejected entirely -- before the
     dist-info-vs-egg-info tie-break ever runs, not after -- so a
@@ -217,8 +233,7 @@ def find_installed_metadata_candidate(
     if not survivors:
         return None
     if len(survivors) == 1:
-        winner = survivors[0]
-        return winner.marker_path, winner.label
+        return survivors[0]
 
     survivors.sort(key=_sort_key)
     winner = survivors[0]
@@ -230,7 +245,24 @@ def find_installed_metadata_candidate(
             found_labels,
             winner.label,
         )
-    return winner.marker_path, winner.label
+    return winner
+
+
+def find_installed_metadata_candidate(
+    project_dir: Path, resolved_name: str, *, quiet: bool = False
+) -> tuple[Path, str] | None:
+    """Search *project_dir* for an in-tree ``.egg-info``/``.dist-info``
+    directory whose declared ``Name`` canonically matches *resolved_name*.
+
+    Returns ``(marker_file_path, human_label)`` for the single winning
+    candidate (e.g. ``(Path(".../mypkg.egg-info/PKG-INFO"),
+    "mypkg.egg-info")``), or ``None`` when nothing usable was found. See
+    :func:`_discover_candidate` for the full behavior this wraps.
+    """
+    candidate = _discover_candidate(project_dir, resolved_name, quiet=quiet)
+    if candidate is None:
+        return None
+    return candidate.marker_path, candidate.label
 
 
 def _parse_installed_urls(msg: email.message.Message) -> dict[str, str]:
@@ -366,17 +398,35 @@ def _reconcile_conflict_checked_field(
         return
 
     static_value = getattr(static, field_name)
+    # static_value can be None even though static_declared is True: every
+    # producer of these three fields collapses an explicitly-declared-empty
+    # source value to None (`str(x) if x else None` -- `requires-python =
+    # ""`, PEP 621's "no constraint" convention matching Poetry's
+    # `python = "*"`; likewise an empty/undetected `license`). None is not
+    # a valid comparator input -- SpecifierSet(None) and
+    # normalize_license_expression(None) both raise instead of comparing
+    # -- so compare against the empty string it's semantically equivalent
+    # to. The real (possibly-None) static_value is still what's logged and
+    # what a future gap-fill would see; only the comparator call and the
+    # recorded candidate's ``value`` (typed ``str``, never ``None``) use
+    # the normalized form.
+    comparable_static_value = static_value if static_value is not None else ""
     comparator = _FIELD_COMPARATORS[field_name]
-    if comparator(static_value, installed_value):
+    if comparator(comparable_static_value, installed_value):
         return
 
     static_source = static.provenance[provenance_key]
     installed_source = installed.provenance[provenance_key]
     candidates: list[ConflictCandidate] = [
-        {"value": static_value, "role": "declared", "source": static_source},
+        {"value": comparable_static_value, "role": "declared", "source": static_source},
         {"value": installed_value, "role": "declared", "source": installed_source},
     ]
-    merged.field_conflicts[field_name] = candidates
+    # Keyed by provenance_key, not field_name, so license_name's conflict
+    # lands under "license" -- matching deps_license.py's own declared-
+    # vs-concluded conflict field label for the same underlying concept,
+    # rather than a second, inconsistent "license_name" label for what a
+    # consumer would otherwise read as two different fields.
+    merged.field_conflicts[provenance_key] = candidates
     if not quiet:
         log.warning(
             "%s disagrees on %s (declared %r, installed %r) -- keeping declared",
@@ -437,18 +487,15 @@ def reconcile_installed_metadata(
     silently start participating here with no comparator/provenance
     thought through for it.
     """
-    # dataclasses.replace() shares container-field objects with *static*
-    # verbatim (no field override given for provenance/field_conflicts
-    # here) -- rebuild both as fresh dicts before this function writes
-    # into either in place below, or those writes would silently mutate
-    # the caller's own *static* object too (see
-    # working-docs/design/installed-dist-info-source.md). A shallow copy
-    # of each outer dict is enough: this function only ever adds new keys
-    # (`merged.provenance[key] = ...`, `merged.field_conflicts[field] =
-    # ...`), never mutates an existing value in place.
-    merged = dataclasses.replace(static)
-    merged.provenance = dict(static.provenance)
-    merged.field_conflicts = dict(static.field_conflicts)
+    # replace_with_fresh_containers() (never a bare dataclasses.replace(),
+    # which would alias every container field -- including provenance and
+    # field_conflicts -- to *static*'s own object) gives every dict/list
+    # field a fresh shallow copy up front, since this function writes into
+    # both `merged.provenance[key] = ...` and
+    # `merged.field_conflicts[field] = ...` below and neither write may
+    # leak back into the caller's own *static* object (see
+    # working-docs/design/installed-dist-info-source.md).
+    merged = static.replace_with_fresh_containers()
     warn_subject = f"{project_dir}: installed metadata ({installed_label})"
     for f in dataclasses.fields(ProjectMetadata):
         if f.name in _CONFLICT_CHECKED_FIELDS:

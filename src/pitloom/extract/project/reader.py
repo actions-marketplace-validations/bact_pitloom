@@ -23,8 +23,8 @@ from pitloom.core.config import PitloomConfig
 from pitloom.core.project import ProjectMetadata, merge_project_metadata
 from pitloom.extract.lock import apply_locked_dependencies
 from pitloom.extract.project.installed import (
-    find_installed_metadata_candidate,
-    read_installed_metadata,
+    _discover_candidate,
+    _parse_installed_metadata,
     reconcile_installed_metadata,
 )
 from pitloom.extract.project.pyproject import read_pyproject
@@ -259,24 +259,26 @@ def _apply_installed_metadata(
     """Search *project_path* for an in-tree installed-metadata candidate
     (see :mod:`pitloom.extract.project.installed`) and reconcile it into
     *metadata*, if found. Returns *metadata* unchanged when nothing is
-    found or the found candidate can't be re-read.
+    found.
 
     Split out of :func:`read_project` purely to keep that function's own
     branch/local count under this repo's complexity ratchet -- no
     behavior split, just a named step.
+
+    Uses :func:`~pitloom.extract.project.installed._discover_candidate`
+    directly (not the public, tuple-returning
+    :func:`~pitloom.extract.project.installed.find_installed_metadata_candidate`)
+    so the winning candidate's already-parsed
+    :class:`email.message.Message` is reused for parsing here, instead of
+    re-reading and re-parsing the exact same marker file a second time.
     """
-    candidate = find_installed_metadata_candidate(
-        project_path, metadata.name, quiet=quiet
-    )
+    candidate = _discover_candidate(project_path, metadata.name, quiet=quiet)
     if candidate is None:
         return metadata
-    marker_path, installed_label = candidate
-    source_label = f"Source: {installed_label} | File: {marker_path.name}"
-    installed = read_installed_metadata(marker_path, source_label, quiet=quiet)
-    if installed is None:
-        return metadata
+    source_label = f"Source: {candidate.label} | File: {candidate.marker_path.name}"
+    installed = _parse_installed_metadata(candidate.message, source_label)
     return reconcile_installed_metadata(
-        metadata, installed, installed_label, project_path, quiet=quiet
+        metadata, installed, candidate.label, project_path, quiet=quiet
     )
 
 

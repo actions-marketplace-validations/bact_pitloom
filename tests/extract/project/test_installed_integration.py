@@ -23,6 +23,7 @@ import json
 import logging
 import tarfile
 from pathlib import Path
+from unittest import mock
 
 import pytest
 
@@ -96,6 +97,29 @@ def test_read_project_pep440_equivalent_no_warning(
     assert "disagrees on" not in caplog.text
     assert metadata.description == "Static description, always wins over Summary."
     assert metadata.keywords == ["static-keyword"]
+
+
+def test_read_project_installed_marker_read_exactly_once() -> None:
+    """Regression: the winning candidate's marker file must be read from
+    disk exactly once per read_project() call -- discovery's own parse
+    (kept in memory on the winning _Candidate) must be reused for
+    reconciliation, not re-read/re-parsed a second time."""
+    fixture = _FIXTURES / "installed-metadata-conflict"
+    marker_path = next(fixture.glob("*.egg-info/PKG-INFO"))
+    original_read_bytes = Path.read_bytes
+    read_count = 0
+
+    def counting_read_bytes(self: Path) -> bytes:
+        nonlocal read_count
+        if self == marker_path:
+            read_count += 1
+        return original_read_bytes(self)
+
+    with mock.patch.object(Path, "read_bytes", counting_read_bytes):
+        metadata, _cfg, _path = read_project(fixture)
+
+    assert metadata.field_conflicts
+    assert read_count == 1
 
 
 def test_read_project_dynamic_version_gap_fill() -> None:

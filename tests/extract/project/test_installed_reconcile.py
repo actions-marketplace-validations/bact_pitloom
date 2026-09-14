@@ -107,6 +107,47 @@ def test_reconcile_requires_python_equivalent_reformatted(tmp_path: Path) -> Non
     assert "requires_python" not in merged.field_conflicts
 
 
+def test_reconcile_requires_python_declared_empty_vs_installed_conflict(
+    tmp_path: Path,
+) -> None:
+    """Regression: `requires-python = ""` (PEP 621's explicit "no
+    constraint" convention) collapses to `requires_python=None` in every
+    static producer, but provenance still records it as declared. Must
+    not crash (SpecifierSet(None) raises TypeError, not the
+    InvalidSpecifier _requires_python_equal already catches) -- and must
+    be treated as a real disagreement against installed's concrete
+    constraint, static's None still winning."""
+    static = _static(requires_python=None)
+    static.provenance["requires_python"] = "Source: pyproject.toml"
+    installed = ProjectMetadata(name="pkg", version="1.0.0", requires_python=">=3.9")
+    installed.provenance["version"] = "Source: pkg.egg-info"
+    installed.provenance["requires_python"] = "Source: pkg.egg-info"
+
+    merged = reconcile_installed_metadata(static, installed, "pkg.egg-info", tmp_path)
+
+    assert merged.requires_python is None
+    assert "requires_python" in merged.field_conflicts
+    assert merged.field_conflicts["requires_python"][0]["value"] == ""
+
+
+def test_reconcile_requires_python_declared_empty_both_sides_not_a_conflict(
+    tmp_path: Path,
+) -> None:
+    """Both sides explicitly declare "no constraint" -- not a conflict,
+    and must not crash either (the same None-vs-comparator hazard, with
+    the two normalized-empty values actually equal)."""
+    static = _static(requires_python=None)
+    static.provenance["requires_python"] = "Source: pyproject.toml"
+    installed = ProjectMetadata(name="pkg", version="1.0.0", requires_python="")
+    installed.provenance["version"] = "Source: pkg.egg-info"
+    installed.provenance["requires_python"] = "Source: pkg.egg-info"
+
+    merged = reconcile_installed_metadata(static, installed, "pkg.egg-info", tmp_path)
+
+    assert merged.requires_python is None
+    assert "requires_python" not in merged.field_conflicts
+
+
 def test_reconcile_license_name_conflict_uses_spdx_normalization(
     tmp_path: Path,
 ) -> None:
@@ -119,7 +160,32 @@ def test_reconcile_license_name_conflict_uses_spdx_normalization(
     merged = reconcile_installed_metadata(static, installed, "pkg.egg-info", tmp_path)
 
     assert merged.license_name == "MIT"
-    assert "license_name" in merged.field_conflicts
+    # Keyed by "license" (the provenance-key alias), not "license_name" --
+    # matches deps_license.py's own declared-vs-concluded conflict field
+    # label for the same underlying concept.
+    assert "license" in merged.field_conflicts
+    assert "license_name" not in merged.field_conflicts
+
+
+def test_reconcile_license_name_declared_empty_vs_installed_conflict(
+    tmp_path: Path,
+) -> None:
+    """Regression: `license = ""` with no LICENSE file found (detection
+    finds nothing) collapses to `license_name=None`, but provenance still
+    records it as declared. Must not crash
+    (normalize_license_expression(None) raises AttributeError) and must
+    be treated as a real disagreement, static's None still winning."""
+    static = _static(license_name=None)
+    static.provenance["license"] = "Source: pyproject.toml"
+    installed = ProjectMetadata(name="pkg", version="1.0.0", license_name="MIT")
+    installed.provenance["version"] = "Source: pkg.egg-info"
+    installed.provenance["license"] = "Source: pkg.egg-info"
+
+    merged = reconcile_installed_metadata(static, installed, "pkg.egg-info", tmp_path)
+
+    assert merged.license_name is None
+    assert "license" in merged.field_conflicts
+    assert merged.field_conflicts["license"][0]["value"] == ""
 
 
 def test_reconcile_quiet_suppresses_warning_but_still_records_conflict(
@@ -239,8 +305,9 @@ def test_reconcile_unrelated_fields_never_touched(tmp_path: Path) -> None:
 
 def test_reconcile_field_conflicts_order_is_deterministic(tmp_path: Path) -> None:
     """field_conflicts insertion order follows dataclasses.fields()'s
-    stable declaration order (version, requires_python, license_name),
-    never a set's iteration order."""
+    stable declaration order (version, requires_python, license -- the
+    provenance-key alias for license_name), never a set's iteration
+    order."""
     static = _static(requires_python=">=3.9", license_name="MIT")
     static.provenance["requires_python"] = "Source: pyproject.toml"
     static.provenance["license"] = "Source: pyproject.toml"
@@ -259,7 +326,7 @@ def test_reconcile_field_conflicts_order_is_deterministic(tmp_path: Path) -> Non
     assert list(merged.field_conflicts) == [
         "version",
         "requires_python",
-        "license_name",
+        "license",
     ]
 
 

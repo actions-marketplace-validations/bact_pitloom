@@ -268,13 +268,48 @@ def test_find_installed_metadata_candidate_name_canonicalization() -> None:
     assert result[1] == "sampleproject_installed_agree.egg-info"
 
 
-def test_find_installed_metadata_candidate_src_layout(tmp_path: Path) -> None:
+def test_find_installed_metadata_candidate_src_layout_real_setuptools_shape(
+    tmp_path: Path,
+) -> None:
+    """Regression: the empirically-verified real shape -- setuptools'
+    egg_info command writes `<name>.egg-info` directly under `src/` for a
+    `package_dir={"": "src"}` project (one path segment, confirmed via a
+    real `python setup.py egg_info` run), not nested inside an extra
+    package-name directory."""
+    egg_info = tmp_path / "src" / "pkg.egg-info"
+    egg_info.mkdir(parents=True)
+    (egg_info / "PKG-INFO").write_text("Name: pkg\nVersion: 1.0.0\n", encoding="utf-8")
+    result = find_installed_metadata_candidate(tmp_path, "pkg")
+    assert result is not None
+    assert result[1] == "pkg.egg-info"
+
+
+def test_find_installed_metadata_candidate_src_layout_nested_pkg_dir(
+    tmp_path: Path,
+) -> None:
+    """The defensively-kept two-segment shape (nested inside an extra
+    package-name directory) is still matched too, for a layout/backend
+    not independently verified to write the one-segment shape."""
     egg_info = tmp_path / "src" / "pkg" / "pkg.egg-info"
     egg_info.mkdir(parents=True)
     (egg_info / "PKG-INFO").write_text("Name: pkg\nVersion: 1.0.0\n", encoding="utf-8")
     result = find_installed_metadata_candidate(tmp_path, "pkg")
     assert result is not None
     assert result[1] == "pkg.egg-info"
+
+
+def test_find_installed_metadata_candidate_src_layout_too_deep_not_matched(
+    tmp_path: Path,
+) -> None:
+    """Adversarial: the bounded-glob promise still holds after adding the
+    one-segment src/*.egg-info pattern -- a marker three segments deep
+    under src/ is not discovered, silently (the normal "nothing found"
+    case)."""
+    egg_info = tmp_path / "src" / "sub" / "deeper" / "pkg.egg-info"
+    egg_info.mkdir(parents=True)
+    (egg_info / "PKG-INFO").write_text("Name: pkg\nVersion: 1.0.0\n", encoding="utf-8")
+    result = find_installed_metadata_candidate(tmp_path, "pkg")
+    assert result is None
 
 
 def test_find_installed_metadata_candidate_dist_info_beats_egg_info(

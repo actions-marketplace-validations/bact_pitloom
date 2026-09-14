@@ -176,10 +176,13 @@ def _build_sbom_from_project_and_wheel(
     # extensions, auditwheel-repaired shared libraries) that read_wheel()
     # found in the actual wheel but that a source-tree rescan can't see.
     merged_files = _merge_file_extras(wheel_metadata.files, project_files)
-    # dataclasses.replace, not an in-place `.files =` assignment, so the
-    # caller's wheel_metadata (e.g. embed_wheel_sbom's read_wheel() result)
-    # isn't silently mutated as a side effect of building this SBOM.
-    project_metadata = dataclasses.replace(wheel_metadata, files=merged_files)
+    # replace_with_fresh_containers(), not a bare dataclasses.replace() or
+    # an in-place `.files =` assignment: every dict/list field NOT given
+    # here (provenance, field_conflicts, etc.) also gets its own fresh
+    # copy, so the caller's wheel_metadata (e.g. embed_wheel_sbom's
+    # read_wheel() result) can never be silently mutated as a side effect
+    # of anything downstream mutating this SBOM's own project_metadata.
+    project_metadata = wheel_metadata.replace_with_fresh_containers(files=merged_files)
     merkle_root = _compute_wheel_merkle_root(merged_files)
     ai_models = scan_project_for_ai_models(project_dir, project_files)
     phantom_deps = find_phantom_dependencies(merged_files)

@@ -112,8 +112,16 @@ out-rank a correct-name `.egg-info` on format alone.
 ## Discovery
 
 Bounded, non-recursive glob only (`*.egg-info`, `*.dist-info`,
-`src/*/*.egg-info`, `src/*/*.dist-info`) -- never `rglob`, to avoid
-descending into an accidentally-vendored `node_modules`/`vendor/` tree.
+`src/*.egg-info`, `src/*.dist-info`, `src/*/*.egg-info`,
+`src/*/*.dist-info`) -- never `rglob`, to avoid descending into an
+accidentally-vendored `node_modules`/`vendor/` tree. The one-path-segment
+`src/*.egg-info` pattern is the empirically-verified real shape:
+setuptools' own `egg_info` command writes `<name>.egg-info` directly
+under `src/` for a `package_dir={"": "src"}` project (verified via a real
+`python setup.py egg_info` run against a `src/`-layout project), not
+nested inside an extra package-name directory. The two-segment
+`src/*/*.egg-info` pattern is kept alongside it defensively, for a
+layout/backend not independently verified to use the one-segment shape.
 Deterministic tie-break when multiple name-matching candidates survive:
 `.dist-info` before `.egg-info` (more modern/structured format), then
 alphabetical path.
