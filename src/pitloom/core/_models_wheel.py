@@ -296,7 +296,69 @@ def _discover_included_files(
         return _models_wheel_hatchling.discover(project_dir) or []
 
 
-# pylint: disable=too-many-locals
+# pylint: disable=too-many-arguments,too-many-positional-arguments
+def _build_project_file_entry(
+    source: Path,
+    included_file: IncludedFile,
+    project_dir: Path,
+    *,
+    need_bytes: bool,
+    skip_merkle_root: bool,
+    parse_header: Callable[[bytes], FileHeaderMetadata | None] | None,
+    detect_content: Callable[[bytes, str, str], tuple[str | None, str | None]] | None,
+    content_type_overrides: tuple[ContentTypeOverride, ...],
+    content_type_method: str,
+) -> tuple[ProjectFile, bytes | None]:
+    """Build one *source*'s :class:`ProjectFile` entry (and its digest, if hashed).
+
+    *source* must already be known to exist as a regular file (the
+    caller's ``source.is_file()`` check). When *need_bytes* is
+    ``False``, *source* is still opened and immediately closed (no
+    read) -- a genuine access failure (permissions, a TOCTOU race)
+    still raises here, same as a full read would, instead of silently
+    producing an entry for an unreadable file.
+
+    Returns the built :class:`ProjectFile` and the raw SHA-256 digest
+    bytes (or ``None`` when *skip_merkle_root* left it uncomputed).
+    """
+    distribution_path = included_file.distribution_path
+    if need_bytes:
+        raw_bytes = source.read_bytes()
+    else:
+        with source.open("rb"):
+            pass
+        raw_bytes = b""
+
+    digest_bytes: bytes | None = None
+    digest_sha256: str | None = None
+    if not skip_merkle_root:
+        digest_bytes = hashlib.sha256(raw_bytes).digest()
+        digest_sha256 = digest_bytes.hex()
+
+    try:
+        rel_path = source.relative_to(project_dir).as_posix()
+    except ValueError:
+        rel_path = source.as_posix()
+
+    extras = _resolve_file_header_extras(
+        raw_bytes,
+        source.name,
+        distribution_path,
+        parse_header,
+        detect_content,
+        content_type_overrides,
+        content_type_method,
+    )
+    project_file = ProjectFile(
+        physical_path=rel_path,
+        distribution_path=distribution_path,
+        digest_sha256=digest_sha256,
+        **extras,
+    )
+    return project_file, digest_bytes
+
+
+# pylint: disable=too-many-locals,too-many-arguments,too-many-positional-arguments
 def get_wheel_files(
     project_dir: Path,
     *,
@@ -305,6 +367,7 @@ def get_wheel_files(
     content_type_method: str = "auto",
     content_type_overrides: tuple[ContentTypeOverride, ...] = (),
     assume_backend: str | None = None,
+    skip_merkle_root: bool = False,
 ) -> tuple[str | None, list[ProjectFile]]:
     """Get all files included in the wheel and compute their SHA-256 Merkle root.
 
@@ -322,6 +385,17 @@ def get_wheel_files(
     ``physical_path`` that diverges from *project_dir*'s own on-disk
     identity -- see :class:`~pitloom.core.project.ProjectFile`'s
     ``physical_path`` contract.
+
+    *skip_merkle_root* skips per-file SHA-256 hashing and the Merkle
+    root computation: the returned root is always ``None`` and every
+    returned :class:`~pitloom.core.project.ProjectFile` has
+    ``digest_sha256=None``. Only meaningful when *scan_file_headers*
+    and *detect_content_type* are both off too -- otherwise each
+    file's bytes are already read for those scanners and hashing them
+    on top is nearly free. A file that fails to open is still detected
+    (a cheap open/close probe replaces the full read) so a genuine
+    access failure still degrades the whole call to ``(None, [])``,
+    same as when hashing is on.
     """
     project_dir = project_dir.resolve()
     parse_header = None
@@ -349,40 +423,30 @@ def get_wheel_files(
         )
         project_files: list[ProjectFile] = []
         file_entries: list[tuple[str, bytes]] = []
+        need_bytes = scan_file_headers or detect_content_type or not skip_merkle_root
         for included_file in included_files:
             source = Path(included_file.path)
-            if source.is_file():
-                distribution_path = included_file.distribution_path
-                raw_bytes = source.read_bytes()
-                digest_bytes = hashlib.sha256(raw_bytes).digest()
-                file_entries.append((distribution_path, digest_bytes))
-                try:
-                    rel_path = source.relative_to(project_dir).as_posix()
-                except ValueError:
-                    rel_path = source.as_posix()
-
-                extras = _resolve_file_header_extras(
-                    raw_bytes,
-                    source.name,
-                    distribution_path,
-                    parse_header,
-                    detect_content,
-                    content_type_overrides,
-                    content_type_method,
-                )
-                project_files.append(
-                    ProjectFile(
-                        physical_path=rel_path,
-                        distribution_path=distribution_path,
-                        digest_sha256=digest_bytes.hex(),
-                        **extras,
-                    )
-                )
+            if not source.is_file():
+                continue
+            project_file, digest_bytes = _build_project_file_entry(
+                source,
+                included_file,
+                project_dir,
+                need_bytes=need_bytes,
+                skip_merkle_root=skip_merkle_root,
+                parse_header=parse_header,
+                detect_content=detect_content,
+                content_type_overrides=content_type_overrides,
+                content_type_method=content_type_method,
+            )
+            project_files.append(project_file)
+            if digest_bytes is not None:
+                file_entries.append((project_file.distribution_path, digest_bytes))
     # pylint: disable=broad-exception-caught
     except Exception:
         return None, []
 
-    if not file_entries:
+    if not project_files:
         return None, []
 
     # Discovery order isn't guaranteed stable across runs/filesystems
@@ -390,8 +454,11 @@ def get_wheel_files(
     # sort) -- sort both the Merkle-root input and the returned file
     # list by distribution_path so the SBOM is bit-for-bit identical
     # across builds of the same, unchanged project.
-    file_entries.sort(key=operator.itemgetter(0))
     project_files.sort(key=lambda project_file: project_file.distribution_path)
+    if skip_merkle_root:
+        return None, project_files
+
+    file_entries.sort(key=operator.itemgetter(0))
     # pylint: disable-next=import-outside-toplevel,cyclic-import
     from pitloom.core.models import _build_merkle_tree
 

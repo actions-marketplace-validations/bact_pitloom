@@ -1,6 +1,6 @@
 ---
 Created: 2026-09-13
-Last-Modified: 2026-09-13
+Last-Modified: 2026-09-14
 SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 SPDX-FileType: DOCUMENTATION
 SPDX-License-Identifier: CC0-1.0
@@ -57,31 +57,6 @@ design to avoid regressions.
 - `_document_locked_deps.py:_prefetch_combined_release_info()`
 - `deps.py:_finish_dependency_enrichment()`
 - `deps.py:_enrich_from_pypi()`
-
----
-
-## Skip Merkle root in get_wheel_files()
-
-**Identified:** roadmap review (moved from [roadmap.md](roadmap.md))
-
-**Bottleneck:** `_build_sbom_from_project_and_wheel` (`src/pitloom/embed.py`)
-already discards `get_wheel_files()`'s own `merkle_root` return value in
-favor of one computed from the wheel's own (post-merge) file hashes (see
-`_compute_wheel_merkle_root`), so the work is wasted for its one current
-caller.
-
-Worth adding only when both `extract_file_header` and `content_type` are
-off too — otherwise every file's bytes are already read for
-header/content-type scanning, and skipping just the hash/tree-build step
-on top of bytes already in memory saves little. With both scanners off,
-though, `get_wheel_files()` currently reads every file's full bytes
-solely to hash them for the discarded root — real, avoidable I/O for
-large projects.
-
-**Where:**
-
-- `src/pitloom/core/_models_wheel.py:get_wheel_files()`
-- `src/pitloom/embed.py:_build_sbom_from_project_and_wheel()`
 
 ---
 

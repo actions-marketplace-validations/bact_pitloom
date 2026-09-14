@@ -76,6 +76,9 @@ and this project adheres to
 
 ### Changed
 
+- `embed-wheel` skips per-file SHA-256 hashing in `get_wheel_files()`'s
+  source-tree rescan, since it only used the digests for a Merkle root
+  it already discarded
 - Promote 18 log messages from `DEBUG:` to `WARNING:` (shown by
   default, not just under `--debug`) where a failure silently drops
   data from the generated SBOM: Hugging Face Hub fetch failures
