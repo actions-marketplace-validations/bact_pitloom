@@ -312,7 +312,10 @@ def _parse_installed_metadata(
     if name_declared:
         provenance["name"] = source_label
     if field_declared(msg, "Version"):
-        metadata.version = msg.get("Version")
+        # Collapse a declared-but-empty value to None, matching every
+        # static producer's convention (`str(x) if x else None`) --
+        # provenance still records it as declared either way.
+        metadata.version = msg.get("Version", "") or None
         provenance["version"] = source_label
     if field_declared(msg, "Summary"):
         metadata.description = msg.get("Summary")
@@ -438,7 +441,7 @@ def _reconcile_conflict_checked_field(
         log.warning(
             "%s disagrees on %s (declared %r, installed %r) -- keeping declared",
             warn_subject,
-            field_name,
+            provenance_key,
             static_value,
             installed_value,
         )

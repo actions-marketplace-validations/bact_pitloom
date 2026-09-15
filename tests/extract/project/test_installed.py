@@ -516,6 +516,17 @@ def test_parse_installed_metadata_project_url_entry_without_comma_skipped() -> N
     assert "urls" not in metadata.provenance
 
 
+def test_parse_installed_metadata_version_declared_empty_becomes_none() -> None:
+    """Regression: an explicit but empty `Version:` header must collapse
+    to `version=None`, matching every static producer's convention
+    (`str(x) if x else None`), not stay as the raw empty string --
+    provenance still records it as declared either way."""
+    msg = _msg("Name: pkg\nVersion: \n")
+    metadata = _parse_installed_metadata(msg, "Source: pkg.egg-info")
+    assert metadata.version is None
+    assert "version" in metadata.provenance
+
+
 def test_parse_installed_metadata_requires_python_empty_becomes_none() -> None:
     """Regression: an explicit but empty `Requires-Python:` header must
     collapse to `requires_python=None`, matching every static producer's

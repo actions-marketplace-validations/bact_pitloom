@@ -208,6 +208,24 @@ def test_reconcile_requires_python_gap_fill_from_installed_declared_empty_is_non
     assert merged.field_conflicts == {}
 
 
+def test_reconcile_version_gap_fill_from_installed_declared_empty_is_none(
+    tmp_path: Path,
+) -> None:
+    """Regression: gap-filling version from an installed source whose own
+    value was already collapsed to None by the parser (declared empty)
+    must leave merged.version as None, not the raw empty string, matching
+    every static producer's own convention for the same field."""
+    static = ProjectMetadata(name="pkg")  # version undeclared
+    installed = ProjectMetadata(name="pkg", version=None)
+    installed.provenance["version"] = "Source: pkg.egg-info"
+
+    merged = reconcile_installed_metadata(static, installed, "pkg.egg-info", tmp_path)
+
+    assert merged.version is None
+    assert merged.provenance["version"] == "Source: pkg.egg-info"
+    assert merged.field_conflicts == {}
+
+
 def test_reconcile_license_name_declared_empty_vs_installed_conflict(
     tmp_path: Path,
 ) -> None:
