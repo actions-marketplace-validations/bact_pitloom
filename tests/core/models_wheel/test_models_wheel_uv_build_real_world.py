@@ -71,9 +71,7 @@ def _expected_non_dist_info_paths(manifest: dict[str, object]) -> set[str]:
 
 @pytest.mark.pypi_network
 @pytest.mark.parametrize("project_dir", UV_BUILD_FIXTURES, ids=FIXTURE_IDS)
-def test_build_and_read_matches_real_wheel(
-    project_dir: Path, tmp_path: Path
-) -> None:
+def test_build_and_read_matches_real_wheel(project_dir: Path, tmp_path: Path) -> None:
     if not sdist_available(project_dir):
         pytest.skip(
             f"{project_dir.name}: vendored sdist not present (excluded from "

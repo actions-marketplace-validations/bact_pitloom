@@ -1,5 +1,5 @@
 ---
-Last-Modified: 2026-09-12
+Last-Modified: 2026-09-15
 SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 SPDX-FileType: DOCUMENTATION
 SPDX-License-Identifier: CC0-1.0
@@ -53,6 +53,8 @@ and this project adheres to
 - In-tree `.egg-info`/`.dist-info` as a supplementary project-metadata
   source: gap-fills undeclared fields, flags disagreement as a conflict
   Annotation ([#214])
+- `--allow-build`/`--no-build-isolation`: opt-in build-and-read file
+  discovery via a real PEP 517 build ([#215])
 
 ### Fixed
 
@@ -104,6 +106,7 @@ and this project adheres to
 [#212]: https://github.com/bact/pitloom/pull/212
 [#213]: https://github.com/bact/pitloom/pull/213
 [#214]: https://github.com/bact/pitloom/pull/214
+[#215]: https://github.com/bact/pitloom/pull/215
 
 ## [0.17.0] - 2026-08-30
 

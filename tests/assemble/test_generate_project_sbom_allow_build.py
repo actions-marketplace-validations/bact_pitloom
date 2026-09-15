@@ -106,9 +106,7 @@ def test_generate_dispatches_allow_build_to_project_sbom(tmp_path: Path) -> None
     with mock.patch(
         "pitloom.assemble.generate_project_sbom", return_value="{}"
     ) as mocked:
-        generate(
-            project_dir, offline=True, allow_build=True, no_build_isolation=True
-        )
+        generate(project_dir, offline=True, allow_build=True, no_build_isolation=True)
 
     assert mocked.call_args.kwargs["allow_build"] is True
     assert mocked.call_args.kwargs["no_build_isolation"] is True

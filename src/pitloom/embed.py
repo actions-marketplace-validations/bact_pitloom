@@ -147,6 +147,7 @@ def _compute_wheel_merkle_root(files: list[ProjectFile]) -> str | None:
     return _build_merkle_tree(leaf_hashes)
 
 
+# pylint: disable-next=too-many-arguments
 def _build_sbom_from_project_and_wheel(
     project_dir: Path,
     wheel_metadata: ProjectMetadata,

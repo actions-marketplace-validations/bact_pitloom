@@ -116,7 +116,7 @@ def target_resolves_to_project(target: Path | str) -> bool:
     return _classify_target(target) == "project"
 
 
-# pylint: disable=too-many-arguments,too-many-positional-arguments
+# pylint: disable=too-many-arguments,too-many-locals,too-many-positional-arguments
 def generate(
     target: Path | str = ".",
     *,
