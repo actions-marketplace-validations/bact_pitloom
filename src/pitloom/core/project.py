@@ -260,6 +260,18 @@ _PROVENANCE_KEY_ALIASES: dict[str, str] = {
 }
 
 
+def provenance_key_for(field_name: str) -> str:
+    """The literal ``provenance`` dict key *field_name* is actually
+    recorded under -- see :data:`_PROVENANCE_KEY_ALIASES` above. Public
+    wrapper so a cross-module consumer (e.g.
+    :mod:`pitloom.extract.project._installed_reconcile`, which needs the
+    identical "explicitly declared" lookup this module's own
+    :func:`merge_project_metadata` uses) doesn't have to reach into a
+    leading-underscore module-private name to get it.
+    """
+    return _PROVENANCE_KEY_ALIASES.get(field_name, field_name)
+
+
 def merge_project_metadata(
     primary: ProjectMetadata, secondary: ProjectMetadata
 ) -> ProjectMetadata:
@@ -335,7 +347,7 @@ def merge_project_metadata(
         if f.name in ("name", "provenance", "field_conflicts"):
             continue
         primary_value = getattr(primary, f.name)
-        provenance_key = _PROVENANCE_KEY_ALIASES.get(f.name, f.name)
+        provenance_key = provenance_key_for(f.name)
         if not primary_value and provenance_key not in primary.provenance:
             setattr(merged, f.name, getattr(secondary, f.name))
     return merged

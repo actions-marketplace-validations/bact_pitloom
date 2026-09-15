@@ -23,11 +23,7 @@ from pathlib import Path
 
 from packaging.specifiers import InvalidSpecifier, SpecifierSet
 
-from pitloom.core.project import (
-    _PROVENANCE_KEY_ALIASES,
-    ConflictCandidate,
-    ProjectMetadata,
-)
+from pitloom.core.project import ConflictCandidate, ProjectMetadata, provenance_key_for
 from pitloom.extract._extract_utils import field_declared
 from pitloom.extract._license import normalize_license_expression
 from pitloom.extract.lock._common import is_same_version
@@ -82,7 +78,7 @@ def _reconcile_conflict_checked_field(
     passed as two separate parameters, to stay within this repo's
     max-args ratchet.
     """
-    provenance_key = _PROVENANCE_KEY_ALIASES.get(field_name, field_name)
+    provenance_key = provenance_key_for(field_name)
     installed_declared = field_declared(installed.provenance, provenance_key)
     if not installed_declared:
         return
@@ -144,7 +140,7 @@ def _reconcile_gap_fill_field(
     field_name: str,
 ) -> None:
     """Reconcile one of :data:`_GAP_FILL_ONLY_FIELDS` in place on *merged*."""
-    provenance_key = _PROVENANCE_KEY_ALIASES.get(field_name, field_name)
+    provenance_key = provenance_key_for(field_name)
     if field_declared(static.provenance, provenance_key):
         return
     if not field_declared(installed.provenance, provenance_key):

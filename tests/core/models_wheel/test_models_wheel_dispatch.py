@@ -204,11 +204,12 @@ def test_get_wheel_files_unhandled_backend_no_pyproject_skips_doomed_hatchling(
     assert root is None
     assert not files
     assert "not yet backend-aware" in caplog.text
-    # The "not backend-aware" warning names Hatchling as the heuristic
-    # it would otherwise fall back to (it never actually runs here) --
-    # only the doomed, Hatchling-*branded* failure message must be
-    # absent, not the word "Hatchling" itself.
-    assert "Hatchling file discovery failed" not in caplog.text
+    assert "file discovery is unsupported for this project" in caplog.text
+    # Hatchling never actually runs in this branch -- the warning must
+    # not claim it does (a prior version unconditionally said "using
+    # Hatchling-based heuristic" even when returning zero files without
+    # ever calling Hatchling, which was misleading).
+    assert "Hatchling" not in caplog.text
 
 
 def test_get_wheel_files_unhandled_backend_falls_back_with_warning(

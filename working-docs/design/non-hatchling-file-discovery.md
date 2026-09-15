@@ -219,3 +219,73 @@ process-wide `os.chdir()` (its own package auto-discovery globs
 relative to the process cwd, not the `Builder`'s `location`). `uv_build`
 (item #5) still needs the build-and-read mechanism (item #4) rather
 than this pattern.
+
+## Open follow-up tech debt (from PR #215's `--allow-build` review)
+
+The priority table above is closed for every backend, but the PR #215
+review that landed the build-and-read mechanism (item #4/#5) surfaced
+five smaller, independently-fixable follow-ups. None block the closed
+work above; each is its own reviewed change.
+
+- **Consolidate the duplicated blanket-except pattern across Track A
+  backend discovery modules** -- the "`try: ... except Exception as exc:
+  log.warning('<Backend> file discovery failed for %s: %s', ...);
+  return None`" contract is byte-for-byte duplicated across
+  `_models_wheel_{setuptools,poetry,pdm,flit}.py`. Deliberately deferred
+  out of PR #215 (cosmetic, unrelated to landing `uv_build` support,
+  adds regression surface to four stable, individually
+  real-world-validated modules for no feature benefit).
+- **Factor out the hand-rolled `tool` -> `tool.X` -> nested-table walk
+  repeated across 6+ modules** -- `has_uv_build_backend_overrides()`
+  (`_models_wheel_types.py`) reimplements the same isinstance-guarded
+  chain `_load_pitloom_tool_section()` and every `extract/project/*.py`
+  metadata producer (`poetry.py`, `pdm.py`, `setuptools_cfg.py`,
+  `pyproject.py`, `pyproject_dynamic.py`) already does independently --
+  the "pattern hand-copied across 3+ call sites drifts" class CLAUDE.md
+  calls out by name. A shared `get_tool_table(data, *keys)`-style helper
+  would touch several stable, already-tested producer modules.
+- **`scripts/compare_allow_build.py` duplicates sdist extraction already
+  in `tests/fixtures/real_world.py`** -- `_extract_archive()`
+  reimplements `extract_sdist()`'s tar/zip-open, `filter="data"`,
+  single-top-level-dir logic, generalized to accept any archive path.
+  Dev-only script, not shipped code, no user-facing risk -- low priority.
+- **`--allow-build`-sourced files never match a `pitloom ids
+  generate`-pinned registry entry** -- `IdRegistry.generate()` (`ids.py`)
+  keys every entry by physical, project-root-relative path; a
+  build-and-read-sourced `ProjectFile.physical_path` is an ephemeral
+  temp path instead, so neither of `_document_files.py`'s two lookup
+  attempts (`physical_path`, then `distribution_path`) can ever match a
+  pre-pinned entry for such a file -- a new spdxId is silently minted
+  instead. Harvest-to-harvest id stability (a normal `loom project` run
+  finding ids a *previous* `loom project` run wrote) is unaffected --
+  both write and read sides key by `distribution_path` there. Real fix
+  needs `_document_files.py`'s registry lookup to gain a third candidate
+  (`project_dir`-relative `distribution_path`, checked for existence),
+  which needs threading `project_dir` into a currently filesystem-free
+  assembly function -- a real design change, not a quick patch.
+- **Real static `uv_build` discoverer for `[tool.uv.build-backend]`** --
+  validated empirically (2026-09-15, see
+  [allow-build-validation.md](../implementation/allow-build-validation.md#--allow-build-build-and-read-with-vs-without-2026-09-15))
+  that the Hatchling-heuristic fallback over-includes files a project's
+  own `wheel-exclude`/`wheel-include`/`module-name` directives in
+  `[tool.uv.build-backend]` would drop (15 extra files for the
+  rendercv-2.8 fixture, all correctly excluded by `--allow-build`'s real
+  build). `--allow-build` already closes this gap exactly, so this is a
+  precision improvement for the *default* (no-flag) path only --
+  parsing `[tool.uv.build-backend]` statically, the same shape of work
+  as the existing setuptools/Poetry/PDM/Flit modules. **Partially
+  addressed** (2026-09-15): the fallback's `WARNING:` now names this
+  specific divergence risk and points at `--allow-build` when
+  `wheel-exclude`/`wheel-include` is actually present
+  (`has_uv_build_backend_overrides()` in `_models_wheel_types.py`).
+  **Wider sweep** (2026-09-15, 9 more real packages, see
+  [allow-build-validation.md](../implementation/allow-build-validation.md#--allow-build-wider-sweep-9-more-real-uv_build-packages-2026-09-15))
+  found a second, more severe failure shape: a `module-name` that
+  doesn't match Hatchling's zero-config guess (django-model-import)
+  makes the fallback fail outright with zero files, not just
+  over-include -- already loudly `WARNING:`-logged, and a future real
+  discoverer would need to handle two distinct config schemas, not one:
+  `[tool.uv.build-backend]` (current) and an older flat
+  `[tool.uv_build]` (found on ffmpeg-normalize, currently invisible to
+  `has_uv_build_backend_overrides()` too, though no practical divergence
+  was observed for it).

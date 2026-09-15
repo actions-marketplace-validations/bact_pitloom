@@ -224,23 +224,35 @@ def _discover_with_no_static_module(
         # _try_build_and_read/build_and_read_wheel() already logged its
         # own specific failure WARNING:; fall through to the generic
         # "not backend-aware" warning.
-    log.warning(
-        "%sfile discovery for build backend %r is not yet "
-        "backend-aware%s -- using Hatchling-based heuristic, "
-        "file list may be inaccurate for this project%s",
-        BUILD_LOG_PREFIX,
-        backend,
-        "" if not allow_build else " (build-and-read failed)",
-        _unhandled_backend_hint(backend, pyproject_data, allow_build=allow_build),
-    )
+    build_and_read_failed = "" if not allow_build else " (build-and-read failed)"
+    hint = _unhandled_backend_hint(backend, pyproject_data, allow_build=allow_build)
     if not _has_project_table(pyproject_data):
         # Same guard _discover_with_registered_backend applies (via
         # _skip_hatchling_fallback) when its own discoverer gives up:
         # Hatchling's WheelBuilder requires a [project] table, so with
         # none present the fallback attempt below is guaranteed to also
         # fail -- skip the doomed, confusingly Hatchling-branded error
-        # for a project that has nothing to do with Hatchling.
+        # for a project that has nothing to do with Hatchling, and don't
+        # claim the Hatchling heuristic is "in use" when it never runs.
+        log.warning(
+            "%sfile discovery for build backend %r is not yet "
+            "backend-aware%s and no [project] table is present -- "
+            "file discovery is unsupported for this project%s",
+            BUILD_LOG_PREFIX,
+            backend,
+            build_and_read_failed,
+            hint,
+        )
         return [], _noop_cleanup
+    log.warning(
+        "%sfile discovery for build backend %r is not yet "
+        "backend-aware%s -- using Hatchling-based heuristic, "
+        "file list may be inaccurate for this project%s",
+        BUILD_LOG_PREFIX,
+        backend,
+        build_and_read_failed,
+        hint,
+    )
     return None
 
 

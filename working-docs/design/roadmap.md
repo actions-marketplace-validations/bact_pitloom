@@ -110,11 +110,16 @@ below is now closed for every backend, including `uv_build` (via the
 generic `--allow-build` build-and-read mechanism, not a dedicated static
 rescan -- see below).
 
-**Suggested sequencing after that** (2026-09-14, not a commitment, just
+**Suggested sequencing after that** (2026-09-15, not a commitment, just
 the current read of what's ready to pick up vs. what still needs a
 design pass):
 
-1. [Generic multi-candidate field representation](#metadata-quality)
+1. [`pitloom fragment list`](#sbom-fragments-merge-system) -- smallest
+   ready item found in the 2026-09-15 roadmap-linking pass: read-only,
+   no merge-logic risk, immediate dev-visibility payoff. `FragmentConfig`
+   and `fragment sign`/hash verification are the same size of win,
+   independently deliverable, no ordering dependency between the three.
+2. [Generic multi-candidate field representation](#metadata-quality)
    -- now concretely motivated: license (`deps_license.py`), dependency
    version (`deps_installed.py`), and project metadata fields
    (`extract/project/installed.py`, landed via
@@ -122,7 +127,10 @@ design pass):
    hand-build their own `ConflictCandidate` list at their own call
    site -- a third, independent instance of the same duplication is
    usually the right time to generalize.
-2. [OSV.dev vulnerability lookup](#metadata-quality) -- **not** ready to
+3. [JAX/Orbax model extractor](#extractors) -- design ready (verified
+   against real `orbax-checkpoint` output, not docs alone), independent
+   of the two items above.
+4. [OSV.dev vulnerability lookup](#metadata-quality) -- **not** ready to
    hand to an implementer as-is; needed its own design pass first (SPDX3
    mapping, which dependency pool to query, PEP 440-based range
    matching) -- now resolved, see
@@ -142,80 +150,19 @@ design pass):
   own toolchain happens to be available -- no further Pitloom code
   needed. See [non-hatchling-file-discovery.md](non-hatchling-file-discovery.md)
   for the full design/history.
-- [ ] **Immediate: consolidate the duplicated blanket-except pattern
-  across Track A backend discovery modules** -- the "`try: ... except
-  Exception as exc: log.warning('<Backend> file discovery failed for
-  %s: %s', ...); return None`" contract is byte-for-byte duplicated
-  across `_models_wheel_{setuptools,poetry,pdm,flit}.py`. Identified
-  during the `--allow-build` build-and-read work (PR #215) and
-  deliberately deferred out of that changeset (cosmetic, unrelated to
-  landing `uv_build` support, adds regression surface to four stable,
-  individually real-world-validated modules for no feature benefit) --
-  see that PR's Part D.
-- [ ] **Factor out the hand-rolled `tool` -> `tool.X` -> nested-table
-  walk repeated across 6+ modules** -- `has_uv_build_backend_overrides()`
-  (`_models_wheel_types.py`) reimplements the same isinstance-guarded
-  chain `_load_pitloom_tool_section()` and every `extract/project/*.py`
-  metadata producer (`poetry.py`, `pdm.py`, `setuptools_cfg.py`,
-  `pyproject.py`, `pyproject_dynamic.py`) already does independently.
-  Identified during PR #215's follow-up review (same "pattern
-  hand-copied across 3+ call sites drifts" class CLAUDE.md calls out by
-  name). A shared `get_tool_table(data, *keys)`-style helper would need
-  touching several stable, already-tested producer modules -- do as its
-  own reviewed change, not bundled into an unrelated feature PR.
-- [ ] **Low priority: `scripts/compare_allow_build.py` duplicates sdist
-  extraction already in `tests/fixtures/real_world.py`** --
-  `_extract_archive()` reimplements `extract_sdist()`'s tar/zip-open,
-  `filter="data"`, single-top-level-dir logic, generalized to accept any
-  archive path. Identified during PR #215's follow-up review. Dev-only
-  script, not shipped code, no user-facing risk -- worth folding into a
-  shared helper next time either file is touched anyway, not urgent on
-  its own.
-- [ ] **`--allow-build`-sourced files never match a `pitloom ids
-  generate`-pinned registry entry** -- `IdRegistry.generate()` (`ids.py`)
-  keys every entry by physical, project-root-relative path; a
-  build-and-read-sourced `ProjectFile.physical_path` is an ephemeral
-  temp path instead (see `non-hatchling-file-discovery.md`), so neither
-  of `_document_files.py`'s two lookup attempts (`physical_path`, then
-  `distribution_path`) can ever match an `ids generate`-populated entry
-  for such a file -- a new spdxId is silently minted instead of the
-  pre-pinned one. Harvest-to-harvest id stability (a normal `loom
-  project` run finding ids a *previous* `loom project` run wrote) is
-  unaffected -- both write and read sides key by `distribution_path`
-  there. Identified during PR #215's review. Real fix needs
-  `_document_files.py`'s registry lookup to gain a third candidate
-  (`project_dir`-relative `distribution_path`, checked for existence)
-  or equivalent, which needs threading `project_dir` into a currently
-  filesystem-free assembly function -- a real design change, not a
-  quick patch.
-- [ ] **Real static `uv_build` discoverer for `[tool.uv.build-backend]`**
-  -- validated empirically (2026-09-15, see
-  [allow-build-validation.md](../implementation/allow-build-validation.md#--allow-build-build-and-read-with-vs-without-2026-09-15))
-  that the Hatchling-heuristic fallback over-includes files a project's
-  own `wheel-exclude`/`wheel-include`/`module-name` directives in
-  `[tool.uv.build-backend]` would drop (15 extra files for the
-  rendercv-2.8 fixture, all correctly excluded by `--allow-build`'s
-  real build). `--allow-build` already closes this gap exactly, so this
-  is a precision improvement for the *default* (no-flag) path only --
-  parsing `[tool.uv.build-backend]` statically, the same shape of work
-  as the existing setuptools/Poetry/PDM/Flit modules. **Partially
-  addressed** (2026-09-15): the fallback's `WARNING:` now names this
-  specific divergence risk and points at `--allow-build` when
-  `wheel-exclude`/`wheel-include` is actually present
-  (`has_uv_build_backend_overrides()` in `_models_wheel_types.py`) --
-  users are no longer left to discover the gap themselves, even though
-  the file list itself still isn't fixed without a real static module.
-  **Wider sweep** (2026-09-15, 9 more real packages, see
-  [allow-build-validation.md](../implementation/allow-build-validation.md#--allow-build-wider-sweep-9-more-real-uv_build-packages-2026-09-15))
-  found a second, more severe failure shape: a `module-name` that
-  doesn't match Hatchling's zero-config guess (django-model-import)
-  makes the fallback fail outright with zero files, not just
-  over-include -- already loudly `WARNING:`-logged (not silent), and a
-  future real discoverer would need to handle two distinct config
-  schemas, not one: `[tool.uv.build-backend]` (current) and an older
-  flat `[tool.uv_build]` (found on ffmpeg-normalize, currently invisible
-  to `has_uv_build_backend_overrides()` too, though no practical
-  divergence was observed for it).
+- [ ] **Five smaller follow-ups from PR #215's `--allow-build` review**
+  -- two consolidation/dedup cleanups (a duplicated blanket-except
+  pattern across Track A modules; a hand-rolled `tool` table walk
+  repeated across 6+ modules), one low-priority dev-script dedup, one
+  id-registry gap (`--allow-build`-sourced files can't match a
+  `pitloom ids generate`-pinned entry, since their `physical_path` is an
+  ephemeral temp path), and one precision gap (a real static `uv_build`
+  discoverer for `[tool.uv.build-backend]`, to stop the Hatchling
+  fallback from over-including or, worse, zero-including files for some
+  real packages -- already `WARNING:`-flagged, not silent). None block
+  shipped work; each is independently fixable. See
+  [non-hatchling-file-discovery.md](non-hatchling-file-discovery.md#open-follow-up-tech-debt-from-pr-215s---allow-build-review)
+  for full detail on each.
 
 ### Build backend improvements
 
@@ -276,6 +223,14 @@ design pass):
   gather transitive dependencies down the n-level dependency tree during build-stage
   hook execution to resolve dependencies and obtain integrity hashes, populating
   `verifiedUsing` in embedded build SBOMs without relying on source-stage lock files.
+- [ ] **`pixi.lock` and `conda-lock.yml` as resolved-dependency sources** --
+  the two lock-file phases the current cascade doesn't cover, for
+  AI/ML stacks mixing PyPI wheels with Conda/CUDA binaries. See
+  [lock-files.md](lock-files.md)'s Phase 2 -- its priority table and
+  shipped-status notes are current, but its Pydantic/CycloneDX sketch
+  predates and doesn't match this codebase's actual shape; follow
+  `extract/lock/poetry.py` and `assemble/spdx3/deps.py`'s established
+  pattern instead, as the doc itself now says.
 
 ### PEP 770 / embed-wheel
 
@@ -310,10 +265,24 @@ design pass):
 ### Extractors
 
 - [ ] **Additional AI model format extractors**
-  - JAX (Orbax checkpoints) -- higher priority
+  - JAX (Orbax checkpoints) -- higher priority, design ready to
+    implement: findings come from installing `orbax-checkpoint` and
+    inspecting real output, not docs alone. See
+    [jax-orbax-support.md](jax-orbax-support.md)
   - TensorFlow SavedModel and TensorFlow Lite
   - Scikit-learn (pickle/joblib; no single standard format -- complex)
   - See [model-metadata-extraction.md](model-metadata-extraction.md)
+    for the full format table
+- [ ] **MLflow run extractor** (`pitloom.extract.mlflow`,
+  `loom.from_mlflow_run()`) -- reads a completed/active MLflow run's
+  tags/params/metrics into an SPDX 3 AI BOM fragment, keyed against the
+  [STAV](https://github.com/bact/stav) vocabulary with a fallback for
+  non-STAV tag names; eliminates double-instrumenting a training script
+  already using MLflow tracking. Fully designed, not yet built -- see
+  [mlflow-extractor.md](mlflow-extractor.md). W&B Weave and DVC
+  extractors are the same shape of gap; tracked together with this one
+  under [SBOM fragments](#sbom-fragments-merge-system) below since all
+  three feed the fragment-merge pipeline.
 - [x] **Dataset-to-model relationship linking** -- `AiModelMetadata` carries
   dataset references (`DatasetReference`, `pitloom.core.dataset_metadata`);
   `add_datasets_for_model()` (`src/pitloom/assemble/spdx3/dataset.py`)
@@ -325,6 +294,60 @@ design pass):
 - [x] **Croissant dataset size calculation** -- `dataset_DatasetSize`
   extracted dynamically by summing `cr:totalItems` across `cr:recordSet`
   entries (or top-level `cr:totalItems`), with graceful `None` fallback.
+
+### SBOM fragments (merge system)
+
+`working-docs/design/sbom-fragments/` is a 5-file design cluster (index:
+[README.md](sbom-fragments/README.md)) that was not linked from this
+roadmap until 2026-09-15 -- re-verified against current code before
+listing below, since parts of its Phase 1/4 plan turned out to already
+be built:
+
+- [x] **Core merge mechanism** -- `merge_fragments()`
+  (`assemble/spdx3/fragments.py`) already does dedup, dangling-reference
+  detection, unification annotations, and fragment-import tracking; the
+  design cluster's "Phase 1 item 2" (`merge_fragments` rewrite) is
+  substantially superseded by this. See
+  [fragment-merge-design.md](sbom-fragments/fragment-merge-design.md)
+  for the mechanism this implements, but read the module itself for
+  current behaviour.
+- [x] **`pitloom fragment validate`** -- already ships, already calls
+  `spdx3_validate.validate()`'s library API directly as Phase 4 item 2
+  specified (`cli/commands/fragment.py`).
+- [ ] **`FragmentConfig` dataclass** -- `PitloomConfig.fragments` is
+  still a plain `list[str]` (`core/_config_types.py`); genuinely open,
+  small, backward-compatible with a plain-string loader.
+- [ ] **`pitloom fragment list`** -- cheapest way to surface fragment
+  status to developers (reads config, checks file existence/parse
+  validity); genuinely open, no `fragment list` subcommand exists yet.
+- [ ] **`pitloom fragment sign` + SHA-256 verification in merge** --
+  genuinely open; the SHA-256 hashing that already exists in
+  `_fragments_unify.py` is for same-identity element dedup, not
+  fragment-file integrity/tamper checking.
+- [ ] **SDK ergonomics (Phase 2)** -- `log_param`/`log_metric`/`log_tag`
+  on `_ActiveRun`, a fluent `add_dataset` builder, `log_evaluation`,
+  persistent `loom.start_session()`/`end_session()`, an optional
+  `%%pitloom_record` IPython cell magic. See
+  [loom-sdk-and-notebooks.md](sbom-fragments/loom-sdk-and-notebooks.md).
+- [ ] **New extractors (Phase 3)** -- W&B Weave and DVC extractors, plus
+  an MLflow dataset-input addition once the base
+  [MLflow extractor](#extractors) above exists. See
+  [extractor-integrations.md](sbom-fragments/extractor-integrations.md).
+- [ ] **Compliance/interop (Phase 4)** -- CycloneDX BOM-Link emission
+  (blocked on the CycloneDX assembler under Medium-term) and a
+  fragment `completeness` field (`complete`/`incomplete`/`unknown`)
+  mapped to an SPDX `Annotation`. See
+  [roadmap-and-resources.md](sbom-fragments/roadmap-and-resources.md).
+- [ ] **Element-level fragment-merge traceability** -- document-level
+  traceability (which fragment *files* contributed) shipped in
+  [PR #108](https://github.com/bact/pitloom/pull/108); which
+  *unification criterion* matched (same `spdxId` vs. content hash vs.
+  structural equality) and which fragments a merged element's
+  properties came from is not recorded in the output, only in a
+  `log.warning`. Not planned to change without a native SPDX
+  field-provenance construct -- see
+  [roadmap-and-resources.md](sbom-fragments/roadmap-and-resources.md)
+  for the full note.
 
 ### Metadata quality
 
@@ -433,46 +456,14 @@ design pass):
 
 ### Internal codenames
 
-- [ ] **Retire the whole letter-number use-case codename taxonomy**, not
-  just "G2". `working-docs/implementation/provenance/use-case-catalog.md`
-  defines a full scheme -- G1-G7 (generation), A1-A2 (aggregation), E1-E2
-  (enrichment), P1 (preservation), N1-N6 (Phase-2 native-backfill
-  checklist), plus others found the same way (R1, M1-M4, L6, L8, U1, C4,
-  K2, V1/V2/V4, O1-O3, S1-S5, Z0/Z1, T5, H1, F1) -- meaningful only against
-  that catalog's own numbering, meaningless to anyone (including future-us)
-  reading a docstring/comment in isolation. 2026-09-14 count via
-  `grep -rnoE "\b[A-Z][0-9]\b" src/ tests/ CHANGELOG.md working-docs/ docs/`:
-  over 500 occurrences total, heaviest in `src/` at `deps.py`,
-  `deps_installed.py`, `deps_license.py`, `provenance.py`, `enrich/base.py`,
-  `_license.py`, `project/pyproject.py`, `project/poetry.py`, and in
-  `tests/` across a dozen-plus modules.
-  Replace every `src/`/`tests/`/`CHANGELOG.md`/`docs/` occurrence with a
-  stable, self-explanatory name (e.g. `field-conflict` for G2,
-  `enrichment-override-lineage` for E1, `ai-inferred-marker` for E2,
-  `unification-rationale` for A1, `artifact-metadata-preservation` for
-  P1 -- exact names TBD at implementation time, one per catalog entry
-  that's actually referenced in code) -- `working-docs/` may keep the
-  short codes as shorthand for its own planning history, since that's
-  internal-only and never shipped to a user. New code from 2026-09-14
-  onward (the installed-dist-info-source feature) already avoids "G2"
-  outside `working-docs/`; this item is the backlog to clean up every
-  pre-existing occurrence of every code, not a rename done in passing
-  inside an unrelated PR. Sizeable, mechanical-but-not-trivial (a
-  docstring's code often carries real meaning that must survive the
-  rename, not just a find-replace) -- likely worth its own dedicated PR
-  per code family (G-series, N-series, the rest) rather than one giant
-  diff. **Opportunistic path**: `working-docs/`'s own hygiene rule
-  (CLAUDE.md -- trim a grown roadmap bullet out to its own file, split an
-  oversized doc, move a completed item to `implementation/`, retire a
-  superseded one to `archive/`) already means `working-docs/*.md` files
-  get touched/rewritten periodically for unrelated reasons -- whenever
-  such a reorg/trim/split touches a file that defines or uses one of
-  these codes (`use-case-catalog.md`, `multi-source-conflict.md`,
-  `role-vocabulary.md`, `annotation-provenance.md`, etc.), replace the
-  code with its stable name in that file as part of the same edit, then
-  update whichever `src/`/`tests/` occurrences that doc's own
-  cross-references point at. No need to wait for a dedicated cleanup PR
-  for the subset that a reorg was touching anyway.
+- [ ] **Retire the whole letter-number use-case codename taxonomy**
+  (G1-G7, A1-A2, E1-E2, P1, N1-N6, and more -- 500+ occurrences as of
+  2026-09-14), not just "G2" -- meaningful only against
+  `use-case-catalog.md`'s own numbering, meaningless to a future reader
+  in isolation. Sizeable, mechanical-but-not-trivial; an opportunistic
+  path (fold into whichever `working-docs/*.md` a routine reorg already
+  touches) exists alongside a dedicated-PR path. See
+  [codename-retirement.md](codename-retirement.md).
 
 ## Medium-term
 
