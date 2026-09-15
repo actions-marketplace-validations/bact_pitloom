@@ -54,6 +54,18 @@ class _DiscoveryLock:
     latency coupling with no actual state to protect. See
     ``_try_build_and_read`` in :mod:`pitloom.core._models_wheel_dispatch`,
     which calls it unguarded.
+
+    Both ``read()`` and ``write()`` guard against re-entrant acquisition
+    by the thread already holding the write lock: a writer backend's own
+    ``discover()`` (setuptools imports the target project's ``setup.py``,
+    PDM-backend runs the project's own build hooks -- both arbitrary
+    third-party code) that calls back into file discovery -- through
+    *either* a reader backend (Hatchling, Poetry, Flit) or another
+    writer -- while already holding the write lock would otherwise
+    deadlock against itself, since only that same thread could ever
+    release it. Both methods raise ``RuntimeError`` immediately instead.
+    (The build-and-read mechanism above is a separate matter: it never
+    holds this lock in the first place, so it cannot trigger this case.)
     """
 
     def __init__(self) -> None:
@@ -61,10 +73,22 @@ class _DiscoveryLock:
         self._readers = 0
         self._writer_active = False
         self._writers_waiting = 0
+        self._writer_thread: int | None = None
+
+    def _raise_if_reentrant_writer(self, ident: int) -> None:
+        if self._writer_active and self._writer_thread == ident:
+            raise RuntimeError(
+                "_DiscoveryLock.read()/write() called re-entrantly by "
+                "the thread that already holds the write lock -- this "
+                "would deadlock. A writer backend's discover() (or "
+                "third-party code it runs) must never call back into "
+                "file discovery while the write lock is already held."
+            )
 
     @contextmanager
     def read(self) -> Iterator[None]:
         with self._cond:
+            self._raise_if_reentrant_writer(threading.get_ident())
             while self._writer_active or self._writers_waiting > 0:
                 self._cond.wait()
             self._readers += 1
@@ -78,7 +102,9 @@ class _DiscoveryLock:
 
     @contextmanager
     def write(self) -> Iterator[None]:
+        ident = threading.get_ident()
         with self._cond:
+            self._raise_if_reentrant_writer(ident)
             self._writers_waiting += 1
             try:
                 while self._writer_active or self._readers > 0:
@@ -86,11 +112,13 @@ class _DiscoveryLock:
             finally:
                 self._writers_waiting -= 1
             self._writer_active = True
+            self._writer_thread = ident
         try:
             yield
         finally:
             with self._cond:
                 self._writer_active = False
+                self._writer_thread = None
                 self._cond.notify_all()
 
 

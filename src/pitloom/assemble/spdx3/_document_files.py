@@ -23,7 +23,7 @@ from pitloom.assemble.spdx3.deps_license import build_file_declared_license
 from pitloom.assemble.spdx3.provenance import ProvenanceEncoder, emit_provenance
 from pitloom.core.document import DocumentModel
 from pitloom.core.models import build_relationship, generate_spdx_id
-from pitloom.core.project import ProjectFile
+from pitloom.core.project import ProjectFile, project_relative_or_fallback
 from pitloom.core.provenance import ProvenanceConfig
 from pitloom.export.spdx3_json import Spdx3JsonExporter, require_spdx_id, sha256_hash
 from pitloom.ids import IdRegistry
@@ -116,9 +116,9 @@ def _emit_file_header_metadata(
     # output" invariant) even though the file's own content is
     # unchanged. distribution_path is always deterministic, so use it
     # instead whenever physical_path isn't project-relative.
-    file_path = package_file.physical_path
-    if Path(file_path).is_absolute():
-        file_path = package_file.distribution_path
+    file_path = project_relative_or_fallback(
+        package_file.physical_path, package_file.distribution_path
+    )
     field_provenance: dict[str, str] = {}
     summary_entries: list[tuple[str, str]] = []
 

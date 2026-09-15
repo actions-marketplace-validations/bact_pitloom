@@ -19,10 +19,52 @@ from pathlib import Path
 
 import pytest
 
+from pitloom.core._models_wheel_lock import _DiscoveryLock
 from pitloom.core._models_wheel_types import IncludedFile
 from pitloom.core.models import get_wheel_files
 
 from .test_models_wheel_dispatch import _make_backend_project
+
+
+def test_discovery_lock_write_rejects_reentrant_write_by_same_thread() -> None:
+    """Regression: a writer backend's discover() (or third-party code
+    it runs, e.g. importing a target project's setup.py) that calls
+    back into file discovery on the same thread while already holding
+    the write lock must fail loudly with RuntimeError, not deadlock
+    waiting on itself -- there is no other thread able to release the
+    lock."""
+    lock = _DiscoveryLock()
+    with lock.write():
+        with pytest.raises(RuntimeError, match="re-entrantly"):
+            with lock.write():
+                pass
+
+
+def test_discovery_lock_write_rejects_reentrant_read_by_same_thread() -> None:
+    """Regression: the write-then-read half of the same reentrancy
+    hazard -- a thread holding the write lock that calls back into
+    discovery through a *reader* backend (Hatchling/Poetry/Flit, more
+    common than another writer) must also fail loudly, not deadlock.
+    The initial fix only guarded write()->write(); this guards the
+    write()->read() path, which deadlocked identically (only the
+    thread already holding the write lock could ever release it) but
+    was left unguarded."""
+    lock = _DiscoveryLock()
+    with lock.write():
+        with pytest.raises(RuntimeError, match="re-entrantly"):
+            with lock.read():
+                pass
+
+
+def test_discovery_lock_write_still_works_after_release() -> None:
+    """Guards against the reentrancy check leaving stale state: after a
+    write() block completes normally, a fresh write() from the same
+    thread must succeed, not be mistaken for a re-entrant call."""
+    lock = _DiscoveryLock()
+    with lock.write():
+        pass
+    with lock.write():
+        pass  # must not raise
 
 
 def test_get_wheel_files_backend_discovery_is_serialized(

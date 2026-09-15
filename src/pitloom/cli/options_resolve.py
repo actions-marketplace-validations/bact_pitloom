@@ -236,6 +236,22 @@ def _resolve_common_options(
     )
 
 
+def _resolve_bool_cascade(cli_value: bool | None, config_value: bool | None) -> bool:
+    """The one CLI-flag > ``[tool.pitloom]`` > default precedence rule
+    for a boolean option, factored out so every caller that needs it
+    (the plain value-only cascade below, and the ``--verbose``
+    source-reporting resolvers further down) shares the exact same
+    expression -- see AGENTS.md's "pattern hand-copied across 3+ call
+    sites drifts" rule: a change to the precedence rule applied to only
+    some callers would make ``--verbose`` silently report the wrong
+    source for the value the SBOM actually used. Returns ``bool``, not
+    ``bool | None`` (``config_value`` can itself be ``None`` for an
+    unset ``describe_relationship``) -- callers should never have to
+    remember their own ``bool(...)`` wrap to get a strict boolean.
+    """
+    return bool(config_value if cli_value is None else cli_value)
+
+
 def _resolve_pretty_and_describe_relationship(
     args: argparse.Namespace, pitloom_config: PitloomConfig
 ) -> tuple[bool, bool]:
@@ -246,15 +262,12 @@ def _resolve_pretty_and_describe_relationship(
     :func:`pitloom.extract.project.resolve_project_with_lockfile` read) --
     see AGENTS.md's "pattern hand-copied across 3+ call sites drifts" rule.
     """
-    effective_pretty = (
-        pitloom_config.pretty
-        if getattr(args, "pretty", None) is None
-        else getattr(args, "pretty", False)
+    effective_pretty = _resolve_bool_cascade(
+        getattr(args, "pretty", None), pitloom_config.pretty
     )
-    effective_describe_relationship = bool(
-        pitloom_config.describe_relationship
-        if getattr(args, "describe_relationship", None) is None
-        else getattr(args, "describe_relationship", False)
+    effective_describe_relationship = _resolve_bool_cascade(
+        getattr(args, "describe_relationship", None),
+        pitloom_config.describe_relationship,
     )
     return effective_pretty, effective_describe_relationship
 
@@ -325,7 +338,7 @@ def _resolve_pretty(
     pitloom_tool: dict[str, Any],
     config_source: str = "pyproject.toml",
 ) -> tuple[bool, str]:
-    value = pitloom_config.pretty if args.pretty is None else args.pretty
+    value = _resolve_bool_cascade(args.pretty, pitloom_config.pretty)
     if args.pretty is not None:
         return value, "command-line"
     if "pretty" in pitloom_tool:
@@ -339,10 +352,8 @@ def _resolve_describe_relationship(
     pitloom_tool: dict[str, Any],
     config_source: str = "pyproject.toml",
 ) -> tuple[bool, str]:
-    value = bool(
-        pitloom_config.describe_relationship
-        if args.describe_relationship is None
-        else args.describe_relationship
+    value = _resolve_bool_cascade(
+        args.describe_relationship, pitloom_config.describe_relationship
     )
     if args.describe_relationship is not None:
         return value, "command-line"

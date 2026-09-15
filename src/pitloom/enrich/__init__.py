@@ -20,6 +20,7 @@ from pathlib import Path
 
 from pitloom.core.ai_metadata import AiModelFormatInfo, AiModelMetadata
 from pitloom.core.enrich_config import EnrichConfig
+from pitloom.core.project import project_relative_or_fallback
 from pitloom.enrich.base import Enricher, EnrichmentResult
 from pitloom.enrich.readme import ReadmeEnricher
 
@@ -75,9 +76,9 @@ def _resolve_model_search_dir(
     distribution_path over an absolute physical_path" rule
     ``_document_files.py``'s own determinism fix applies.
     """
-    physical_path = format_info.physical_path or ""
-    if Path(physical_path).is_absolute():
-        physical_path = format_info.file_path_relative or ""
+    physical_path = project_relative_or_fallback(
+        format_info.physical_path or "", format_info.file_path_relative or ""
+    )
     return project_dir / Path(physical_path).parent
 
 

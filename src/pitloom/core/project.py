@@ -10,6 +10,7 @@ from __future__ import annotations
 import dataclasses
 import logging
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, ClassVar, TypedDict
 
 log = logging.getLogger(__name__)
@@ -87,6 +88,24 @@ class ProjectFile:
     content_type: str | None = None
     content_type_method: str | None = None
     is_license_file: bool = False
+
+
+def project_relative_or_fallback(physical_path: str, fallback: str) -> str:
+    """*physical_path* if it's project-relative, else *fallback*.
+
+    Every consumer that needs a stable, project-relative stand-in for
+    ``ProjectFile.physical_path`` (a registry-lookup key, a
+    determinism-sensitive provenance string, a directory to join onto
+    ``project_dir``) hits the same hazard documented on
+    :attr:`ProjectFile.physical_path`: for a build-and-read
+    (``--allow-build``) discovered file, ``physical_path`` is an
+    absolute path into a fresh ``tempfile.mkdtemp()`` directory that
+    differs every run and never matches a project-relative value.
+    *fallback* is normally ``distribution_path``/``file_path_relative``.
+    """
+    if Path(physical_path).is_absolute():
+        return fallback
+    return physical_path
 
 
 class _ConflictCandidateRequired(TypedDict):
