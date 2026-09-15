@@ -362,6 +362,25 @@ shape described, not just the module where each was first found.
   consumer. When a genuine cross-module dependency exists on a private
   name, promote a narrow accessor function rather than importing the
   private name itself.
+- **A circular-import claim needs a live interpreter test, not static
+  reasoning about import order.** A review agent flagged
+  `assemble/__init__.py`'s `from pitloom.extract.project import
+  warn_use_lockfile_no_effect` as "only avoiding a real circular-import
+  `ImportError` by luck of ordering" -- plausible from reading the
+  import graph alone (`extract.project` -> `extract._locked_dependencies`
+  -> `assemble.spdx3._provenance_encoders`, which forces
+  `assemble/__init__.py` to execute). Tracing it statically is error-prone:
+  what actually settles it is that `assemble/__init__.py`'s *own* earlier
+  import (`_generators` -> `_model_generator` -> `assemble.spdx3.document`,
+  several lines above the flagged import) already fully loads
+  `extract.project` before the flagged line runs -- deterministic
+  same-file ordering, not luck. Confirmed by running
+  `python -c "import pitloom.extract.project; import pitloom.assemble"`
+  (and the reverse order) directly rather than re-deriving the import
+  graph by eye. Before accepting or reporting a circular-import
+  fragility finding, run the actual import in a fresh interpreter (both
+  orders) -- it's faster and more conclusive than manually tracing which
+  module's `__init__.py` reaches which line first.
 
 ## CLI output
 
