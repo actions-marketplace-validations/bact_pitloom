@@ -294,7 +294,11 @@ def _parse_installed_metadata(
     Presence is gated via :func:`~pitloom.extract._extract_utils.field_declared`
     (works on :class:`email.message.Message` via ``in``), never via the
     resolved value's truthiness -- an explicit ``Keywords:`` header with
-    an empty value is a declared-empty, not absent.
+    an empty value is a declared-empty, not absent. ``urls`` is the one
+    exception: it's gated on whether :func:`_parse_installed_urls`
+    produced any entries, since a ``Project-URL``/``Home-page`` header
+    that fails to parse (e.g. no comma) has no value worth gap-filling
+    or comparing -- see :func:`_parse_installed_urls`'s own docstring.
 
     Not extracted in V1 (see ``working-docs/design/installed-dist-info-source.md``):
     ``license_files`` (``License-File`` paths use a different base than

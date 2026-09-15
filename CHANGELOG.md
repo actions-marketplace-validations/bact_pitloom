@@ -51,8 +51,8 @@ and this project adheres to
 - Use lock-file SHA-256 hashes for SPDX 3 `verifiedUsing` in offline
   builds and prioritised over PyPI online ([#212])
 - In-tree `.egg-info`/`.dist-info` as a supplementary project-metadata
-  source: gap-fills undeclared fields, flags a genuine disagreement as
-  a conflict Annotation instead of silently overriding ([#214])
+  source: gap-fills undeclared fields, flags disagreement as a conflict
+  Annotation ([#214])
 
 ### Fixed
 

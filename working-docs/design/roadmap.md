@@ -175,7 +175,7 @@ design pass):
   source** -- the deferred, backend-agnostic phase: a user-supplied
   venv/site-packages path, cross-checked via `direct_url.json`.
   See ["Deferred: real installed dist-info (site-packages)"](installed-dist-info-source.md#deferred-real-installed-dist-info-site-packages).
-- [ ] **Split `extract/project/installed.py`** -- 514 lines, over the
+- [ ] **Split `extract/project/installed.py`** -- 535 lines, over the
   ~400-500 soft limit. Discovery+parsing vs. reconciliation is the
   natural seam (a sibling `_installed_reconcile.py`); deferred rather
   than split immediately, revisit alongside other file-size cleanup.
