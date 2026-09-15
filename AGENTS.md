@@ -131,6 +131,21 @@ shape described, not just the module where each was first found.
     in the shared merge function once, so every field type (present or
     future, scalar or container) gets the same rule, not a per-producer
     workaround that has to be independently rediscovered next time.
+  - **A None-collapse fix applied to one field in a same-shaped set
+    commonly misses its siblings -- grep the whole set, not just the
+    field that triggered the bug report.** `extract/project/installed.py`'s
+    parser handles `requires_python`/`license_name`/`version` with
+    near-identical `if field_declared(...): metadata.x = msg.get(...) or
+    None` blocks, all three in `_CONFLICT_CHECKED_FIELDS` and needing the
+    same collapse (their reconciler compares via `SpecifierSet`/
+    `normalize_license_expression`/`is_same_version`, none of which
+    tolerate the raw uncollapsed value consistently). A fix for
+    `requires_python`+`license_name` shipped without `version`, and it
+    took two independent full-PR review passes (not the pass that made
+    the original fix) to catch the gap. When a None-vs-empty fix lands
+    on one field, immediately check every other field in the same
+    frozenset/dict/match-arm for the identical pattern in the same
+    change, rather than relying on a later review round to notice.
 - **Compare domain identifiers the way the ecosystem/spec does, not as
   raw strings.** A raw `==`/dict-key comparison silently fails to match
   values that a spec treats as equivalent (e.g. PEP 503 package-name
