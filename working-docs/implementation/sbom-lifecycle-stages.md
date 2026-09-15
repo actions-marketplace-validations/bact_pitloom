@@ -1,6 +1,6 @@
 ---
 Created: 2026-08-27
-Last-Modified: 2026-09-03
+Last-Modified: 2026-09-15
 SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 SPDX-FileType: DOCUMENTATION
 SPDX-License-Identifier: CC0-1.0
@@ -90,6 +90,24 @@ The static source-stage path this doc's mechanism table describes
 specifically serves the pre-build case: no wheel built yet (e.g. early
 CI, before a build step runs), or someone who wants an SBOM without
 building at all.
+
+## Build-and-read: a deliberate, opt-in exception
+
+`--allow-build` (shipped in PR #215 for `uv_build`, and any other
+backend with no static discovery module or whose static discovery
+fails) is a narrow, explicit exception to "never a build" for wheel
+*file discovery* specifically -- never for metadata, and never the
+default. It differs from the rejected `setup.py`-execution idea above
+in one deciding respect: the code executed is the target project's own
+*declared, standard* PEP 517 build backend (`uv_build`, `maturin`,
+...), not arbitrary `setup.py` code -- a materially smaller and more
+predictable risk surface, though the determinism, build-dependency, and
+network-access costs above still apply, which is exactly why it stays
+opt-in rather than a transparent upgrade to the static path. See
+[`docs/cli.md`](../../docs/cli.md#building-a-project-to-discover-its-file-list---allow-build)
+for the flag itself and
+[`non-hatchling-file-discovery.md`](../design/non-hatchling-file-discovery.md)
+for the full design/history.
 
 ## Why `setup.py` execution is out of scope (not just "not done yet")
 

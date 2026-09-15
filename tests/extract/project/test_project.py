@@ -45,6 +45,39 @@ version = "1.0.0"
     assert config_path == pyproject_path
 
 
+def test_read_project_resolves_uv_build_backend_via_generic_pep621(
+    tmp_path: Path,
+) -> None:
+    """``uv_build`` declares ``build-backend = "uv_build"`` but needs no
+    dedicated extractor: ``read_project()`` never branches on build-backend
+    for metadata -- only :mod:`pitloom.core._models_wheel`'s file-discovery
+    dispatch does (see ``uv_build``'s ``--allow-build`` support in
+    ``non-hatchling-file-discovery.md``). Regression for that architectural
+    claim."""
+    pyproject_path = tmp_path / "pyproject.toml"
+    pyproject_path.write_text(
+        "[build-system]\n"
+        'requires = ["uv_build>=0.9,<0.10"]\n'
+        'build-backend = "uv_build"\n\n'
+        "[project]\n"
+        'name = "pkg"\n'
+        'version = "1.2.3"\n'
+        'dependencies = ["requests>=2"]\n'
+        'license = "MIT"\n'
+        'authors = [{name = "A", email = "a@example.com"}]\n',
+        encoding="utf-8",
+    )
+
+    metadata, _, config_path = read_project(tmp_path)
+
+    assert metadata.name == "pkg"
+    assert metadata.version == "1.2.3"
+    assert metadata.dependencies == ["requests>=2"]
+    assert metadata.license_name == "MIT"
+    assert metadata.authors == [{"name": "A", "email": "a@example.com"}]
+    assert config_path == pyproject_path
+
+
 def test_read_project_falls_back_past_build_system_only_pyproject(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
