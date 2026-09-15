@@ -50,6 +50,9 @@ and this project adheres to
   vs. lock-resolved version) ([#211])
 - Use lock-file SHA-256 hashes for SPDX 3 `verifiedUsing` in offline
   builds and prioritised over PyPI online ([#212])
+- In-tree `.egg-info`/`.dist-info` as a supplementary project-metadata
+  source: gap-fills undeclared fields, flags disagreement as a conflict
+  Annotation ([#214])
 
 ### Fixed
 
@@ -100,6 +103,7 @@ and this project adheres to
 [#211]: https://github.com/bact/pitloom/pull/211
 [#212]: https://github.com/bact/pitloom/pull/212
 [#213]: https://github.com/bact/pitloom/pull/213
+[#214]: https://github.com/bact/pitloom/pull/214
 
 ## [0.17.0] - 2026-08-30
 

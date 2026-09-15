@@ -8,7 +8,13 @@
 import tempfile
 from pathlib import Path
 
-from pitloom.core.project import ProjectMetadata, merge_project_metadata
+import pytest
+
+from pitloom.core.project import (
+    ConflictCandidate,
+    ProjectMetadata,
+    merge_project_metadata,
+)
 from pitloom.extract._license import resolve_license_concluded
 
 # ---------------------------------------------------------------------------
@@ -197,6 +203,84 @@ def test_merge_project_metadata_does_not_mutate_inputs() -> None:
     assert primary.version is None
     assert primary.provenance == {"name": "Source: primary"}
     assert secondary.provenance == {"version": "Source: secondary"}
+
+
+def test_merge_project_metadata_does_not_alias_field_conflicts() -> None:
+    """Regression for the dataclasses.replace() aliasing bug: replace()
+    shares container-field objects with *primary* verbatim unless a field
+    is explicitly overridden. field_conflicts must get the same fresh-copy
+    treatment as provenance -- a write into merged.field_conflicts (by any
+    later caller, e.g. reconcile_installed_metadata) must never leak back
+    into primary's or secondary's own field_conflicts dict."""
+    primary = ProjectMetadata(name="pkg", version="1.0.0")
+    secondary = ProjectMetadata(name="pkg", version="2.0.0")
+    merged = merge_project_metadata(primary, secondary)
+
+    assert merged.field_conflicts is not primary.field_conflicts
+    assert merged.field_conflicts is not secondary.field_conflicts
+
+    merged.field_conflicts["version"] = [
+        {"value": "1.0.0", "role": "declared", "source": "Source: a"},
+        {"value": "2.0.0", "role": "declared", "source": "Source: b"},
+    ]
+    assert primary.field_conflicts == {}
+    assert secondary.field_conflicts == {}
+
+
+def test_merge_project_metadata_field_conflicts_merged_primary_wins(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """field_conflicts is dict-merged like provenance (primary's entries
+    winning on key conflict), and a genuine key collision is logged
+    rather than silently dropping secondary's whole ConflictCandidate
+    list with no signal -- the "no silent deviations" principle applied
+    to a data loss, not just a value substitution."""
+    primary_candidates: list[ConflictCandidate] = [
+        {"value": "1.0.0", "role": "declared", "source": "Source: primary-static"},
+        {"value": "1.0.1", "role": "declared", "source": "Source: primary-installed"},
+    ]
+    secondary_candidates: list[ConflictCandidate] = [
+        {"value": "9.0.0", "role": "declared", "source": "Source: secondary-static"},
+        {"value": "9.0.1", "role": "declared", "source": "Source: secondary-installed"},
+    ]
+    primary = ProjectMetadata(
+        name="pkg", field_conflicts={"version": primary_candidates}
+    )
+    secondary = ProjectMetadata(
+        name="pkg", field_conflicts={"version": secondary_candidates}
+    )
+
+    with caplog.at_level("WARNING"):
+        merged = merge_project_metadata(primary, secondary)
+
+    assert merged.field_conflicts == {"version": primary_candidates}
+    assert "both sides have a field_conflicts entry" in caplog.text
+    assert "['version']" in caplog.text
+
+
+def test_merge_project_metadata_field_conflicts_no_collision_no_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Disjoint field_conflicts keys merge silently -- no collision, no
+    data loss, no warning."""
+    primary = ProjectMetadata(
+        name="pkg",
+        field_conflicts={
+            "version": [{"value": "1.0.0", "role": "declared", "source": "Source: a"}]
+        },
+    )
+    secondary = ProjectMetadata(
+        name="pkg",
+        field_conflicts={
+            "license": [{"value": "MIT", "role": "declared", "source": "Source: b"}]
+        },
+    )
+
+    with caplog.at_level("WARNING"):
+        merged = merge_project_metadata(primary, secondary)
+
+    assert set(merged.field_conflicts) == {"version", "license"}
+    assert caplog.text == ""
 
 
 def test_merge_project_metadata_hashes_bound_to_locked_dependencies() -> None:

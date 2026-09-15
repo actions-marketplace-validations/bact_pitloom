@@ -176,10 +176,13 @@ def _build_sbom_from_project_and_wheel(
     # extensions, auditwheel-repaired shared libraries) that read_wheel()
     # found in the actual wheel but that a source-tree rescan can't see.
     merged_files = _merge_file_extras(wheel_metadata.files, project_files)
-    # dataclasses.replace, not an in-place `.files =` assignment, so the
-    # caller's wheel_metadata (e.g. embed_wheel_sbom's read_wheel() result)
-    # isn't silently mutated as a side effect of building this SBOM.
-    project_metadata = dataclasses.replace(wheel_metadata, files=merged_files)
+    # replace_with_fresh_containers(), not a bare dataclasses.replace() or
+    # an in-place `.files =` assignment: every dict/list field NOT given
+    # here (provenance, field_conflicts, etc.) also gets its own fresh
+    # copy, so the caller's wheel_metadata (e.g. embed_wheel_sbom's
+    # read_wheel() result) can never be silently mutated as a side effect
+    # of anything downstream mutating this SBOM's own project_metadata.
+    project_metadata = wheel_metadata.replace_with_fresh_containers(files=merged_files)
     merkle_root = _compute_wheel_merkle_root(merged_files)
     ai_models = scan_project_for_ai_models(project_dir, project_files)
     phantom_deps = find_phantom_dependencies(merged_files)
@@ -373,8 +376,14 @@ def _generate_embed_sbom_json(
     if pitloom_config is None:
         # Only [tool.pitloom] config is used here -- skip the lock/pin
         # cascade (embed-wheel is build-stage; a source-stage lock file's
-        # resolved dependencies must never leak into an embedded SBOM).
-        _, cfg, _ = read_project(proj_root, include_locked_dependencies=False)
+        # resolved dependencies must never leak into an embedded SBOM) and
+        # skip in-tree installed-metadata resolution (same build-stage
+        # rationale, and this caller discards the metadata anyway).
+        _, cfg, _ = read_project(
+            proj_root,
+            include_locked_dependencies=False,
+            include_installed_metadata=False,
+        )
     else:
         cfg = pitloom_config
 

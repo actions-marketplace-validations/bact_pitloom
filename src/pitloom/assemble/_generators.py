@@ -220,17 +220,22 @@ def generate_project_sbom(
         # real wheel build -- it never reproduces the
         # `.dist-info/licenses/...` entries a real build would add for
         # `[project.license-files]`. Resolve those directly so they still
-        # show up in the SBOM's file list, before the `dataclasses.replace`
-        # below makes `project_files` the metadata's authoritative file
-        # list for this (directory) target -- replace, not in-place
-        # mutation, so the caller's own `project_metadata` is untouched.
+        # show up in the SBOM's file list, before
+        # replace_with_fresh_containers() below makes `project_files` the
+        # metadata's authoritative file list for this (directory) target
+        # -- every other dict/list field (provenance, field_conflicts,
+        # etc.) also gets its own fresh copy, so the caller's own
+        # `project_metadata` can never be silently mutated as a side
+        # effect of anything downstream.
         project_files = project_files + resolve_license_file_entries(
             target_path,
             project_metadata.name,
             project_metadata.version,
             project_metadata.license_files,
         )
-        project_metadata = dataclasses.replace(project_metadata, files=project_files)
+        project_metadata = project_metadata.replace_with_fresh_containers(
+            files=project_files
+        )
         search_root = target_path
 
     ai_models = (

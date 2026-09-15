@@ -111,6 +111,26 @@ Poetry, PDM-backend, and Flit-core support are done (see priority
 table in [non-hatchling-file-discovery.md](non-hatchling-file-discovery.md));
 `uv_build` is next, without a committed version yet.
 
+**Suggested sequencing after that** (2026-09-14, not a commitment, just
+the current read of what's ready to pick up vs. what still needs a
+design pass):
+
+1. `uv_build` file discovery (above) -- ready to implement, priority
+   table already exists.
+2. [Generic multi-candidate field representation](#metadata-quality)
+   -- now concretely motivated: license (`deps_license.py`), dependency
+   version (`deps_installed.py`), and project metadata fields
+   (`extract/project/installed.py`, landed via
+   [installed-dist-info-source.md](installed-dist-info-source.md)) each
+   hand-build their own `ConflictCandidate` list at their own call
+   site -- a third, independent instance of the same duplication is
+   usually the right time to generalize.
+3. [OSV.dev vulnerability lookup](#metadata-quality) -- **not** ready to
+   hand to an implementer as-is; needed its own design pass first (SPDX3
+   mapping, which dependency pool to query, PEP 440-based range
+   matching) -- now resolved, see
+   [osv-vulnerability-lookup.md](osv-vulnerability-lookup.md#resolving-the-three-open-design-gaps-2026-09-14).
+
 ### Non-Hatchling file discovery (feature parity)
 
 - [ ] **`get_wheel_files()` file discovery is not backend-agnostic** --
@@ -142,10 +162,30 @@ table in [non-hatchling-file-discovery.md](non-hatchling-file-discovery.md));
 - [x] **`get_wheel_files()` option to skip Merkle root computation** --
   `embed-wheel`'s one caller now skips per-file hashing entirely. See
   [get-wheel-files-skip-merkle-root.md](../implementation/get-wheel-files-skip-merkle-root.md).
-- [ ] **Installed `.dist-info` / `.egg-info` as metadata source** -- treat
-  an existing installed package as a high-fidelity source when present
-  (editable installs, virtual environments).
-  See [metadata-sources.md](./metadata-sources.md).
+- [x] **In-tree `.egg-info`/`.dist-info` as a supplementary metadata
+  source** -- an editable-install byproduct left next to
+  `pyproject.toml` gap-fills undeclared fields; static source stays
+  authoritative on conflict (recorded, never silently substituted).
+  See [installed-dist-info-source.md](installed-dist-info-source.md).
+- [ ] **Unify `extract/project/installed.py`'s RFC 822 Core-Metadata
+  parser with `extract/wheel.py`'s** -- duplicated `Project-URL`-splitting
+  logic, deliberately left unmerged in V1. See
+  [installed-dist-info-source.md](installed-dist-info-source.md#relationship-to-extractwheelpys-parser).
+- [ ] **Real installed `.dist-info` (site-packages) as a metadata
+  source** -- the deferred, backend-agnostic phase: a user-supplied
+  venv/site-packages path, cross-checked via `direct_url.json`.
+  See ["Deferred: real installed dist-info (site-packages)"](installed-dist-info-source.md#deferred-real-installed-dist-info-site-packages).
+- [ ] **Split `extract/project/installed.py`** -- 535 lines, over the
+  ~400-500 soft limit. Discovery+parsing vs. reconciliation is the
+  natural seam (a sibling `_installed_reconcile.py`); deferred rather
+  than split immediately, revisit alongside other file-size cleanup.
+- [ ] **`resolve_project_with_lockfile()`'s peek/reread pays for
+  installed-metadata discovery twice** (once per `read_project()` call)
+  when the lock cascade is auto-detected. Already an accepted,
+  documented cost; a fix needs care -- the peek's own read may be
+  load-bearing for surfacing errors the quiet re-read wouldn't catch on
+  its own, so any change here needs a closer look at that ordering
+  before changing it, not a quick patch.
 - [x] **CLI option `--no-use-lockfile`** -- opt-out flag (also
   `[tool.pitloom] use-lockfile = false`) disabling automatic lock-file
   discovery across every usage surface; on by default. Also fixed a
@@ -304,6 +344,49 @@ table in [non-hatchling-file-discovery.md](non-hatchling-file-discovery.md));
   field(s) via one shared, grep-able helper, `field_loss_suffix()`
   (`pitloom.logging_config`), instead of hand-duplicated suffix text per
   call site. ([PR #201](https://github.com/bact/pitloom/pull/201))
+
+### Internal codenames
+
+- [ ] **Retire the whole letter-number use-case codename taxonomy**, not
+  just "G2". `working-docs/implementation/provenance/use-case-catalog.md`
+  defines a full scheme -- G1-G7 (generation), A1-A2 (aggregation), E1-E2
+  (enrichment), P1 (preservation), N1-N6 (Phase-2 native-backfill
+  checklist), plus others found the same way (R1, M1-M4, L6, L8, U1, C4,
+  K2, V1/V2/V4, O1-O3, S1-S5, Z0/Z1, T5, H1, F1) -- meaningful only against
+  that catalog's own numbering, meaningless to anyone (including future-us)
+  reading a docstring/comment in isolation. 2026-09-14 count via
+  `grep -rnoE "\b[A-Z][0-9]\b" src/ tests/ CHANGELOG.md working-docs/ docs/`:
+  over 500 occurrences total, heaviest in `src/` at `deps.py`,
+  `deps_installed.py`, `deps_license.py`, `provenance.py`, `enrich/base.py`,
+  `_license.py`, `project/pyproject.py`, `project/poetry.py`, and in
+  `tests/` across a dozen-plus modules.
+  Replace every `src/`/`tests/`/`CHANGELOG.md`/`docs/` occurrence with a
+  stable, self-explanatory name (e.g. `field-conflict` for G2,
+  `enrichment-override-lineage` for E1, `ai-inferred-marker` for E2,
+  `unification-rationale` for A1, `artifact-metadata-preservation` for
+  P1 -- exact names TBD at implementation time, one per catalog entry
+  that's actually referenced in code) -- `working-docs/` may keep the
+  short codes as shorthand for its own planning history, since that's
+  internal-only and never shipped to a user. New code from 2026-09-14
+  onward (the installed-dist-info-source feature) already avoids "G2"
+  outside `working-docs/`; this item is the backlog to clean up every
+  pre-existing occurrence of every code, not a rename done in passing
+  inside an unrelated PR. Sizeable, mechanical-but-not-trivial (a
+  docstring's code often carries real meaning that must survive the
+  rename, not just a find-replace) -- likely worth its own dedicated PR
+  per code family (G-series, N-series, the rest) rather than one giant
+  diff. **Opportunistic path**: `working-docs/`'s own hygiene rule
+  (CLAUDE.md -- trim a grown roadmap bullet out to its own file, split an
+  oversized doc, move a completed item to `implementation/`, retire a
+  superseded one to `archive/`) already means `working-docs/*.md` files
+  get touched/rewritten periodically for unrelated reasons -- whenever
+  such a reorg/trim/split touches a file that defines or uses one of
+  these codes (`use-case-catalog.md`, `multi-source-conflict.md`,
+  `role-vocabulary.md`, `annotation-provenance.md`, etc.), replace the
+  code with its stable name in that file as part of the same edit, then
+  update whichever `src/`/`tests/` occurrences that doc's own
+  cross-references point at. No need to wait for a dedicated cleanup PR
+  for the subset that a reorg was touching anyway.
 
 ## Medium-term
 

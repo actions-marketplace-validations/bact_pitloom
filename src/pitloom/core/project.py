@@ -8,7 +8,11 @@
 from __future__ import annotations
 
 import dataclasses
+import logging
 from dataclasses import dataclass, field
+from typing import Any, ClassVar, TypedDict
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -67,6 +71,25 @@ class ProjectFile:
     is_license_file: bool = False
 
 
+class _ConflictCandidateRequired(TypedDict):
+    value: str
+    role: str
+    source: str
+
+
+class ConflictCandidate(_ConflictCandidateRequired, total=False):
+    """One source's reported value for a field under dispute.
+
+    Relocated here (rather than defined in
+    :mod:`pitloom.assemble.spdx3.provenance`, which re-exports it) so both
+    :mod:`pitloom.extract` and :mod:`pitloom.assemble` can use it without
+    :mod:`pitloom.extract` importing from the :mod:`pitloom.assemble`
+    layer -- see :attr:`ProjectMetadata.field_conflicts`.
+    """
+
+    ref: str
+
+
 @dataclass
 class PhantomDependency:
     """A bundled binary dependency not tracked by normal package metadata.
@@ -101,6 +124,13 @@ class ProjectMetadata:
     ``"Source: <location> | Field: <key>"`` or
     ``"Source: <location> | Method: <method>"``.
 
+    :attr:`field_conflicts` records a genuine disagreement between this
+    metadata's own value for a field and a second, independently-sourced
+    candidate (e.g. an in-tree ``.egg-info``/``.dist-info`` -- see
+    :mod:`pitloom.extract.project.installed`) that was rejected in favor of
+    this instance's value. Empty for metadata that was never reconciled
+    against a second source.
+
     Pitloom tool settings such as ``fragments`` and ``pretty`` are **not** stored
     here; they live in :class:`~pitloom.core.config.PitloomConfig` which is returned
     alongside this object by
@@ -123,6 +153,55 @@ class ProjectMetadata:
     locked_dependency_hashes: dict[str, str] = field(default_factory=dict)
     provenance: dict[str, str] = field(default_factory=dict)
     files: list[ProjectFile] = field(default_factory=list)
+    field_conflicts: dict[str, list[ConflictCandidate]] = field(default_factory=dict)
+
+    #: Every dict/list-valued field name on this dataclass -- the set
+    #: :meth:`replace_with_fresh_containers` gives a fresh shallow copy to,
+    #: since :func:`dataclasses.replace` shares each of them with *self* by
+    #: reference otherwise. Kept in sync by hand (not derived from
+    #: :func:`dataclasses.fields` at class-definition time, to avoid a
+    #: metaclass/decorator-ordering dependency for a fixed, rarely-changed
+    #: list) -- a newly added dict/list field must be added here too, or it
+    #: silently loses the same protection every other container field has.
+    _CONTAINER_FIELD_NAMES: ClassVar[tuple[str, ...]] = (
+        "license_files",
+        "keywords",
+        "authors",
+        "urls",
+        "dependencies",
+        "locked_dependencies",
+        "locked_dependency_hashes",
+        "provenance",
+        "files",
+        "field_conflicts",
+    )
+
+    def replace_with_fresh_containers(self, **changes: Any) -> ProjectMetadata:
+        """``dataclasses.replace(self, **changes)``, but every dict/list-
+        valued field not explicitly given in *changes* gets a fresh
+        shallow copy first.
+
+        :func:`dataclasses.replace` shares every un-overridden field's
+        object with *self* by reference -- for a container field, that
+        means the result and *self* start out as the exact same dict/list
+        object. A caller that goes on to mutate the result in place (add
+        a key to ``.provenance``, append to ``.field_conflicts``, ...)
+        would silently corrupt *self* too unless every such caller
+        remembers to defensively copy first -- a hazard this repo has
+        already hit twice independently (:func:`merge_project_metadata`
+        and :func:`~pitloom.extract.project.installed.reconcile_installed_metadata`
+        each patched it separately for ``provenance``/``field_conflicts``
+        before this method existed). Prefer this over a bare
+        ``dataclasses.replace()`` call whenever the result will be
+        mutated in place afterward, for any container field -- not just
+        the two fields that happened to trigger a bug report first.
+        """
+        fresh_containers = {
+            name: getattr(self, name).copy()
+            for name in self._CONTAINER_FIELD_NAMES
+            if name not in changes
+        }
+        return dataclasses.replace(self, **fresh_containers, **changes)
 
 
 #: Maps a :class:`ProjectMetadata` field name to the literal provenance key
@@ -185,11 +264,37 @@ def merge_project_metadata(
     (see ``project.pyproject``/``project.setuptools_py``/
     ``project.setuptools_cfg``), not ``"license_name"``; :data:`_PROVENANCE_KEY_ALIASES`
     maps that known mismatch so the same presence check finds it.
+
+    ``field_conflicts`` is dict-merged the same way as ``provenance``
+    (*primary*'s entries winning on key conflict) rather than left to the
+    generic per-field loop below: both are seeded via
+    :meth:`ProjectMetadata.replace_with_fresh_containers` (never a bare
+    ``dataclasses.replace()``, which would alias every un-overridden
+    container field to *primary*'s own object) and then explicitly
+    overridden with the merged dict computed here. Both dicts are empty
+    at every current call site (this merge always runs before any
+    conflict reconciliation), but a future caller or ordering change must
+    not silently corrupt either input's own dict via this function's
+    output.
     """
-    merged = dataclasses.replace(primary)
+    merged = primary.replace_with_fresh_containers()
     merged.provenance = {**secondary.provenance, **primary.provenance}
+    colliding_fields = set(secondary.field_conflicts) & set(primary.field_conflicts)
+    if colliding_fields:
+        # Not reachable at any current call site (see the docstring above),
+        # but if it ever is: primary wins outright below, same as every
+        # other field -- log it rather than silently drop secondary's
+        # whole ConflictCandidate list with no signal at all, per this
+        # repo's "no silent deviations" principle.
+        log.warning(
+            "merge_project_metadata: both sides have a field_conflicts "
+            "entry for %s -- keeping only primary's, secondary's conflict "
+            "record is discarded",
+            sorted(colliding_fields),
+        )
+    merged.field_conflicts = {**secondary.field_conflicts, **primary.field_conflicts}
     for f in dataclasses.fields(ProjectMetadata):
-        if f.name in ("name", "provenance"):
+        if f.name in ("name", "provenance", "field_conflicts"):
             continue
         primary_value = getattr(primary, f.name)
         provenance_key = _PROVENANCE_KEY_ALIASES.get(f.name, f.name)

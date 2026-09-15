@@ -24,6 +24,7 @@ from typing import Any
 
 from spdx_python_model.bindings import v3_0_1 as spdx3
 
+from pitloom.assemble.spdx3._document_conflicts import attach_metadata_field_conflicts
 from pitloom.assemble.spdx3._document_deployed import build_deployed
 from pitloom.assemble.spdx3._document_files import (
     _add_package_files,
@@ -254,6 +255,16 @@ def build(
         exporter=exporter,
         provenance_config=prov_cfg,
         encoder=encoder,
+    )
+
+    # --- Metadata field conflicts (e.g. an in-tree .egg-info/.dist-info
+    # disagreeing with the static source) ---
+    attach_metadata_field_conflicts(
+        metadata=metadata,
+        main_package=main_package,
+        creation_info=spdx_ci,
+        doc_uuid=doc_uuid,
+        exporter=exporter,
     )
 
     # --- Locked (e.g. poetry.lock-resolved) transitive-only dependencies ---

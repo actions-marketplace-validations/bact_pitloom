@@ -1,0 +1,15 @@
+# SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
+# SPDX-License-Identifier: CC0-1.0
+
+# The in-tree egg-info's PKG-INFO is truncated/binary garbage (invalid
+# UTF-8) -- must never raise; decodes with errors="replace", and with no
+# recoverable Name header the candidate is rejected as a mismatch, one
+# WARNING, nothing crashes.
+
+[project]
+name = "sampleproject-installed-malformed"
+version = "1.0.0"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"

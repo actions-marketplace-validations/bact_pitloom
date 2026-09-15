@@ -1,0 +1,15 @@
+# SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
+# SPDX-License-Identifier: CC0-1.0
+
+# The in-tree egg-info next to this pyproject.toml declares a different
+# package name entirely (a stale byproduct from a renamed package, or a
+# leftover `pip install -e .` against a different checkout) -- must be
+# rejected entirely, never even used for gap-fill.
+
+[project]
+name = "sampleproject-installed-realname"
+version = "1.0.0"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"

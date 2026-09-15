@@ -159,12 +159,18 @@ def _resolve_project_dir_and_config(
     Only ``[tool.pitloom]`` config is used here; ``read_project()``'s
     lock/pin cascade is skipped (``include_locked_dependencies=False``)
     -- ``embed-wheel`` is build-stage, and a source-stage lock file's
-    resolved dependencies must never leak into a wheel-embedded SBOM.
+    resolved dependencies must never leak into a wheel-embedded SBOM. Its
+    in-tree installed-metadata resolution is skipped too
+    (``include_installed_metadata=False``) for the same build-stage
+    rationale, and purely to skip that I/O since this caller discards the
+    metadata anyway.
     """
     if project_dir is None:
         try:
             _, pitloom_config, _ = read_project(
-                Path.cwd(), include_locked_dependencies=False
+                Path.cwd(),
+                include_locked_dependencies=False,
+                include_installed_metadata=False,
             )
             return Path.cwd(), pitloom_config
         except FileNotFoundError:
@@ -176,7 +182,9 @@ def _resolve_project_dir_and_config(
         return None
     try:
         _, pitloom_config, _ = read_project(
-            proj_path, include_locked_dependencies=False
+            proj_path,
+            include_locked_dependencies=False,
+            include_installed_metadata=False,
         )
     except FileNotFoundError as exc:
         # read_project()'s own message already names the specific reason

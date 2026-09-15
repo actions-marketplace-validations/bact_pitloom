@@ -33,6 +33,7 @@ from pitloom.assemble.spdx3._provenance_encoders import (
     resolve_encoder,
 )
 from pitloom.core.models import generate_spdx_id
+from pitloom.core.project import ConflictCandidate
 from pitloom.core.provenance import (
     ProvenanceConfig,
     normalize_max_source_metadata_bytes,
@@ -155,18 +156,6 @@ def build_unification_annotation(
     return _build_json_annotation(
         subject_spdx_id, statement, creation_info, annotation_spdx_id
     )
-
-
-class _ConflictCandidateRequired(TypedDict):
-    value: str
-    role: str
-    source: str
-
-
-class ConflictCandidate(_ConflictCandidateRequired, total=False):
-    """One source's reported value for a field under dispute (G2)."""
-
-    ref: str
 
 
 def build_conflict_annotation(
