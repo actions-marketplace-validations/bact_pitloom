@@ -167,34 +167,45 @@ def test_get_wheel_files_build_and_read_does_not_block_or_get_blocked(
     setuptools_dir.mkdir()
     _make_backend_project(setuptools_dir, "setuptools.build_meta")
 
-    concurrent_calls = 0
-    max_concurrent = 0
-    lock = threading.Lock()
+    # A deterministic Event-based rendezvous, not a fixed time.sleep()
+    # race: each side signals "I've entered" and then waits (bounded)
+    # for the *other* side to have entered too before proceeding, so the
+    # test proves real concurrency regardless of OS thread-scheduling
+    # latency. A sleep-overlap version of this test previously flaked on
+    # a loaded/throttled CI runner (thread start latency exceeding the
+    # sleep window made max_concurrent read back as 1, not 2, even
+    # though nothing was actually serialized) -- see the sibling
+    # starvation test below for the same Event-based reasoning.
+    #
+    # The two "_saw_" events (not a bare assert inside the thread target)
+    # are what actually let this test fail correctly: an AssertionError
+    # raised inside a threading.Thread's target is swallowed by the
+    # thread machinery and never propagates to t.join() in the main
+    # thread, so asserting in here would silently no-op a real
+    # regression instead of failing it. Recording success into an Event
+    # and asserting on it after every thread has joined (below) is the
+    # pattern this file's own starvation test already uses.
+    build_and_read_entered = threading.Event()
+    writer_entered = threading.Event()
+    build_and_read_saw_writer = threading.Event()
+    writer_saw_build_and_read = threading.Event()
 
     def _slow_build_and_read(
         project_dir: Path, *, isolated: bool = True
     ) -> tuple[list[IncludedFile], Callable[[], None]]:
-        nonlocal concurrent_calls, max_concurrent
         del project_dir, isolated
-        with lock:
-            concurrent_calls += 1
-            max_concurrent = max(max_concurrent, concurrent_calls)
-        time.sleep(0.05)
-        with lock:
-            concurrent_calls -= 1
+        build_and_read_entered.set()
+        if writer_entered.wait(timeout=5):
+            build_and_read_saw_writer.set()
         return [], lambda: None
 
     def _slow_writer(
         project_dir: Path, *, pyproject_data: dict[str, object] | None = None
     ) -> list[IncludedFile]:
-        nonlocal concurrent_calls, max_concurrent
         del project_dir, pyproject_data
-        with lock:
-            concurrent_calls += 1
-            max_concurrent = max(max_concurrent, concurrent_calls)
-        time.sleep(0.05)
-        with lock:
-            concurrent_calls -= 1
+        writer_entered.set()
+        if build_and_read_entered.wait(timeout=5):
+            writer_saw_build_and_read.set()
         return []
 
     monkeypatch.setattr(
@@ -212,9 +223,18 @@ def test_get_wheel_files_build_and_read_does_not_block_or_get_blocked(
     for t in threads:
         t.start()
     for t in threads:
-        t.join()
+        t.join(timeout=10)
 
-    assert max_concurrent == 2
+    assert build_and_read_saw_writer.is_set(), (
+        "build-and-read never observed the writer running concurrently "
+        "-- build-and-read is blocking on (or being blocked by) the "
+        "discovery lock"
+    )
+    assert writer_saw_build_and_read.is_set(), (
+        "the writer never observed build-and-read running concurrently "
+        "-- the writer is blocking on (or being blocked by) the "
+        "discovery lock"
+    )
 
 
 def test_get_wheel_files_writer_not_starved_by_continuous_readers(
