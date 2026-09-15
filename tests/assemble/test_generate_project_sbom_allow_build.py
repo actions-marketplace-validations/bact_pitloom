@@ -15,7 +15,9 @@ test module.
 
 from __future__ import annotations
 
+import io
 import logging
+import tarfile
 from pathlib import Path
 from unittest import mock
 
@@ -264,3 +266,71 @@ def test_generate_dispatches_allow_build_to_project_sbom(tmp_path: Path) -> None
 
     assert mocked.call_args.kwargs["allow_build"] is True
     assert mocked.call_args.kwargs["no_build_isolation"] is True
+
+
+def _make_sdist(tmp_path: Path) -> Path:
+    sdist_path = tmp_path / "demo-1.0.0.tar.gz"
+    with tarfile.open(sdist_path, "w:gz") as tf:
+        pkg_info = b"Metadata-Version: 2.1\nName: demo\nVersion: 1.0.0\n"
+        ti = tarfile.TarInfo(name="demo-1.0.0/PKG-INFO")
+        ti.size = len(pkg_info)
+        tf.addfile(ti, io.BytesIO(pkg_info))
+        pyproject = b'[project]\nname = "demo"\nversion = "1.0.0"\n'
+        ti2 = tarfile.TarInfo(name="demo-1.0.0/pyproject.toml")
+        ti2.size = len(pyproject)
+        tf.addfile(ti2, io.BytesIO(pyproject))
+    return sdist_path
+
+
+@pytest.mark.parametrize(
+    ("allow_build", "no_build_isolation"),
+    [(True, False), (False, True), (True, True)],
+    ids=["allow_build_only", "no_build_isolation_only", "both"],
+)
+def test_generate_project_sbom_warns_allow_build_no_effect_on_sdist_target(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+    allow_build: bool,
+    no_build_isolation: bool,
+) -> None:
+    """Regression: an sdist-archive target never reaches
+    ``get_wheel_files()`` (files come from the archive's own listing, see
+    ``_generators.py``'s ``target_path.is_file()`` branch) -- an explicit
+    ``allow_build``/``no_build_isolation`` given for one used to be
+    silently dropped with zero feedback, unlike the identical no-op case
+    for a non-project ``generate()`` target (already covered above) --
+    docs/cli.md's own ``--allow-build`` section now documents this
+    sdist case explicitly as a no-op-with-WARNING:, not a no-op silently.
+    ``get_wheel_files`` is mocked so a genuine call would fail the test
+    outright (unexpected-call AssertionError) rather than just going
+    unnoticed."""
+    sdist_path = _make_sdist(tmp_path)
+
+    with mock.patch(
+        "pitloom.assemble._generators.get_wheel_files"
+    ) as mocked_get_wheel_files:
+        with caplog.at_level(logging.WARNING):
+            generate_project_sbom(
+                sdist_path,
+                offline=True,
+                allow_build=allow_build,
+                no_build_isolation=no_build_isolation,
+            )
+
+    mocked_get_wheel_files.assert_not_called()
+    assert "Build:" in caplog.text
+    assert "--allow-build/--no-build-isolation has no effect" in caplog.text
+    assert "sdist archive target" in caplog.text
+
+
+def test_generate_project_sbom_no_warning_for_sdist_when_allow_build_default(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The no-op warning above must not fire for an sdist target when
+    the caller never touched ``allow_build``/``no_build_isolation``."""
+    sdist_path = _make_sdist(tmp_path)
+
+    with caplog.at_level(logging.WARNING):
+        generate_project_sbom(sdist_path, offline=True)
+
+    assert "--allow-build/--no-build-isolation has no effect" not in caplog.text

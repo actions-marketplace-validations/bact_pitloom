@@ -41,7 +41,7 @@ is not kept in sync with post-ship changes.
   `[tool.pdm.version]`'s `file`/`scm` sources, Flit's module
   `__version__`/docstring convention) and wheel file discovery
   (`src/pitloom/core/_models_wheel_pdm.py`, `_models_wheel_flit.py`),
-  wired into `read_pyproject()` and `_models_wheel.py`'s
+  wired into `read_pyproject()` and `_models_wheel_dispatch.py`'s
   `backend_discoverers` registry. See
   [backend-file-discovery-validation.md](../implementation/backend-file-discovery-validation.md)'s
   Flit-core/PDM-backend round.
@@ -190,7 +190,7 @@ design pass):
   quick patch.
 - [ ] **Real static `uv_build` discoverer for `[tool.uv.build-backend]`**
   -- validated empirically (2026-09-15, see
-  [backend-file-discovery-validation.md](../implementation/backend-file-discovery-validation.md#--allow-build-build-and-read-with-vs-without-2026-09-15))
+  [allow-build-validation.md](../implementation/allow-build-validation.md#--allow-build-build-and-read-with-vs-without-2026-09-15))
   that the Hatchling-heuristic fallback over-includes files a project's
   own `wheel-exclude`/`wheel-include`/`module-name` directives in
   `[tool.uv.build-backend]` would drop (15 extra files for the
@@ -206,7 +206,7 @@ design pass):
   users are no longer left to discover the gap themselves, even though
   the file list itself still isn't fixed without a real static module.
   **Wider sweep** (2026-09-15, 9 more real packages, see
-  [backend-file-discovery-validation.md](../implementation/backend-file-discovery-validation.md#--allow-build-wider-sweep-9-more-real-uv_build-packages-2026-09-15))
+  [allow-build-validation.md](../implementation/allow-build-validation.md#--allow-build-wider-sweep-9-more-real-uv_build-packages-2026-09-15))
   found a second, more severe failure shape: a `module-name` that
   doesn't match Hatchling's zero-config guess (django-model-import)
   makes the fallback fail outright with zero files, not just

@@ -17,7 +17,7 @@ static-analysis-only boundary; see
 ``working-docs/implementation/sbom-lifecycle-stages.md`` for the full
 rationale.
 
-See also: :mod:`pitloom.core._models_wheel` (dispatch facade),
+See also: :mod:`pitloom.core._models_wheel_dispatch` (dispatch facade),
 :mod:`pitloom.core._models_wheel_types`.
 """
 
@@ -75,7 +75,7 @@ def _chdir(project_dir: Path) -> Iterator[None]:
     *project_dir* for the duration of the call.
 
     This process-wide ``os.chdir()`` is only safe because
-    :mod:`pitloom.core._models_wheel` -- the sole caller of
+    :mod:`pitloom.core._models_wheel_dispatch` -- the sole caller of
     :func:`discover` -- runs every call to this function under its
     read/write discovery lock's exclusive write mode, which keeps it
     from overlapping any other backend's discovery call (Hatchling's

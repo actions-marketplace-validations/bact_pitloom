@@ -27,8 +27,8 @@ class _DiscoveryLock:
     never starve a writer out indefinitely -- it only ever waits for
     readers already in flight at the moment it arrived.
 
-    A "writer" (a backend listed in
-    :data:`pitloom.core._models_wheel_dispatch._WRITER_BACKENDS` --
+    A "writer" (a backend registered with ``needs_write_lock=True`` in
+    :class:`pitloom.core._models_wheel_dispatch._RegisteredBackend` --
     currently setuptools and PDM-backend) process-wide ``os.chdir()``s
     for the duration of its call and must run with no other discoverer
     -- reader or writer -- active. A "reader" (every other backend, e.g.
@@ -38,8 +38,8 @@ class _DiscoveryLock:
     only a concurrent writer. Held here, at the sole dispatch point
     every backend's ``discover()`` funnels through, so a future backend
     module needs no lock of its own to get the same guarantee; a future
-    *writer*-style backend should add itself to ``_WRITER_BACKENDS`` the
-    same way setuptools/PDM-backend do.
+    *writer*-style backend should register with ``needs_write_lock=True``
+    the same way setuptools/PDM-backend do.
 
     Deliberate exception: the generic build-and-read mechanism
     (:mod:`pitloom.core._models_wheel_build_and_read`, invoked via

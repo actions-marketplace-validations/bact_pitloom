@@ -5,7 +5,7 @@
 
 """Shared types for per-backend wheel file discovery.
 
-See also: :mod:`pitloom.core._models_wheel` (dispatch facade),
+See also: :mod:`pitloom.core._models_wheel_dispatch` (dispatch facade),
 :mod:`pitloom.core._models_wheel_hatchling`,
 :mod:`pitloom.core._models_wheel_setuptools`.
 """
@@ -20,6 +20,14 @@ from pitloom.core.content_type_config import ContentTypeOverride
 
 if TYPE_CHECKING:
     from pitloom.extract._file_headers import FileHeaderMetadata
+
+BUILD_LOG_PREFIX = "Build: "
+"""Shared ``WARNING:`` sub-prefix for every ``--allow-build``/build-and-
+read-related log message (CLAUDE.md's "CLI output" convention: a shared,
+literal sub-prefix so a subsystem's own messages are easy to grep/compare
+as a group, matching the existing ``"Registry: "`` precedent). One
+constant instead of a hand-copied literal at each call site -- see
+CLAUDE.md's "a pattern hand-copied across 3+ call sites drifts" rule."""
 
 
 class IncludedFile(NamedTuple):
@@ -38,8 +46,9 @@ class IncludedFile(NamedTuple):
 # pylint: disable-next=too-few-public-methods
 class BackendDiscoverer(Protocol):
     """Call signature every backend discovery module's ``discover()`` must
-    share, so the dispatch registry in :mod:`pitloom.core._models_wheel`
-    can call any of them uniformly -- adding a new backend is then one
+    share, so the dispatch registry in
+    :mod:`pitloom.core._models_wheel_dispatch` can call any of them
+    uniformly -- adding a new backend is then one
     module implementing this signature plus one registry entry, never a
     special case at the call site. *pyproject_data*, when given, is the
     already-parsed ``pyproject.toml`` (see
@@ -65,7 +74,7 @@ def has_resolvable_pyproject_config(
 
     Shared by :mod:`pitloom.core._models_wheel_setuptools` (deciding
     whether to attempt static discovery at all) and
-    :mod:`pitloom.core._models_wheel` (deciding what a failed
+    :mod:`pitloom.core._models_wheel_dispatch` (deciding what a failed
     discoverer's fallback ``WARNING:`` should say), so the two stay in
     sync rather than re-deriving the same check independently."""
     tool = pyproject_data.get("tool", {})

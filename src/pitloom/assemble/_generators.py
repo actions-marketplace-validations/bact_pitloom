@@ -34,7 +34,10 @@ from pitloom.export.spdx3_json import Spdx3JsonExporter
 from pitloom.extract._license import resolve_license_file_entries
 from pitloom.extract.binary import find_phantom_dependencies
 from pitloom.extract.env import read_environment
-from pitloom.extract.project import resolve_project_with_lockfile
+from pitloom.extract.project import (
+    resolve_project_with_lockfile,
+    warn_allow_build_no_effect,
+)
 from pitloom.extract.scanner import scan_project_for_ai_models
 from pitloom.extract.wheel import read_wheel
 from pitloom.ids import IdRegistry, resolve_registry
@@ -95,6 +98,22 @@ def _warn_if_partial_presupply(
         "project_metadata" if project_metadata is not None else "pitloom_config",
         target_path,
     )
+
+
+def _warn_if_allow_build_no_effect_for_sdist(
+    target_path: Path, allow_build: bool, no_build_isolation: bool
+) -> None:
+    """``generate_project_sbom()``'s sdist-archive branch never reaches
+    ``get_wheel_files()`` (files come from the archive's own listing) --
+    warn once when an explicit ``allow_build``/``no_build_isolation``
+    was given for one, rather than silently dropping it."""
+    if allow_build or no_build_isolation:
+        warn_allow_build_no_effect(
+            target_path,
+            "for an sdist archive target (no build-and-read support "
+            "for archives yet -- files come from the archive's own "
+            "listing)",
+        )
 
 
 def _sync_registry(
@@ -218,6 +237,9 @@ def generate_project_sbom(
     )
 
     if target_path.is_file():
+        _warn_if_allow_build_no_effect_for_sdist(
+            target_path, allow_build, no_build_isolation
+        )
         merkle_root = None
         project_files = project_metadata.files
         search_root = target_path.parent

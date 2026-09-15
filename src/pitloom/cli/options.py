@@ -42,6 +42,7 @@ from pitloom.cli.options_resolve import (
     _ResolvedTools,
     _ResolvedValue,
 )
+from pitloom.core._models_wheel_types import BUILD_LOG_PREFIX
 
 __all__ = [
     "_load_pitloom_tool_section",
@@ -178,7 +179,8 @@ def warn_if_no_build_isolation_without_allow_build(
     :mod:`pitloom.extract.project.reader`)."""
     if args.no_build_isolation and not args.allow_build:
         log.warning(
-            "Build: %s: --no-build-isolation has no effect without --allow-build",
+            "%s%s: --no-build-isolation has no effect without --allow-build",
+            BUILD_LOG_PREFIX,
             subject,
         )
 

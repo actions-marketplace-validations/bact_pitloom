@@ -23,10 +23,12 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from pathlib import Path
+from typing import NamedTuple
 
 from pitloom.core import _models_wheel_hatchling
 from pitloom.core._models_wheel_lock import _DISCOVERY_LOCK
 from pitloom.core._models_wheel_types import (
+    BUILD_LOG_PREFIX,
     BackendDiscoverer,
     IncludedFile,
     has_resolvable_pyproject_config,
@@ -36,19 +38,36 @@ from pitloom.core._models_wheel_types import (
 log = logging.getLogger(__name__)
 
 
-_WRITER_BACKENDS = frozenset({"setuptools", "pdm"})
-"""Backend names whose ``discover()`` process-wide ``os.chdir()``s and must
-therefore run under :meth:`~pitloom.core._models_wheel_lock._DiscoveryLock.write`
-(see its docstring). Every backend NOT listed here -- Hatchling, Poetry,
-Flit, and any future addition to ``backend_discoverers`` -- is assumed to
-be a "reader" and dispatches under
-:meth:`~pitloom.core._models_wheel_lock._DiscoveryLock.read` instead. Add
-a backend here only when its ``discover()`` genuinely needs the working
-directory changed; the default for a new backend should be to stay off
-this set. PDM-backend joined setuptools here because its own package
-auto-discovery (``pdm.backend.base._find_top_packages``) globs relative
-to the process cwd, not the ``Builder``'s ``location`` -- see
-:mod:`pitloom.core._models_wheel_pdm`."""
+class _RegisteredBackend(NamedTuple):
+    """One entry in the registered-backend dispatch table.
+
+    ``needs_write_lock`` is a required field, not a separately-maintained
+    allowlist elsewhere in this module (the shape this replaced --
+    ``_WRITER_BACKENDS``, a standalone ``frozenset`` linked to each
+    backend module only by a docstring comment) -- registering a new
+    backend here forces the write-lock decision to be made at the same
+    call site, instead of leaving it to default silently to "reader" if
+    a second, distant data structure is forgotten."""
+
+    discoverer: BackendDiscoverer
+    needs_write_lock: bool
+
+
+def _has_project_table(pyproject_data: dict[str, object] | None) -> bool:
+    """Whether *pyproject_data* declares a ``[project]`` table.
+
+    The single source of truth for this check -- both
+    :func:`_skip_hatchling_fallback` (a registered backend's own
+    discoverer gave up) and :func:`_discover_with_no_static_module` (no
+    discoverer registered at all) need it to decide whether Hatchling's
+    ``WheelBuilder`` (which requires a ``[project]`` table) is even worth
+    attempting, and a hand-copied second predicate is exactly the
+    "pattern hand-copied across call sites drifts" bug class this
+    repo's own CLAUDE.md warns about -- a future change to what counts
+    as resolvable (e.g. PEP 639 ``dynamic`` handling) must only need
+    updating here.
+    """
+    return pyproject_data is not None and "project" in pyproject_data
 
 
 def _skip_hatchling_fallback(
@@ -70,11 +89,12 @@ def _skip_hatchling_fallback(
     introspection itself failed, not that nothing was declared at all --
     only changes the warning's wording, not this return value.
     """
-    has_project_table = pyproject_data is not None and "project" in pyproject_data
-    if has_project_table:
+    if _has_project_table(pyproject_data):
         log.warning(
-            "Build: No static %s config resolvable in %s -- falling back "
-            "to Hatchling-based heuristic, file list may be inaccurate",
+            "%sNo static %s config resolvable in %s -- "
+            "falling back to Hatchling-based heuristic, file list may be "
+            "inaccurate",
+            BUILD_LOG_PREFIX,
             backend,
             project_dir,
         )
@@ -84,19 +104,21 @@ def _skip_hatchling_fallback(
         pyproject_data, backend
     ):
         log.warning(
-            "Build: %s's static config failed introspection in %s -- "
-            "file discovery is unsupported for this project this run "
+            "%s%s's static config failed introspection in "
+            "%s -- file discovery is unsupported for this project this run "
             "(Hatchling's own WheelBuilder also requires a [project] "
             "table, so that fallback would fail too)",
+            BUILD_LOG_PREFIX,
             backend,
             project_dir,
         )
     else:
         log.warning(
-            "Build: No static %s config resolvable in %s and no "
-            "[project] table present -- file discovery is unsupported "
+            "%sNo static %s config resolvable in %s and "
+            "no [project] table present -- file discovery is unsupported "
             "for this project (packages only resolvable via an "
             "imperative setup.py build)",
+            BUILD_LOG_PREFIX,
             backend,
             project_dir,
         )
@@ -104,15 +126,23 @@ def _skip_hatchling_fallback(
 
 
 def _unhandled_backend_hint(
-    backend: str, pyproject_data: dict[str, object] | None
+    backend: str, pyproject_data: dict[str, object] | None, *, allow_build: bool
 ) -> str:
     """The optional, sharpened suffix for the "not backend-aware"
     fallback ``WARNING:`` below -- non-empty only for the one known,
     confirmed divergence risk (see
     :func:`~pitloom.core._models_wheel_types.has_uv_build_backend_overrides`'s
-    docstring), never a general "you might want --allow-build" nudge."""
+    docstring), never a general "you might want --allow-build" nudge.
+
+    Suppressed when *allow_build* is already ``True``: this call site is
+    only reached after build-and-read was already tried and failed (see
+    :func:`_discover_with_no_static_module`), so suggesting the user pass
+    a flag they already passed -- and that just failed -- would be
+    self-contradictory, not a genuine hint.
+    """
     if (
-        backend == "uv_build"
+        not allow_build
+        and backend == "uv_build"
         and pyproject_data is not None
         and has_uv_build_backend_overrides(pyproject_data)
     ):
@@ -151,9 +181,10 @@ def _try_build_and_read(
     from pitloom.core._models_wheel_build_and_read import build_and_read_wheel
 
     log.warning(
-        "Build: --allow-build is invoking a real PEP 517 build for %s "
-        "(backend=%r, %s) to discover its file list -- this executes "
-        "third-party build-time code%s",
+        "%s--allow-build is invoking a real PEP 517 build "
+        "for %s (backend=%r, %s) to discover its file list -- this "
+        "executes third-party build-time code%s",
+        BUILD_LOG_PREFIX,
         project_dir,
         backend,
         reason,
@@ -194,14 +225,15 @@ def _discover_with_no_static_module(
         # own specific failure WARNING:; fall through to the generic
         # "not backend-aware" warning.
     log.warning(
-        "Build: file discovery for build backend %r is not yet "
+        "%sfile discovery for build backend %r is not yet "
         "backend-aware%s -- using Hatchling-based heuristic, "
         "file list may be inaccurate for this project%s",
+        BUILD_LOG_PREFIX,
         backend,
         "" if not allow_build else " (build-and-read failed)",
-        _unhandled_backend_hint(backend, pyproject_data),
+        _unhandled_backend_hint(backend, pyproject_data, allow_build=allow_build),
     )
-    if pyproject_data is None or "project" not in pyproject_data:
+    if not _has_project_table(pyproject_data):
         # Same guard _discover_with_registered_backend applies (via
         # _skip_hatchling_fallback) when its own discoverer gives up:
         # Hatchling's WheelBuilder requires a [project] table, so with
@@ -214,7 +246,7 @@ def _discover_with_no_static_module(
 
 def _discover_with_registered_backend(
     backend: str,
-    discoverer: BackendDiscoverer,
+    registered: _RegisteredBackend,
     project_dir: Path,
     pyproject_data: dict[str, object] | None,
     *,
@@ -228,19 +260,19 @@ def _discover_with_registered_backend(
 
     Returns a result to return immediately, or ``None`` to fall through
     to the Hatchling heuristic."""
-    # Only a "writer" backend (setuptools, PDM) process-wide os.chdir()s
-    # for the duration of its call and needs _DISCOVERY_LOCK's exclusive
-    # write mode -- see the lock's own docstring and _WRITER_BACKENDS'
-    # definition. Every other backend (Poetry and Flit included: neither
-    # touches cwd) is a "reader" and only needs to be kept out of a
-    # concurrent writer's chdir window, not out of each other's way.
+    # A "writer" backend (registered.needs_write_lock, see
+    # _RegisteredBackend) process-wide os.chdir()s for the duration of
+    # its call and needs _DISCOVERY_LOCK's exclusive write mode -- see
+    # the lock's own docstring. Every other backend is a "reader" and
+    # only needs to be kept out of a concurrent writer's chdir window,
+    # not out of each other's way.
     lock_ctx = (
         _DISCOVERY_LOCK.write()
-        if backend in _WRITER_BACKENDS
+        if registered.needs_write_lock
         else _DISCOVERY_LOCK.read()
     )
     with lock_ctx:
-        files = discoverer(project_dir, pyproject_data=pyproject_data)
+        files = registered.discoverer(project_dir, pyproject_data=pyproject_data)
     if files is not None:
         return files, _noop_cleanup
     # The registered backend's own static discoverer gave up. This is
@@ -306,11 +338,22 @@ def _discover_included_files(
         read_pyproject_toml,
     )
 
-    backend_discoverers: dict[str, BackendDiscoverer] = {
-        "setuptools": discover_setuptools,
-        "poetry": discover_poetry,
-        "flit": discover_flit,
-        "pdm": discover_pdm,
+    # needs_write_lock (2nd tuple element) states, right where each
+    # backend is registered, whether its discover() process-wide
+    # os.chdir()s and therefore needs _DISCOVERY_LOCK's exclusive write
+    # mode (see the lock's own docstring) -- a required field, not a
+    # separately-maintained allowlist elsewhere in this file, so
+    # registering a new backend can't silently default to "reader"
+    # without the registerer making the choice explicit right here.
+    # PDM-backend needs it because its own package auto-discovery
+    # (``pdm.backend.base._find_top_packages``) globs relative to the
+    # process cwd, not the ``Builder``'s ``location`` -- see
+    # :mod:`pitloom.core._models_wheel_pdm`. Poetry and Flit don't chdir.
+    backend_discoverers: dict[str, _RegisteredBackend] = {
+        "setuptools": _RegisteredBackend(discover_setuptools, needs_write_lock=True),
+        "poetry": _RegisteredBackend(discover_poetry, needs_write_lock=False),
+        "flit": _RegisteredBackend(discover_flit, needs_write_lock=False),
+        "pdm": _RegisteredBackend(discover_pdm, needs_write_lock=True),
     }
 
     pyproject_data: dict[str, object] | None
@@ -324,7 +367,7 @@ def _discover_included_files(
         backend = detect_build_backend(project_dir, pyproject_data=pyproject_data)
 
     if backend not in (None, "hatchling"):
-        discoverer = backend_discoverers.get(backend)
+        registered = backend_discoverers.get(backend)
         result = (
             _discover_with_no_static_module(
                 backend,
@@ -333,10 +376,10 @@ def _discover_included_files(
                 allow_build=allow_build,
                 no_build_isolation=no_build_isolation,
             )
-            if discoverer is None
+            if registered is None
             else _discover_with_registered_backend(
                 backend,
-                discoverer,
+                registered,
                 project_dir,
                 pyproject_data,
                 allow_build=allow_build,

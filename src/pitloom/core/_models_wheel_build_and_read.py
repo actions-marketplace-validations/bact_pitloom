@@ -13,8 +13,8 @@ in-process introspection API), or as a fallback when a backend that
 *does* have one fails to resolve on a given project. This mechanism
 never needs to know a backend's name -- it just runs the project's
 declared PEP 517 hooks via :mod:`build`, whatever they are -- see
-:mod:`pitloom.core._models_wheel`'s ``_try_build_and_read``, the sole
-caller.
+:mod:`pitloom.core._models_wheel_dispatch`'s ``_try_build_and_read``, the
+sole caller.
 
 Gated everywhere it's called from behind ``--allow-build``: this is the
 first mechanism in Pitloom that executes third-party build-time code.
@@ -36,6 +36,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from pitloom.core._models_wheel_types import (
+    BUILD_LOG_PREFIX,
     IncludedFile,
     is_dist_info_path,
     to_posix_distribution_path,
@@ -131,8 +132,9 @@ def _extract_wheel_to_included_files(
             target = extract_dir / distribution_path
             if not target.resolve().is_relative_to(resolved_extract_dir):
                 log.warning(
-                    "Build: %s: wheel entry %r resolves outside the "
-                    "extraction directory -- skipped, not written to disk",
+                    "%s%s: wheel entry %r resolves outside "
+                    "the extraction directory -- skipped, not written to disk",
+                    BUILD_LOG_PREFIX,
                     wheel_path,
                     distribution_path,
                 )
@@ -177,9 +179,10 @@ def build_and_read_wheel(
             files = _extract_wheel_to_included_files(wheel_path, extract_dir)
         if not files:
             log.warning(
-                "Build: %s's real build produced a wheel with no "
-                "non-.dist-info files -- treating as a discovery "
+                "%s%s's real build produced a wheel with "
+                "no non-.dist-info files -- treating as a discovery "
                 "failure, not an authoritative empty result",
+                BUILD_LOG_PREFIX,
                 project_dir,
             )
             shutil.rmtree(extract_dir, ignore_errors=True)
@@ -188,6 +191,9 @@ def build_and_read_wheel(
     except Exception as exc:  # pylint: disable=broad-exception-caught
         shutil.rmtree(extract_dir, ignore_errors=True)
         log.warning(
-            "Build: build-and-read discovery failed for %s: %s", project_dir, exc
+            "%sbuild-and-read discovery failed for %s: %s",
+            BUILD_LOG_PREFIX,
+            project_dir,
+            exc,
         )
         return None

@@ -577,3 +577,102 @@ creation-comment = "from-cwd"
     with zipfile.ZipFile(wheel_path, "r") as zf:
         sbom_bytes = zf.read("flagpkg-1.0.0.dist-info/sboms/flagpkg-1.0.0.spdx3.json")
         assert b"from-cwd" not in sbom_bytes
+
+
+@pytest.mark.parametrize(
+    ("allow_build", "no_build_isolation"),
+    [(True, False), (False, True), (True, True)],
+    ids=["allow_build_only", "no_build_isolation_only", "both"],
+)
+def test_embed_wheel_warns_allow_build_no_effect_with_no_project_dir(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+    allow_build: bool,
+    no_build_isolation: bool,
+) -> None:
+    """Regression: with no resolvable project directory (no
+    ``--project-dir`` and no ``pyproject.toml`` in the target dir),
+    ``_generate_embed_sbom_json`` takes the ``project_dir is None``
+    branch straight into ``_build_sbom_standalone_wheel`` -- which never
+    accepts or reads ``allow_build``/``no_build_isolation`` -- so an
+    explicit request for a real build used to be silently dropped with
+    zero feedback. ``get_wheel_files`` is patched to raise if called, so
+    a real (accidental) build attempt would fail the test outright."""
+    empty_dir = tmp_path / "no_project_here"
+    empty_dir.mkdir()
+    wheel_path = _make_dummy_wheel(empty_dir, "nopkg", "1.0.0")
+
+    def _unexpected_call(*_a: object, **_k: object) -> object:
+        raise AssertionError("get_wheel_files must not be called")
+
+    monkeypatch.setattr("pitloom.embed.get_wheel_files", _unexpected_call)
+
+    with caplog.at_level(logging.WARNING):
+        embed_wheel_sbom(
+            wheel_path,
+            overrides=ConfigOverrides(
+                allow_build=allow_build, no_build_isolation=no_build_isolation
+            ),
+        )
+
+    assert "Build:" in caplog.text
+    assert "--allow-build/--no-build-isolation has no effect" in caplog.text
+    assert "no project directory to rescan" in caplog.text
+
+
+def test_embed_wheel_no_warning_with_no_project_dir_when_allow_build_default(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The no-op warning above must not fire when the caller never
+    touched ``allow_build``/``no_build_isolation``."""
+    empty_dir = tmp_path / "no_project_here"
+    empty_dir.mkdir()
+    wheel_path = _make_dummy_wheel(empty_dir, "nopkg", "1.0.0")
+
+    with caplog.at_level(logging.WARNING):
+        embed_wheel_sbom(wheel_path)
+
+    assert "--allow-build/--no-build-isolation has no effect" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("allow_build", "no_build_isolation"),
+    [(True, False), (False, True), (True, True)],
+    ids=["allow_build_only", "no_build_isolation_only", "both"],
+)
+def test_embed_wheel_warns_allow_build_no_effect_with_external_sbom(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+    allow_build: bool,
+    no_build_isolation: bool,
+) -> None:
+    """Regression: an externally-supplied ``--sbom`` is embedded verbatim
+    (``_generate_embed_sbom_json``'s ``sbom_path is not None`` branch) --
+    ``allow_build``/``no_build_isolation`` are never consulted there, so
+    an explicit request for a real build used to be silently dropped."""
+    wheel_path = _make_dummy_wheel(tmp_path, "extsbompkg", "1.0.0")
+    sbom_path = tmp_path / "external.spdx3.json"
+    sbom_path.write_text(
+        json.dumps({"@context": "https://spdx.org/rdf/3.0.1/spdx-context.jsonld"}),
+        encoding="utf-8",
+    )
+
+    def _unexpected_call(*_a: object, **_k: object) -> object:
+        raise AssertionError("get_wheel_files must not be called")
+
+    monkeypatch.setattr("pitloom.embed.get_wheel_files", _unexpected_call)
+
+    with caplog.at_level(logging.WARNING):
+        embed_wheel_sbom(
+            wheel_path,
+            sbom_path=sbom_path,
+            overrides=ConfigOverrides(
+                allow_build=allow_build, no_build_isolation=no_build_isolation
+            ),
+        )
+
+    assert "Build:" in caplog.text
+    assert "--allow-build/--no-build-isolation has no effect" in caplog.text
+    assert "externally-supplied --sbom" in caplog.text

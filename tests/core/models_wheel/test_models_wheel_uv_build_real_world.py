@@ -18,7 +18,7 @@ build-requires, runs the real ``uv-build`` binary).
 Every fixture here was verified empirically (2026-09-15, per the
 roadmap plan for this feature, then extended the same day with a wider
 real-world sweep -- see
-``working-docs/implementation/backend-file-discovery-validation.md``'s
+``working-docs/implementation/allow-build-validation.md``'s
 "``--allow-build`` build-and-read" round) to produce a byte-for-byte
 exact match against its real published wheel's non-``.dist-info`` file
 list -- zero known gaps for any of them. If a future ``uv_build``
@@ -126,13 +126,18 @@ def test_default_discovery_fails_loudly_for_module_name_mismatch(
     imprecisely the way rendercv's over-inclusion does. Pins this as a
     loud, ``WARNING:``-logged failure (both the generic "not
     backend-aware" warning and Hatchling's own specific "no directory
-    that matches the name of your project" one), not a silently-empty
-    result -- the distinction CLAUDE.md's "None vs [] is a distinct
-    signal" rule is about: this must resolve to ``get_wheel_files()``'s
-    "discovery failed" path (``None``, not an authoritative empty
-    list), which only happens when ``discover()`` itself returns
-    ``None``, confirmed here directly via ``_discover_included_files``
-    returning an empty list AND both warnings firing together."""
+    that matches the name of your project" one), not a silent one.
+
+    Note this is *not* the ``None``-vs-``[]`` distinction CLAUDE.md's
+    "Recurring bug patterns" section describes: ``_models_wheel_hatchling
+    .discover()`` genuinely returns ``None`` here, but
+    ``_discover_with_no_static_module()``'s own Hatchling-fallback call
+    site (``_models_wheel_dispatch.py``) coerces it via ``... or []``
+    before ``_discover_included_files`` ever returns -- a pre-existing
+    pattern, not something this test changes -- so ``included == []``
+    below is an authoritative-looking empty list, and this test's only
+    real signal that discovery genuinely failed is the pair of
+    ``WARNING:`` lines asserted below, not the return value's shape."""
     project_dir = next(
         p for p in UV_BUILD_FIXTURES if p.name == "django-model-import-0.9.0"
     )

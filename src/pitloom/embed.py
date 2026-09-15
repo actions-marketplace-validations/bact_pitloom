@@ -54,7 +54,7 @@ from pitloom.core.provenance import ProvenanceConfig
 from pitloom.enrich import run_enrichers_for_models
 from pitloom.export.spdx3_json import SPDX3_JSONLD_EXTENSION
 from pitloom.extract.binary import find_phantom_dependencies
-from pitloom.extract.project import read_project
+from pitloom.extract.project import read_project, warn_allow_build_no_effect
 from pitloom.extract.scanner import scan_project_for_ai_models
 from pitloom.extract.wheel import read_wheel
 from pitloom.ids import IdRegistry, resolve_registry
@@ -164,7 +164,10 @@ def _build_sbom_from_project_and_wheel(
     not read off ``pitloom_config``: unlike every other rescan setting
     here, they deliberately have no ``[tool.pitloom]`` cascade (see
     ``ConfigOverrides.allow_build``'s docstring) -- the caller must
-    thread its own ``ConfigOverrides`` values through explicitly.
+    thread its own ``ConfigOverrides`` values through explicitly. See
+    that same docstring for why ``allow_build=True`` here can mean a
+    full real build purely to sharpen this rescan's content-type/
+    file-header extras, not to learn the file list itself.
     """
     # merkle_root (the rescan's own, over project_dir's on-disk bytes) is
     # deliberately discarded here -- see _compute_wheel_merkle_root below,
@@ -240,7 +243,28 @@ def _build_sbom_from_project_and_wheel(
 
 @dataclasses.dataclass(frozen=True)
 class ConfigOverrides:
-    """Per-run overrides layered onto a project's ``[tool.pitloom]`` config."""
+    """Per-run overrides layered onto a project's ``[tool.pitloom]`` config.
+
+    Attributes:
+        allow_build: Plain ``bool`` (default ``False``), unlike every
+            other field here -- deliberately has no ``[tool.pitloom]``
+            cascade to defer to (see ``generate_project_sbom()``'s
+            identical parameter docstring for why). Threaded into
+            ``_build_sbom_from_project_and_wheel()``'s own project-dir
+            rescan, whose only use for the resulting file list is
+            layering content-type/file-header extras onto the wheel's
+            already-known files (see that function's own comment on
+            discarding the rescan's ``merkle_root``/digests) -- so on a
+            project whose backend has no static discovery module (or
+            whose static discovery fails), enabling this runs a full,
+            real, potentially slow PEP 517 build *purely* to compute
+            those extras more accurately, not to learn the file list
+            itself (the wheel's own ``read_wheel()`` result already has
+            that). Deliberate: this is the only way ``embed-wheel``
+            avoids silently staying stuck on the Hatchling-heuristic
+            rescan for such a project's content-type/header extras.
+        no_build_isolation: See ``allow_build`` above; no effect without it.
+    """
 
     provenance: ProvenanceConfig | None = None
     enrich: bool | None = None
@@ -391,9 +415,21 @@ def _generate_embed_sbom_json(
 ) -> tuple[str, str | None]:
     """Resolve the SBOM JSON to embed and its effective basename."""
     if sbom_path is not None:
+        if overrides.allow_build or overrides.no_build_isolation:
+            warn_allow_build_no_effect(
+                wheel_metadata.name,
+                "for an externally-supplied --sbom (embedded verbatim, "
+                "never rescanned)",
+            )
         return Path(sbom_path).read_text(encoding="utf-8"), sbom_basename
 
     if project_dir is None:
+        if overrides.allow_build or overrides.no_build_isolation:
+            warn_allow_build_no_effect(
+                wheel_metadata.name,
+                "with no project directory to rescan (no --project-dir "
+                "and no pyproject.toml in the current directory)",
+            )
         sbom_json = _build_sbom_standalone_wheel(
             wheel_metadata,
             creation_metadata,

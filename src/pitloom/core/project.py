@@ -30,13 +30,15 @@ class ProjectFile:
             project's own root, so no project-relative path exists for
             them (``_build_project_file_entry()``'s
             ``source.relative_to(project_dir)`` falls back to
-            ``source.as_posix()`` when it raises ``ValueError``). Currently
-            harmless for both known consumers (a registry lookup that
-            falls back to ``distribution_path``; the AI-model scanner's
-            own path join, which resolves correctly for an absolute
-            operand via ``pathlib``'s join semantics) but not
+            ``source.as_posix()`` when it raises ``ValueError``). Not
             project-relative in that one case -- do not assume this field
-            is always a relative path without checking.
+            is always a relative path without checking; any consumer
+            that joins it onto ``project_dir`` (e.g.
+            ``pitloom.enrich._resolve_model_search_dir``) must check
+            ``Path(physical_path).is_absolute()`` first and fall back to
+            ``distribution_path``/``file_path_relative``, since
+            ``pathlib``'s own join semantics silently discard the
+            left-hand side when the right-hand operand is absolute.
         distribution_path: Canonical path of the file inside the wheel/package.
         digest_sha256: Hex-encoded SHA-256 digest of the file contents.
             ``None`` when discovered via

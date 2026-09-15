@@ -237,7 +237,7 @@ def test_get_wheel_files_uv_build_fallback_warns_about_wheel_exclude(
     """Regression: a uv_build project whose pyproject.toml declares
     [tool.uv.build-backend] wheel-exclude gets a sharpened WARNING:
     naming the concrete divergence risk and pointing at --allow-build --
-    confirmed empirically (backend-file-discovery-validation.md's
+    confirmed empirically (allow-build-validation.md's
     2026-09-15 round) to be exactly the case where the Hatchling
     heuristic's file list diverges from a real build's."""
     _make_backend_project(tmp_path, "uv_build")

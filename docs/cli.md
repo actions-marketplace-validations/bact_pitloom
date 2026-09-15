@@ -388,8 +388,13 @@ it executes third-party build-time code from the project being scanned
 - On `generate`, both flags parse for every target (`generate`
   auto-detects env/wheel/model-file/Hugging-Face/project targets from
   one shared parser) but only take effect when the target resolves to a
-  project directory or sdist -- for any other target they're a no-op
-  and Pitloom prints a `WARNING:` saying so.
+  project *directory* -- for any other target, including an sdist
+  archive (whose file list comes from the archive's own listing, not a
+  build), they're a no-op and Pitloom prints a `WARNING:` saying so.
+  The same applies to `embed-wheel` when it can't resolve a project
+  directory to rescan (no `--project-dir` and no `pyproject.toml` in
+  the current directory) or when `--sbom` supplies an
+  already-generated SBOM to embed verbatim.
 
 ```bash
 loom project . --allow-build -o sbom.json

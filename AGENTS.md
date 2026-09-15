@@ -570,7 +570,7 @@ build. Automated as `scripts/compare_allow_build.py` (works against a
 project directory, an sdist archive, or a vendored fixture via
 `--fixture BACKEND/NAME`; cross-checks against a fixture's own
 `expected.json` when one exists) -- see
-`working-docs/implementation/backend-file-discovery-validation.md`'s
+`working-docs/implementation/allow-build-validation.md`'s
 "`--allow-build` build-and-read" round for a worked example and
 `scripts/compare_allow_build.py`'s own docstring for usage.
 

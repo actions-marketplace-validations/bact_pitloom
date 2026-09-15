@@ -5,7 +5,7 @@
 
 """Flit-core-backed wheel file discovery.
 
-See also: :mod:`pitloom.core._models_wheel` (dispatch facade),
+See also: :mod:`pitloom.core._models_wheel_dispatch` (dispatch facade),
 :mod:`pitloom.core._models_wheel_types`,
 :mod:`pitloom.core._models_wheel_poetry` (same delegate-to-the-real-
 library pattern this module follows); :mod:`pitloom.extract.project.flit`

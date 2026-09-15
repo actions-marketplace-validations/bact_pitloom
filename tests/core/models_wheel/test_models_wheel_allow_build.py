@@ -121,6 +121,42 @@ def test_allow_build_failure_falls_back_to_hatchling_with_warning(
     assert "build-and-read failed" in caplog.text
 
 
+def test_allow_build_failure_hint_does_not_suggest_allow_build_again(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Regression: when build-and-read was already tried (allow_build=
+    True) and failed, the fallback WARNING:'s sharpened
+    [tool.uv.build-backend]-overrides hint must NOT tell the user to
+    "pass --allow-build" -- they already did, and it just failed. Before
+    the fix, ``_unhandled_backend_hint()`` ignored ``allow_build``
+    entirely and always appended that suggestion whenever the project
+    declared a file-filtering ``[tool.uv.build-backend]`` key, producing
+    a self-contradictory message. Compare against the sibling
+    ``allow_build=False`` case in test_models_wheel_dispatch.py's
+    ``test_get_wheel_files_uv_build_fallback_warns_about_wheel_exclude``,
+    where the same hint text IS expected (no build was attempted there)."""
+    _make_backend_project(tmp_path, "uv_build")
+    with (tmp_path / "pyproject.toml").open("a", encoding="utf-8") as f:
+        f.write('\n[tool.uv.build-backend]\nwheel-exclude = ["pkg/vendored/**"]\n')
+
+    def _fake_build_and_read(
+        project_dir: Path, *, isolated: bool = True
+    ) -> BuildAndReadResult:
+        del project_dir, isolated
+        return None
+
+    monkeypatch.setattr(
+        "pitloom.core._models_wheel_build_and_read.build_and_read_wheel",
+        _fake_build_and_read,
+    )
+
+    with caplog.at_level(logging.WARNING):
+        get_wheel_files(tmp_path, allow_build=True)
+
+    assert "build-and-read failed" in caplog.text
+    assert "pass --allow-build" not in caplog.text
+
+
 def test_allow_build_second_tier_fallback_for_registered_backend_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
