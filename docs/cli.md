@@ -385,6 +385,11 @@ it executes third-party build-time code from the project being scanned
   script error), Pitloom falls back to the same Hatchling-heuristic
   path used without the flag -- `--allow-build`'s worst case is never
   worse than leaving it off.
+- On `generate`, both flags parse for every target (`generate`
+  auto-detects env/wheel/model-file/Hugging-Face/project targets from
+  one shared parser) but only take effect when the target resolves to a
+  project directory or sdist -- for any other target they're a no-op
+  and Pitloom prints a `WARNING:` saying so.
 
 ```bash
 loom project . --allow-build -o sbom.json

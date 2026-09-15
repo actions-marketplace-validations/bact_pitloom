@@ -18,45 +18,55 @@ from __future__ import annotations
 import argparse
 import logging
 
-# pylint: disable=useless-import-alias
-# Deliberate self-aliased re-exports (mypy's explicit-reexport check
-# under strict=true requires "import X as X", not a bare "import X",
-# for a name to count as part of this module's own public surface) --
-# see the module docstring.
+# Re-exports (mypy's explicit-reexport check under strict=true needs
+# either "import X as X" or __all__ membership for a name to count as
+# part of this module's own public surface; __all__ below satisfies
+# both mypy and pyflakes -- "as X" self-aliasing satisfies mypy but
+# pyflakes still flags it as an unused import) -- see the module
+# docstring.
 from pitloom.cli.options_resolve import (
-    _load_pitloom_tool_section as _load_pitloom_tool_section,
+    _load_pitloom_tool_section,
+    _quote_optional,
+    _resolve_common_options,
+    _resolve_creation_metadata,
+    _resolve_describe_relationship,
+    _resolve_hf_output_path,
+    _resolve_model_output_path,
+    _resolve_output_path,
+    _resolve_output_source,
+    _resolve_pretty,
+    _resolve_project_generation_settings,
+    _resolve_project_paths,
+    _ResolvedCreationMetadata,
+    _ResolvedCreators,
+    _ResolvedTools,
+    _ResolvedValue,
 )
-from pitloom.cli.options_resolve import _quote_optional as _quote_optional
-from pitloom.cli.options_resolve import (
-    _resolve_common_options as _resolve_common_options,
-)
-from pitloom.cli.options_resolve import (
-    _resolve_creation_metadata as _resolve_creation_metadata,
-)
-from pitloom.cli.options_resolve import (
-    _resolve_describe_relationship as _resolve_describe_relationship,
-)
-from pitloom.cli.options_resolve import (
-    _resolve_hf_output_path as _resolve_hf_output_path,
-)
-from pitloom.cli.options_resolve import (
-    _resolve_model_output_path as _resolve_model_output_path,
-)
-from pitloom.cli.options_resolve import _resolve_output_path as _resolve_output_path
-from pitloom.cli.options_resolve import (
-    _resolve_output_source as _resolve_output_source,
-)
-from pitloom.cli.options_resolve import _resolve_pretty as _resolve_pretty
-from pitloom.cli.options_resolve import (
-    _resolve_project_generation_settings as _resolve_project_generation_settings,
-)
-from pitloom.cli.options_resolve import _resolve_project_paths as _resolve_project_paths
-from pitloom.cli.options_resolve import (
-    _ResolvedCreationMetadata as _ResolvedCreationMetadata,
-)
-from pitloom.cli.options_resolve import _ResolvedCreators as _ResolvedCreators
-from pitloom.cli.options_resolve import _ResolvedTools as _ResolvedTools
-from pitloom.cli.options_resolve import _ResolvedValue as _ResolvedValue
+
+__all__ = [
+    "_load_pitloom_tool_section",
+    "_quote_optional",
+    "_resolve_common_options",
+    "_resolve_creation_metadata",
+    "_resolve_describe_relationship",
+    "_resolve_hf_output_path",
+    "_resolve_model_output_path",
+    "_resolve_output_path",
+    "_resolve_output_source",
+    "_resolve_pretty",
+    "_resolve_project_generation_settings",
+    "_resolve_project_paths",
+    "_ResolvedCreationMetadata",
+    "_ResolvedCreators",
+    "_ResolvedTools",
+    "_ResolvedValue",
+    "add_offline_argument",
+    "add_use_lockfile_argument",
+    "add_allow_build_argument",
+    "add_no_build_isolation_argument",
+    "warn_if_no_build_isolation_without_allow_build",
+    "add_debug_argument",
+]
 
 log = logging.getLogger(__name__)
 

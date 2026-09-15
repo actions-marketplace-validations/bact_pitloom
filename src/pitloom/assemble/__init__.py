@@ -36,7 +36,10 @@ from pitloom.embed import (
     embed_wheel_sbom,
     find_embedded_sbom,
 )
-from pitloom.extract.project import warn_use_lockfile_no_effect
+from pitloom.extract.project import (
+    warn_allow_build_no_effect,
+    warn_use_lockfile_no_effect,
+)
 from pitloom.extract.remote import is_huggingface_source
 from pitloom.ids import IdRegistry
 
@@ -152,6 +155,13 @@ def generate(
             target_str,
             "for this target (no lock-file concept applies to env/wheel/"
             "model-file/Hugging-Face targets)",
+        )
+
+    if (allow_build or no_build_isolation) and classification != "project":
+        warn_allow_build_no_effect(
+            target_str,
+            "for this target (no build-backend file discovery applies to "
+            "env/wheel/model-file/Hugging-Face targets)",
         )
 
     if classification == "env":

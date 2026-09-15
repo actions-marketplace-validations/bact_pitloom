@@ -107,7 +107,18 @@ def _emit_file_header_metadata(
     :func:`_emit_file_license_relationship` for the
     ``[project.license-files]`` (PEP 639) case -- see its docstring.
     """
+    # physical_path is normally project-root-relative and therefore
+    # already stable across runs; the one exception is a build-and-read
+    # discovered file (see ProjectFile.physical_path's docstring), whose
+    # physical_path is an absolute path into a fresh tempfile.mkdtemp()
+    # directory that differs every run -- baking that into a "Source:"
+    # provenance string would break SBOM determinism (CLAUDE.md's "SBOM
+    # output" invariant) even though the file's own content is
+    # unchanged. distribution_path is always deterministic, so use it
+    # instead whenever physical_path isn't project-relative.
     file_path = package_file.physical_path
+    if Path(file_path).is_absolute():
+        file_path = package_file.distribution_path
     field_provenance: dict[str, str] = {}
     summary_entries: list[tuple[str, str]] = []
 

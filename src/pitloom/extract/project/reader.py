@@ -55,6 +55,27 @@ def warn_use_lockfile_no_effect(subject: object, reason: str) -> None:
     )
 
 
+def warn_allow_build_no_effect(subject: object, reason: str) -> None:
+    """Log the shared ``WARNING:`` for an explicit ``--allow-build``/
+    ``--no-build-isolation`` (or the equivalent ``allow_build``/
+    ``no_build_isolation`` library-API arguments) given for a target the
+    setting doesn't apply to.
+
+    *reason* is spliced in after "has no effect" (its own leading space,
+    no trailing punctuation). Currently only called from
+    :func:`~pitloom.assemble.generate` for a non-project target (env,
+    wheel, Hugging Face, or standalone model file) -- these never call
+    :func:`~pitloom.core.get_wheel_files`, the only consumer of these two
+    flags, so build-and-read is never reachable for them regardless.
+    """
+    log.warning(
+        "Build: %s: --allow-build/--no-build-isolation has no effect %s "
+        "-- ignoring the explicit override",
+        subject,
+        reason,
+    )
+
+
 def _is_sdist_archive(path: Path) -> bool:
     """Return True if path points to an sdist file archive."""
     if not path.is_file():

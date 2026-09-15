@@ -73,8 +73,8 @@ def _skip_hatchling_fallback(
     has_project_table = pyproject_data is not None and "project" in pyproject_data
     if has_project_table:
         log.warning(
-            "No static %s config resolvable in %s -- falling back to "
-            "Hatchling-based heuristic, file list may be inaccurate",
+            "Build: No static %s config resolvable in %s -- falling back "
+            "to Hatchling-based heuristic, file list may be inaccurate",
             backend,
             project_dir,
         )
@@ -84,8 +84,8 @@ def _skip_hatchling_fallback(
         pyproject_data, backend
     ):
         log.warning(
-            "%s's static config failed introspection in %s -- file "
-            "discovery is unsupported for this project this run "
+            "Build: %s's static config failed introspection in %s -- "
+            "file discovery is unsupported for this project this run "
             "(Hatchling's own WheelBuilder also requires a [project] "
             "table, so that fallback would fail too)",
             backend,
@@ -93,10 +93,10 @@ def _skip_hatchling_fallback(
         )
     else:
         log.warning(
-            "No static %s config resolvable in %s and no [project] "
-            "table present -- file discovery is unsupported for this "
-            "project (packages only resolvable via an imperative "
-            "setup.py build)",
+            "Build: No static %s config resolvable in %s and no "
+            "[project] table present -- file discovery is unsupported "
+            "for this project (packages only resolvable via an "
+            "imperative setup.py build)",
             backend,
             project_dir,
         )
@@ -164,6 +164,108 @@ def _try_build_and_read(
     return build_and_read_wheel(project_dir, isolated=not no_build_isolation)
 
 
+def _discover_with_no_static_module(
+    backend: str,
+    project_dir: Path,
+    pyproject_data: dict[str, object] | None,
+    *,
+    allow_build: bool,
+    no_build_isolation: bool,
+) -> tuple[list[IncludedFile], Callable[[], None]] | None:
+    """No static module for this backend at all -- uv_build today, any
+    future/unrecognized backend, or a Track B backend (maturin,
+    scikit-build-core, meson-python) once its own toolchain happens to
+    be available. No backend-specific code needed for any of these to
+    start working the moment ``allow_build=True``.
+
+    Returns a result to return immediately, or ``None`` to fall through
+    to the Hatchling heuristic (the "not backend-aware" ``WARNING:`` is
+    logged here either way before falling through)."""
+    if allow_build:
+        build_result = _try_build_and_read(
+            backend,
+            project_dir,
+            no_build_isolation=no_build_isolation,
+            reason="no static discovery module registered",
+        )
+        if build_result is not None:
+            return build_result
+        # _try_build_and_read/build_and_read_wheel() already logged its
+        # own specific failure WARNING:; fall through to the generic
+        # "not backend-aware" warning.
+    log.warning(
+        "Build: file discovery for build backend %r is not yet "
+        "backend-aware%s -- using Hatchling-based heuristic, "
+        "file list may be inaccurate for this project%s",
+        backend,
+        "" if not allow_build else " (build-and-read failed)",
+        _unhandled_backend_hint(backend, pyproject_data),
+    )
+    if pyproject_data is None or "project" not in pyproject_data:
+        # Same guard _discover_with_registered_backend applies (via
+        # _skip_hatchling_fallback) when its own discoverer gives up:
+        # Hatchling's WheelBuilder requires a [project] table, so with
+        # none present the fallback attempt below is guaranteed to also
+        # fail -- skip the doomed, confusingly Hatchling-branded error
+        # for a project that has nothing to do with Hatchling.
+        return [], _noop_cleanup
+    return None
+
+
+def _discover_with_registered_backend(
+    backend: str,
+    discoverer: BackendDiscoverer,
+    project_dir: Path,
+    pyproject_data: dict[str, object] | None,
+    *,
+    allow_build: bool,
+    no_build_isolation: bool,
+) -> tuple[list[IncludedFile], Callable[[], None]] | None:
+    """*backend* has its own static discovery module -- try that first,
+    then (with ``allow_build``) a real build as a robustness fallback
+    for when the static discoverer gives up, before finally deferring
+    to the Hatchling heuristic.
+
+    Returns a result to return immediately, or ``None`` to fall through
+    to the Hatchling heuristic."""
+    # Only a "writer" backend (setuptools, PDM) process-wide os.chdir()s
+    # for the duration of its call and needs _DISCOVERY_LOCK's exclusive
+    # write mode -- see the lock's own docstring and _WRITER_BACKENDS'
+    # definition. Every other backend (Poetry and Flit included: neither
+    # touches cwd) is a "reader" and only needs to be kept out of a
+    # concurrent writer's chdir window, not out of each other's way.
+    lock_ctx = (
+        _DISCOVERY_LOCK.write()
+        if backend in _WRITER_BACKENDS
+        else _DISCOVERY_LOCK.read()
+    )
+    with lock_ctx:
+        files = discoverer(project_dir, pyproject_data=pyproject_data)
+    if files is not None:
+        return files, _noop_cleanup
+    # The registered backend's own static discoverer gave up. This is
+    # the "robustness fallback for Track A" the roadmap names for the
+    # build-and-read mechanism -- ANY registered backend (setuptools,
+    # poetry, pdm, flit) benefits automatically here, with zero
+    # backend-specific wiring, because build_and_read_wheel() doesn't
+    # care what backend it is. Must never be reached when the static
+    # discoverer already succeeded above (that returns immediately) -- a
+    # real build must never run when the fast, safe static rescan
+    # already worked.
+    if allow_build:
+        build_result = _try_build_and_read(
+            backend,
+            project_dir,
+            no_build_isolation=no_build_isolation,
+            reason="its own static discovery failed",
+        )
+        if build_result is not None:
+            return build_result
+    if _skip_hatchling_fallback(backend, pyproject_data, project_dir):
+        return [], _noop_cleanup
+    return None
+
+
 def _discover_included_files(
     project_dir: Path,
     *,
@@ -223,71 +325,26 @@ def _discover_included_files(
 
     if backend not in (None, "hatchling"):
         discoverer = backend_discoverers.get(backend)
-        if discoverer is None:
-            # No static module for this backend at all -- uv_build
-            # today, any future/unrecognized backend, or a Track B
-            # backend (maturin, scikit-build-core, meson-python) once
-            # its own toolchain happens to be available. No
-            # backend-specific code needed for any of these to start
-            # working the moment allow_build=True.
-            if allow_build:
-                build_result = _try_build_and_read(
-                    backend,
-                    project_dir,
-                    no_build_isolation=no_build_isolation,
-                    reason="no static discovery module registered",
-                )
-                if build_result is not None:
-                    return build_result
-                # _try_build_and_read/build_and_read_wheel() already
-                # logged its own specific failure WARNING:; fall
-                # through to the generic "not backend-aware" warning.
-            log.warning(
-                "File discovery for build backend %r is not yet "
-                "backend-aware%s -- using Hatchling-based heuristic, "
-                "file list may be inaccurate for this project%s",
+        result = (
+            _discover_with_no_static_module(
                 backend,
-                "" if not allow_build else " (build-and-read failed)",
-                _unhandled_backend_hint(backend, pyproject_data),
+                project_dir,
+                pyproject_data,
+                allow_build=allow_build,
+                no_build_isolation=no_build_isolation,
             )
-        else:
-            # Only a "writer" backend (setuptools, PDM) process-wide
-            # os.chdir()s for the duration of its call and needs
-            # _DISCOVERY_LOCK's exclusive write mode -- see the lock's own
-            # docstring and _WRITER_BACKENDS' definition. Every other backend
-            # (Poetry and Flit included: neither touches cwd) is a "reader"
-            # and only needs to be kept out of a concurrent writer's chdir
-            # window, not out of each other's way.
-            lock_ctx = (
-                _DISCOVERY_LOCK.write()
-                if backend in _WRITER_BACKENDS
-                else _DISCOVERY_LOCK.read()
+            if discoverer is None
+            else _discover_with_registered_backend(
+                backend,
+                discoverer,
+                project_dir,
+                pyproject_data,
+                allow_build=allow_build,
+                no_build_isolation=no_build_isolation,
             )
-            with lock_ctx:
-                files = discoverer(project_dir, pyproject_data=pyproject_data)
-            if files is not None:
-                return files, _noop_cleanup
-            # The registered backend's own static discoverer gave up.
-            # This is the "robustness fallback for Track A" the
-            # roadmap names for the build-and-read mechanism -- ANY
-            # registered backend (setuptools, poetry, pdm, flit)
-            # benefits automatically here, with zero backend-specific
-            # wiring, because build_and_read_wheel() doesn't care what
-            # backend it is. Must never be reached when the static
-            # discoverer already succeeded above (that returns
-            # immediately) -- a real build must never run when the
-            # fast, safe static rescan already worked.
-            if allow_build:
-                build_result = _try_build_and_read(
-                    backend,
-                    project_dir,
-                    no_build_isolation=no_build_isolation,
-                    reason="its own static discovery failed",
-                )
-                if build_result is not None:
-                    return build_result
-            if _skip_hatchling_fallback(backend, pyproject_data, project_dir):
-                return [], _noop_cleanup
+        )
+        if result is not None:
+            return result
 
     # Hatchling's discover() never touches cwd (project_dir is always
     # already absolute here -- see get_wheel_files), so concurrent

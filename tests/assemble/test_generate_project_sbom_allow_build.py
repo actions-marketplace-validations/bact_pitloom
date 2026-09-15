@@ -204,6 +204,53 @@ def test_generate_project_sbom_defaults_allow_build_false(tmp_path: Path) -> Non
     assert mocked.call_args.kwargs["no_build_isolation"] is False
 
 
+@pytest.mark.parametrize(
+    ("allow_build", "no_build_isolation"),
+    [(True, False), (False, True), (True, True)],
+    ids=["allow_build_only", "no_build_isolation_only", "both"],
+)
+def test_generate_warns_allow_build_no_effect_on_non_project_target(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+    allow_build: bool,
+    no_build_isolation: bool,
+) -> None:
+    """Regression: an explicit ``allow_build=True``/``no_build_isolation=
+    True`` given for a non-project target (env/wheel/model-file/HF -- none
+    of which ever reach ``get_wheel_files()``, the only consumer of these
+    two flags) used to be silently dropped with zero feedback, unlike its
+    sibling ``use_lockfile`` (which already gets
+    ``warn_use_lockfile_no_effect()``) -- a "no silent deviations"
+    violation per CLAUDE.md. Confirmed live: ``loom generate mymodel.gguf
+    --allow-build`` parsed and ran with no indication the flag did
+    nothing. A wheel target is used here since it needs no real file on
+    disk beyond a name ``generate()``'s classifier recognizes."""
+    with mock.patch("pitloom.assemble.generate_wheel_sbom", return_value="{}"):
+        with caplog.at_level(logging.WARNING):
+            generate(
+                str(tmp_path / "pkg-1.0-py3-none-any.whl"),
+                allow_build=allow_build,
+                no_build_isolation=no_build_isolation,
+            )
+
+    assert "Build:" in caplog.text
+    assert "--allow-build/--no-build-isolation has no effect" in caplog.text
+
+
+def test_generate_no_warning_when_allow_build_left_default_on_non_project_target(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The no-op warning above must not fire when the caller never
+    touched ``allow_build``/``no_build_isolation`` (both left at their
+    ``False`` default) -- only an explicit, meaningful-elsewhere value
+    is a deviation worth flagging."""
+    with mock.patch("pitloom.assemble.generate_wheel_sbom", return_value="{}"):
+        with caplog.at_level(logging.WARNING):
+            generate(str(tmp_path / "pkg-1.0-py3-none-any.whl"))
+
+    assert "--allow-build/--no-build-isolation has no effect" not in caplog.text
+
+
 def test_generate_dispatches_allow_build_to_project_sbom(tmp_path: Path) -> None:
     """``generate()``'s own "project" classification branch (a plain
     directory target, not env/wheel/model/HF) must forward both flags

@@ -178,6 +178,39 @@ def test_get_wheel_files_setuptools_build_system_only_skips_doomed_hatchling_att
     assert "Hatchling" not in caplog.text
 
 
+def test_get_wheel_files_unhandled_backend_no_pyproject_skips_doomed_hatchling(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Regression: the no-static-module dispatch path (uv_build today,
+    or any future/unrecognized backend) must apply the same "skip a
+    doomed Hatchling attempt" guard its registered-backend sibling
+    already has (see
+    test_get_wheel_files_setuptools_no_pyproject_skips_doomed_hatchling_attempt
+    above) -- Hatchling's WheelBuilder requires a [project] table, so
+    with none present the fallback is guaranteed to fail too. Before
+    this fix, this case fell through unconditionally and logged a
+    second, confusing "Hatchling file discovery failed" error on top of
+    the already-clear "not yet backend-aware" one, for a project that
+    has nothing to do with Hatchling."""
+    (tmp_path / "pyproject.toml").write_text(
+        '[build-system]\nrequires = ["uv_build"]\nbuild-backend = "uv_build"\n',
+        encoding="utf-8",
+    )
+
+    with caplog.at_level(logging.WARNING):
+        root, files, _ = get_wheel_files(tmp_path)
+
+    assert root is None
+    assert not files
+    assert "not yet backend-aware" in caplog.text
+    # The "not backend-aware" warning names Hatchling as the heuristic
+    # it would otherwise fall back to (it never actually runs here) --
+    # only the doomed, Hatchling-*branded* failure message must be
+    # absent, not the word "Hatchling" itself.
+    assert "Hatchling file discovery failed" not in caplog.text
+
+
 def test_get_wheel_files_unhandled_backend_falls_back_with_warning(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:

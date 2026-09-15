@@ -152,6 +152,25 @@ design pass):
   landing `uv_build` support, adds regression surface to four stable,
   individually real-world-validated modules for no feature benefit) --
   see that PR's Part D.
+- [ ] **Factor out the hand-rolled `tool` -> `tool.X` -> nested-table
+  walk repeated across 6+ modules** -- `has_uv_build_backend_overrides()`
+  (`_models_wheel_types.py`) reimplements the same isinstance-guarded
+  chain `_load_pitloom_tool_section()` and every `extract/project/*.py`
+  metadata producer (`poetry.py`, `pdm.py`, `setuptools_cfg.py`,
+  `pyproject.py`, `pyproject_dynamic.py`) already does independently.
+  Identified during PR #215's follow-up review (same "pattern
+  hand-copied across 3+ call sites drifts" class CLAUDE.md calls out by
+  name). A shared `get_tool_table(data, *keys)`-style helper would need
+  touching several stable, already-tested producer modules -- do as its
+  own reviewed change, not bundled into an unrelated feature PR.
+- [ ] **Low priority: `scripts/compare_allow_build.py` duplicates sdist
+  extraction already in `tests/fixtures/real_world.py`** --
+  `_extract_archive()` reimplements `extract_sdist()`'s tar/zip-open,
+  `filter="data"`, single-top-level-dir logic, generalized to accept any
+  archive path. Identified during PR #215's follow-up review. Dev-only
+  script, not shipped code, no user-facing risk -- worth folding into a
+  shared helper next time either file is touched anyway, not urgent on
+  its own.
 - [ ] **`--allow-build`-sourced files never match a `pitloom ids
   generate`-pinned registry entry** -- `IdRegistry.generate()` (`ids.py`)
   keys every entry by physical, project-root-relative path; a
@@ -457,6 +476,21 @@ design pass):
 
 ## Medium-term
 
+- [ ] **`--allow-build`'s real PEP 517 build has no timeout** --
+  `build_and_read_wheel()` (`_models_wheel_build_and_read.py`) runs the
+  isolated build synchronously inside `get_wheel_files()`'s
+  single-threaded call chain, unlike `scripts/compare_allow_build.py`'s
+  own 600s subprocess timeout for the same operation. Identified during
+  PR #215's follow-up review. A hung build (slow/broken network fetch
+  for build-requires, a build backend blocking on stdin, a misbehaving
+  build script) blocks the whole `loom project`/`generate`/`embed-wheel`
+  invocation indefinitely with no escape hatch but Ctrl-C -- a
+  `--allow-build` user opted into running third-party build code, not
+  into an unbounded hang. Needs a design decision before implementing:
+  a hardcoded default timeout vs. a new `--build-timeout` flag, and what
+  happens on timeout (warn-and-fall-back-to-Hatchling, matching every
+  other build-and-read failure path, is the obvious default but should
+  be confirmed).
 - [ ] **CycloneDX assembler** -- add a CycloneDX serializer consuming the
   existing `DocumentModel`; no changes to extractors required.
 - [ ] **AIDOC / TechOps renderer** -- additional output format consuming

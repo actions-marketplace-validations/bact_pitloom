@@ -67,7 +67,9 @@ def _expected_non_dist_info_paths(manifest: dict[str, object]) -> set[str]:
     those describe the *static* discovery fast path's fixture-level
     skip, not this real-build path's own (independently verified, see
     module docstring) empty gap set."""
-    wheel_files: list[str] = manifest.get("wheel_files") or []  # type: ignore[assignment]
+    wheel_files: list[str] = (
+        manifest.get("wheel_files") or []  # type: ignore[assignment]
+    )
     dist_info_prefix = next(
         (
             f.split(".dist-info/", maxsplit=1)[0] + ".dist-info/"
@@ -143,10 +145,15 @@ def test_default_discovery_fails_loudly_for_module_name_mismatch(
 
     extracted_root = extract_sdist(project_dir, tmp_path)
 
+    # Deliberately no assume_backend here (unlike other tests in this
+    # module) -- this fixture's real pyproject.toml has a [project]
+    # table, and _discover_included_files needs to see that (by reading
+    # it for real, the same way every production caller does) to know
+    # the doomed Hatchling fallback is worth attempting at all, rather
+    # than skipping straight past it (see
+    # _discover_with_no_static_module's own [project]-table guard).
     with caplog.at_level(logging.WARNING):
-        included, cleanup = _discover_included_files(
-            extracted_root, assume_backend="uv_build"
-        )
+        included, cleanup = _discover_included_files(extracted_root)
     try:
         assert included == []
     finally:
