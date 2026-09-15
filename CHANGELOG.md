@@ -54,7 +54,7 @@ and this project adheres to
   source: gap-fills undeclared fields, flags disagreement as a conflict
   Annotation ([#214])
 - `--allow-build`/`--no-build-isolation`: opt-in build-and-read file
-  discovery via a real PEP 517 build ([#215])
+  discovery via a real PEP 517 build ([#215], [#216])
 
 ### Fixed
 
@@ -107,6 +107,7 @@ and this project adheres to
 [#213]: https://github.com/bact/pitloom/pull/213
 [#214]: https://github.com/bact/pitloom/pull/214
 [#215]: https://github.com/bact/pitloom/pull/215
+[#216]: https://github.com/bact/pitloom/pull/216
 
 ## [0.17.0] - 2026-08-30
 
