@@ -19,7 +19,7 @@ from pathlib import Path
 import pytest
 
 from pitloom.core.project import ProjectMetadata
-from pitloom.extract.project.installed import reconcile_installed_metadata
+from pitloom.extract.project._installed_reconcile import reconcile_installed_metadata
 
 
 def _static(**overrides: object) -> ProjectMetadata:

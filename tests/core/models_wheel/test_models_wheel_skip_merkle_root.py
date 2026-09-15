@@ -36,7 +36,7 @@ def test_skip_merkle_root_returns_none_root_and_none_digests(
     tagged_file, plain_file = _make_header_project(tmp_path)
     _patch_recurse(monkeypatch, tagged_file, plain_file)
 
-    root, files = get_wheel_files(tmp_path, skip_merkle_root=True)
+    root, files, _ = get_wheel_files(tmp_path, skip_merkle_root=True)
 
     assert root is None
     assert len(files) == 2
@@ -51,10 +51,10 @@ def test_skip_merkle_root_does_not_change_discovered_file_set(
     tagged_file, plain_file = _make_header_project(tmp_path)
 
     _patch_recurse(monkeypatch, tagged_file, plain_file)
-    _root_off, files_off = get_wheel_files(tmp_path)
+    _root_off, files_off, _ = get_wheel_files(tmp_path)
 
     _patch_recurse(monkeypatch, tagged_file, plain_file)
-    _root_skip, files_skip = get_wheel_files(tmp_path, skip_merkle_root=True)
+    _root_skip, files_skip, _ = get_wheel_files(tmp_path, skip_merkle_root=True)
 
     assert [f.distribution_path for f in files_off] == [
         f.distribution_path for f in files_skip
@@ -70,7 +70,7 @@ def test_skip_merkle_root_true_is_not_the_default(
     tagged_file, plain_file = _make_header_project(tmp_path)
     _patch_recurse(monkeypatch, tagged_file, plain_file)
 
-    root, files = get_wheel_files(tmp_path)
+    root, files, _ = get_wheel_files(tmp_path)
 
     assert root is not None
     assert all(f.digest_sha256 is not None for f in files)
@@ -95,7 +95,7 @@ def test_skip_merkle_root_does_not_silently_drop_discovered_files(
     tagged_file, plain_file = _make_header_project(tmp_path)
     _patch_recurse(monkeypatch, tagged_file, plain_file)
 
-    _root, files = get_wheel_files(tmp_path, skip_merkle_root=True)
+    _root, files, _ = get_wheel_files(tmp_path, skip_merkle_root=True)
 
     assert len(files) == 2
     assert {f.distribution_path for f in files} == {"pkg/tagged.py", "pkg/plain.py"}
@@ -110,7 +110,7 @@ def test_skip_merkle_root_genuinely_empty_file_set_still_returns_none(
     result."""
     monkeypatch.setattr(WheelBuilder, "recurse_included_files", lambda _self: iter([]))
 
-    root, files = get_wheel_files(tmp_path, skip_merkle_root=True)
+    root, files, _ = get_wheel_files(tmp_path, skip_merkle_root=True)
 
     assert root is None
     assert not files
@@ -144,7 +144,7 @@ def test_skip_merkle_root_unreadable_file_still_fails_whole_call(
 
     monkeypatch.setattr(Path, "open", _failing_open)
 
-    root, files = get_wheel_files(tmp_path, skip_merkle_root=True)
+    root, files, _ = get_wheel_files(tmp_path, skip_merkle_root=True)
 
     assert root is None
     assert not files
@@ -166,7 +166,7 @@ def test_skip_merkle_root_false_unreadable_file_also_fails_whole_call(
 
     monkeypatch.setattr(Path, "read_bytes", _failing_read_bytes)
 
-    root, files = get_wheel_files(tmp_path)
+    root, files, _ = get_wheel_files(tmp_path)
 
     assert root is None
     assert not files
@@ -189,7 +189,7 @@ def test_skip_merkle_root_with_file_header_scanning_still_reads_bytes(
     tagged_file, plain_file = _make_header_project(tmp_path)
     _patch_recurse(monkeypatch, tagged_file, plain_file)
 
-    _root, files = get_wheel_files(
+    _root, files, _ = get_wheel_files(
         tmp_path, scan_file_headers=True, skip_merkle_root=True
     )
 
@@ -206,7 +206,7 @@ def test_skip_merkle_root_with_content_type_detection_still_reads_bytes(
     tagged_file, plain_file = _make_header_project(tmp_path)
     _patch_recurse(monkeypatch, tagged_file, plain_file)
 
-    _root, files = get_wheel_files(
+    _root, files, _ = get_wheel_files(
         tmp_path,
         detect_content_type=True,
         content_type_method="extension",
@@ -238,7 +238,7 @@ def test_skip_merkle_root_with_no_scanning_does_not_parse_headers(
 
     monkeypatch.setattr("pitloom.extract._file_headers.parse_file_header", _spy_parse)
 
-    _root, files = get_wheel_files(tmp_path, skip_merkle_root=True)
+    _root, files, _ = get_wheel_files(tmp_path, skip_merkle_root=True)
 
     assert not calls
     tagged = next(f for f in files if f.distribution_path == "pkg/tagged.py")
@@ -268,9 +268,9 @@ def test_skip_merkle_root_output_order_is_deterministic(
     expected = ["pkg/plain.py", "pkg/tagged.py"]
 
     monkeypatch.setattr(WheelBuilder, "recurse_included_files", _reverse_order_recurse)
-    _root1, files1 = get_wheel_files(tmp_path, skip_merkle_root=True)
+    _root1, files1, _ = get_wheel_files(tmp_path, skip_merkle_root=True)
     assert [f.distribution_path for f in files1] == expected
 
     monkeypatch.setattr(WheelBuilder, "recurse_included_files", _reverse_order_recurse)
-    _root2, files2 = get_wheel_files(tmp_path, skip_merkle_root=True)
+    _root2, files2, _ = get_wheel_files(tmp_path, skip_merkle_root=True)
     assert [f.distribution_path for f in files2] == expected

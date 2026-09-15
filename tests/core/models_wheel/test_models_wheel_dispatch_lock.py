@@ -14,6 +14,7 @@ it crossed the ~400-500 line soft limit; this half shares its
 
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -140,6 +141,80 @@ def test_get_wheel_files_poetry_discovery_is_not_serialized(
         t.join()
 
     assert max_concurrent > 1
+
+
+def test_get_wheel_files_build_and_read_does_not_block_or_get_blocked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression, locks in the deliberate design decision documented in
+    ``_DiscoveryLock``'s own docstring: a slow, mocked build-and-read
+    call (``--allow-build``) must NOT be serialized against a concurrent
+    setuptools (write-mode) discovery call in either direction --
+    build-and-read touches no process-wide mutable state (the real build
+    runs in a subprocess with its own explicit cwd), so it deliberately
+    does not go through ``_DISCOVERY_LOCK`` at all. If a future refactor
+    routed it through the lock "for consistency," this test would start
+    failing by observing the two calls serialize (max_concurrent drops
+    back to 1)."""
+    uv_build_dir = tmp_path / "uv_build_proj"
+    uv_build_dir.mkdir()
+    (uv_build_dir / "pyproject.toml").write_text(
+        '[build-system]\nrequires = ["uv_build"]\nbuild-backend = "uv_build"\n\n'
+        '[project]\nname = "pkg"\nversion = "1.0.0"\n',
+        encoding="utf-8",
+    )
+    setuptools_dir = tmp_path / "setuptools_proj"
+    setuptools_dir.mkdir()
+    _make_backend_project(setuptools_dir, "setuptools.build_meta")
+
+    concurrent_calls = 0
+    max_concurrent = 0
+    lock = threading.Lock()
+
+    def _slow_build_and_read(
+        project_dir: Path, *, isolated: bool = True
+    ) -> tuple[list[IncludedFile], Callable[[], None]]:
+        nonlocal concurrent_calls, max_concurrent
+        del project_dir, isolated
+        with lock:
+            concurrent_calls += 1
+            max_concurrent = max(max_concurrent, concurrent_calls)
+        time.sleep(0.05)
+        with lock:
+            concurrent_calls -= 1
+        return [], lambda: None
+
+    def _slow_writer(
+        project_dir: Path, *, pyproject_data: dict[str, object] | None = None
+    ) -> list[IncludedFile]:
+        nonlocal concurrent_calls, max_concurrent
+        del project_dir, pyproject_data
+        with lock:
+            concurrent_calls += 1
+            max_concurrent = max(max_concurrent, concurrent_calls)
+        time.sleep(0.05)
+        with lock:
+            concurrent_calls -= 1
+        return []
+
+    monkeypatch.setattr(
+        "pitloom.core._models_wheel_build_and_read.build_and_read_wheel",
+        _slow_build_and_read,
+    )
+    monkeypatch.setattr("pitloom.core._models_wheel_setuptools.discover", _slow_writer)
+
+    threads = [
+        threading.Thread(
+            target=get_wheel_files, args=(uv_build_dir,), kwargs={"allow_build": True}
+        ),
+        threading.Thread(target=get_wheel_files, args=(setuptools_dir,)),
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert max_concurrent == 2
 
 
 def test_get_wheel_files_writer_not_starved_by_continuous_readers(

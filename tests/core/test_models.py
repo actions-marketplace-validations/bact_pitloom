@@ -185,12 +185,12 @@ def test_get_wheel_files_normalizes_windows_style_distribution_path(
         return _fake_recurse
 
     monkeypatch.setattr(WheelBuilder, "recurse_included_files", _make_fake_recurse("/"))
-    posix_root, posix_files = get_wheel_files(tmp_path)
+    posix_root, posix_files, _ = get_wheel_files(tmp_path)
 
     monkeypatch.setattr(
         WheelBuilder, "recurse_included_files", _make_fake_recurse("\\")
     )
-    windows_root, windows_files = get_wheel_files(tmp_path)
+    windows_root, windows_files, _ = get_wheel_files(tmp_path)
 
     assert posix_root is not None
     assert posix_root == windows_root, (

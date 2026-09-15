@@ -62,7 +62,7 @@ def test_get_wheel_files_dispatches_setuptools_backend_to_its_module(
         "pitloom.core._models_wheel_hatchling.discover", _fail_if_called
     )
 
-    _root, files = get_wheel_files(tmp_path)
+    _root, files, _ = get_wheel_files(tmp_path)
 
     assert not hatchling_called
     assert [f.distribution_path for f in files] == ["pkg/a.py"]
@@ -97,7 +97,7 @@ def test_get_wheel_files_sorts_files_regardless_of_discovery_order(
         "pitloom.core._models_wheel_setuptools.discover", _unsorted_discover
     )
 
-    _root, files = get_wheel_files(tmp_path)
+    _root, files, _ = get_wheel_files(tmp_path)
 
     assert [f.distribution_path for f in files] == ["a.py", "m.py", "z.py"]
 
@@ -118,7 +118,7 @@ def test_get_wheel_files_setuptools_no_static_config_falls_back_with_warning(
     monkeypatch.setattr(WheelBuilder, "recurse_included_files", lambda _self: iter([]))
 
     with caplog.at_level(logging.WARNING):
-        root, files = get_wheel_files(tmp_path)
+        root, files, _ = get_wheel_files(tmp_path)
 
     assert root is None
     assert not files
@@ -140,7 +140,7 @@ def test_get_wheel_files_setuptools_no_pyproject_skips_doomed_hatchling_attempt(
     )
 
     with caplog.at_level(logging.WARNING):
-        root, files = get_wheel_files(tmp_path)
+        root, files, _ = get_wheel_files(tmp_path)
 
     assert root is None
     assert not files
@@ -170,7 +170,7 @@ def test_get_wheel_files_setuptools_build_system_only_skips_doomed_hatchling_att
     )
 
     with caplog.at_level(logging.WARNING):
-        root, files = get_wheel_files(tmp_path)
+        root, files, _ = get_wheel_files(tmp_path)
 
     assert root is None
     assert not files
@@ -189,7 +189,7 @@ def test_get_wheel_files_unhandled_backend_falls_back_with_warning(
     _make_backend_project(tmp_path, "uv_build")
 
     with caplog.at_level(logging.WARNING):
-        root, files = get_wheel_files(tmp_path)
+        root, files, _ = get_wheel_files(tmp_path)
 
     assert root is None
     assert not files
@@ -222,7 +222,7 @@ def test_get_wheel_files_dispatches_flit_backend_to_its_module(
         "pitloom.core._models_wheel_hatchling.discover", _fail_if_called
     )
 
-    _root, files = get_wheel_files(tmp_path)
+    _root, files, _ = get_wheel_files(tmp_path)
 
     assert not hatchling_called
     assert [f.distribution_path for f in files] == ["pkg/a.py"]
@@ -266,7 +266,7 @@ def test_get_wheel_files_dispatches_pdm_backend_to_its_module(
         "pitloom.core._models_wheel_hatchling.discover", _fail_if_called
     )
 
-    _root, files = get_wheel_files(tmp_path)
+    _root, files, _ = get_wheel_files(tmp_path)
 
     assert not hatchling_called
     assert [f.distribution_path for f in files] == ["pkg/a.py"]
@@ -310,7 +310,7 @@ def test_get_wheel_files_dispatches_poetry_backend_to_its_module(
         "pitloom.core._models_wheel_hatchling.discover", _fail_if_called
     )
 
-    _root, files = get_wheel_files(tmp_path)
+    _root, files, _ = get_wheel_files(tmp_path)
 
     assert not hatchling_called
     assert [f.distribution_path for f in files] == ["pkg/a.py"]
@@ -352,7 +352,7 @@ def test_get_wheel_files_setuptools_config_present_but_introspection_failed(
     )
 
     with caplog.at_level(logging.WARNING):
-        root, files = get_wheel_files(tmp_path)
+        root, files, _ = get_wheel_files(tmp_path)
 
     assert root is None
     assert not files
@@ -405,7 +405,7 @@ def test_get_wheel_files_relative_project_dir_keeps_physical_path_relative(
     monkeypatch.chdir(tmp_path.parent)
     relative_project_dir = Path(tmp_path.name)
 
-    _root, files = get_wheel_files(relative_project_dir)
+    _root, files, _ = get_wheel_files(relative_project_dir)
 
     assert len(files) == 1
     assert not Path(files[0].physical_path).is_absolute()

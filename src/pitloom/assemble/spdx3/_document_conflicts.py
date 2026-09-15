@@ -36,7 +36,7 @@ def attach_metadata_field_conflicts(
 
     Iterates ``metadata.field_conflicts.items()`` in the dict's own
     insertion order -- deterministic because
-    :func:`pitloom.extract.project.installed.reconcile_installed_metadata`
+    :func:`pitloom.extract.project._installed_reconcile.reconcile_installed_metadata`
     populates it while iterating :func:`dataclasses.fields`'s stable
     declaration order, never a ``set``'s iteration order.
     """

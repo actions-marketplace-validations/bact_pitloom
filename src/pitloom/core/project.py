@@ -189,7 +189,8 @@ class ProjectMetadata:
         would silently corrupt *self* too unless every such caller
         remembers to defensively copy first -- a hazard this repo has
         already hit twice independently (:func:`merge_project_metadata`
-        and :func:`~pitloom.extract.project.installed.reconcile_installed_metadata`
+        and
+        :func:`~pitloom.extract.project._installed_reconcile.reconcile_installed_metadata`
         each patched it separately for ``provenance``/``field_conflicts``
         before this method existed). Prefer this over a bare
         ``dataclasses.replace()`` call whenever the result will be

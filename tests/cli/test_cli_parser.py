@@ -241,3 +241,143 @@ def test_use_lockfile_flag_supports_three_states(
         parser.parse_args([command, *target_args, "--no-use-lockfile"]).use_lockfile
         is False
     )
+
+
+@pytest.mark.parametrize(
+    ("command", "target_args"),
+    [
+        ("generate", ["."]),
+        ("project", ["."]),
+        ("embed-wheel", ["dummy.whl"]),
+    ],
+)
+def test_allow_build_flags_present_and_plain_bool(
+    command: str, target_args: list[str]
+) -> None:
+    """``--allow-build``/``--no-build-isolation`` are only offered on
+    commands that reach ``get_wheel_files()`` for a project directory
+    (``generate``, ``project``, ``embed-wheel``) -- not ``wheel``,
+    ``enrich``, ``env``, or ``model``. Unlike ``--offline``/
+    ``--use-lockfile`` above, both are a plain ``store_true`` defaulting
+    to ``False`` (no tri-state/``--no-...`` counterpart), matching their
+    deliberate lack of a ``[tool.pitloom]`` config-file equivalent."""
+    from pitloom.cli.parser import _build_parser
+
+    parser = _build_parser()
+
+    assert parser.parse_args([command, *target_args]).allow_build is False
+    assert parser.parse_args([command, *target_args]).no_build_isolation is False
+    args = parser.parse_args(
+        [command, *target_args, "--allow-build", "--no-build-isolation"]
+    )
+    assert args.allow_build is True
+    assert args.no_build_isolation is True
+
+
+@pytest.mark.parametrize(
+    ("command", "target_args"),
+    [
+        ("wheel", ["dummy.whl"]),
+        ("enrich", ["dummy.gguf"]),
+        ("env", []),
+    ],
+)
+def test_allow_build_flags_absent_on_non_project_commands(
+    command: str, target_args: list[str]
+) -> None:
+    """A command that never calls ``get_wheel_files()`` on a project
+    directory must not advertise ``--allow-build``/``--no-build-isolation``
+    at all -- an accepted-but-silently-inert flag is exactly the
+    ``--debug``-shipped-before-subcommands-honoured-it bug class CLAUDE.md's
+    "Usage surfaces" section warns about."""
+    from pitloom.cli.parser import _build_parser
+
+    parser = _build_parser()
+
+    with pytest.raises(SystemExit):
+        parser.parse_args([command, *target_args, "--allow-build"])
+
+
+def test_no_build_isolation_without_allow_build_warns_on_project(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """``--no-build-isolation`` without ``--allow-build`` logs a
+    ``WARNING:`` and otherwise runs normally -- no real build is ever
+    attempted (``allow_build`` stays ``False``, so ``get_wheel_files()``
+    never reaches ``build_and_read_wheel()`` at all)."""
+    project_dir = _make_simple_project(tmp_path)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "loom",
+            "project",
+            str(project_dir),
+            "--no-build-isolation",
+            "-o",
+            str(tmp_path / "sbom.json"),
+        ],
+    )
+    with caplog.at_level(logging.WARNING, logger="pitloom"):
+        result = __main__.main()
+    assert result == 0
+    assert "--no-build-isolation has no effect without --allow-build" in caplog.text
+
+
+def test_no_build_isolation_without_allow_build_warns_on_generate(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Same warning, on the second surface offering both flags
+    (``generate``, which resolves a project-dir target and dispatches
+    into the same ``generate_project_sbom()`` path as ``project``)."""
+    project_dir = _make_simple_project(tmp_path)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "loom",
+            "generate",
+            str(project_dir),
+            "--no-build-isolation",
+            "-o",
+            str(tmp_path / "sbom.json"),
+        ],
+    )
+    with caplog.at_level(logging.WARNING, logger="pitloom"):
+        result = __main__.main()
+    assert result == 0
+    assert "--no-build-isolation has no effect without --allow-build" in caplog.text
+
+
+def test_no_build_isolation_without_allow_build_warns_on_embed_wheel(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Same warning, on the third surface offering both flags
+    (``embed-wheel``) -- a wiring gap here would be exactly the kind of
+    per-surface drift CLAUDE.md's "Usage surfaces" section warns about."""
+    from tests.assemble.conftest import _make_dummy_wheel
+
+    project_dir = _make_simple_project(tmp_path)
+    wheel_path = _make_dummy_wheel(tmp_path / "dist", "demo", "1.0.0")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "loom",
+            "embed-wheel",
+            str(wheel_path),
+            "--project-dir",
+            str(project_dir),
+            "--no-build-isolation",
+        ],
+    )
+    with caplog.at_level(logging.WARNING, logger="pitloom"):
+        result = __main__.main()
+    assert result == 0
+    assert "--no-build-isolation has no effect without --allow-build" in caplog.text

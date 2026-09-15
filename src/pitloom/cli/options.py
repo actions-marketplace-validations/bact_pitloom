@@ -116,6 +116,69 @@ def add_use_lockfile_argument(parser: argparse.ArgumentParser, effect: str) -> N
     )
 
 
+def add_allow_build_argument(parser: argparse.ArgumentParser) -> None:
+    """Add the shared ``--allow-build`` flag.
+
+    Unlike ``--offline``/``--use-lockfile`` above, this is a plain
+    ``store_true`` flag with a literal ``False`` default, not a
+    ``BooleanOptionalAction`` deferring to ``[tool.pitloom]`` when unset --
+    deliberately: the config file being read lives in the (untrusted)
+    project being scanned, and it must never be able to silently opt
+    itself into third-party code execution. This always defaults to off
+    and must be passed explicitly on every invocation that wants it.
+    """
+    parser.add_argument(
+        "--allow-build",
+        action="store_true",
+        default=False,
+        help=(
+            "SECURITY: allow Pitloom to invoke a project's own PEP 517 "
+            "build backend (subprocess; may install build-requires from "
+            "the network) to discover a wheel's real file list -- either "
+            "for a backend with no static-config discovery module of its "
+            "own (currently: uv_build), or as a fallback when a "
+            "supported backend's own static discovery fails on this "
+            "project. Executes third-party build-time code. Off by "
+            "default -- without it, an unhandled or failed backend falls "
+            "back to the Hatchling-based heuristic with a WARNING:, "
+            "unchanged. Deliberately has no [tool.pitloom] equivalent, "
+            "unlike --offline/--content-type above: a target project's "
+            "own pyproject.toml must never be able to silently enable "
+            "code execution for whoever scans it."
+        ),
+    )
+
+
+def add_no_build_isolation_argument(parser: argparse.ArgumentParser) -> None:
+    """Add the shared ``--no-build-isolation`` flag. No effect without
+    ``--allow-build`` (each caller warns if passed without it)."""
+    parser.add_argument(
+        "--no-build-isolation",
+        action="store_true",
+        default=False,
+        help=(
+            "With --allow-build, skip creating an isolated build "
+            "environment and use the current Python environment's "
+            "already-installed build backend instead (faster, no "
+            "network) -- mirrors 'python -m build --no-isolation'. No "
+            "effect without --allow-build (logs a WARNING: if passed "
+            "alone)."
+        ),
+    )
+
+
+def warn_no_build_isolation_no_effect(subject: object) -> None:
+    """Log the shared ``WARNING:`` for ``--no-build-isolation`` passed
+    without ``--allow-build``. A separate helper (mirroring
+    :func:`warn_use_lockfile_no_effect` in
+    :mod:`pitloom.extract.project.reader`) so the wording stays identical
+    across every command that offers both flags."""
+    log.warning(
+        "Build: %s: --no-build-isolation has no effect without --allow-build",
+        subject,
+    )
+
+
 def add_debug_argument(parser: argparse.ArgumentParser) -> None:
     """Add the shared ``--debug``/``--no-debug`` flag.
 

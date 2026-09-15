@@ -22,10 +22,10 @@ from pathlib import Path
 from pitloom.core.config import PitloomConfig
 from pitloom.core.project import ProjectMetadata, merge_project_metadata
 from pitloom.extract.lock import apply_locked_dependencies
+from pitloom.extract.project._installed_reconcile import reconcile_installed_metadata
 from pitloom.extract.project.installed import (
     _discover_candidate,
     _parse_installed_metadata,
-    reconcile_installed_metadata,
 )
 from pitloom.extract.project.pyproject import read_pyproject
 from pitloom.extract.project.sdist import read_sdist

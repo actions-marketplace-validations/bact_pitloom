@@ -153,8 +153,18 @@ def _build_sbom_from_project_and_wheel(
     pitloom_config: PitloomConfig,
     registry: IdRegistry | None,
     creation_metadata: CreationMetadata | None,
+    *,
+    allow_build: bool = False,
+    no_build_isolation: bool = False,
 ) -> str:
-    """Generate a canonical Build SBOM from project sources and wheel files."""
+    """Generate a canonical Build SBOM from project sources and wheel files.
+
+    ``allow_build``/``no_build_isolation`` are taken as plain parameters,
+    not read off ``pitloom_config``: unlike every other rescan setting
+    here, they deliberately have no ``[tool.pitloom]`` cascade (see
+    ``ConfigOverrides.allow_build``'s docstring) -- the caller must
+    thread its own ``ConfigOverrides`` values through explicitly.
+    """
     # merkle_root (the rescan's own, over project_dir's on-disk bytes) is
     # deliberately discarded here -- see _compute_wheel_merkle_root below,
     # which recomputes it from the wheel's own (post-merge) file hashes so
@@ -162,13 +172,15 @@ def _build_sbom_from_project_and_wheel(
     # digest_sha256 is skipped for the same reason: _merge_file_extras
     # below only adopts project_files' content-type/header extras, never
     # its digest, so hashing every file here would be wasted I/O too.
-    _, project_files = get_wheel_files(
+    _, project_files, cleanup_discovery = get_wheel_files(
         project_dir,
         scan_file_headers=pitloom_config.extract_file_header,
         detect_content_type=pitloom_config.content_type.enabled,
         content_type_method=pitloom_config.content_type.method,
         content_type_overrides=pitloom_config.content_type.overrides,
         skip_merkle_root=True,
+        allow_build=allow_build,
+        no_build_isolation=no_build_isolation,
     )
     # Layer content-type/file-header extras onto the wheel's own file
     # records rather than replacing them outright: replacing would drop
@@ -184,11 +196,18 @@ def _build_sbom_from_project_and_wheel(
     # of anything downstream mutating this SBOM's own project_metadata.
     project_metadata = wheel_metadata.replace_with_fresh_containers(files=merged_files)
     merkle_root = _compute_wheel_merkle_root(merged_files)
-    ai_models = scan_project_for_ai_models(project_dir, project_files)
+    # cleanup_discovery (a no-op unless allow_build's build-and-read
+    # sourced project_files) must stay alive through both steps below --
+    # each still re-reads a ProjectFile's bytes from disk via
+    # physical_path -- not just through get_wheel_files() itself.
+    try:
+        ai_models = scan_project_for_ai_models(project_dir, project_files)
+        enrichment_results = run_enrichers_for_models(
+            ai_models, pitloom_config.enrich, project_dir
+        )
+    finally:
+        cleanup_discovery()
     phantom_deps = find_phantom_dependencies(merged_files)
-    enrichment_results = run_enrichers_for_models(
-        ai_models, pitloom_config.enrich, project_dir
-    )
 
     doc = DocumentModel(
         project=project_metadata,
@@ -219,6 +238,8 @@ class ConfigOverrides:
     content_type: bool | None = None
     content_type_method: str | None = None
     offline: bool | None = None
+    allow_build: bool = False
+    no_build_isolation: bool = False
 
 
 def _enforce_sbom_name_version(
@@ -391,7 +412,13 @@ def _generate_embed_sbom_json(
     eff_registry = registry if registry is not None else cfg.ids_file
     reg = resolve_registry(proj_root, eff_registry)
     sbom_json = _build_sbom_from_project_and_wheel(
-        proj_root, wheel_metadata, cfg, reg, creation_metadata or cfg.creation_metadata
+        proj_root,
+        wheel_metadata,
+        cfg,
+        reg,
+        creation_metadata or cfg.creation_metadata,
+        allow_build=overrides.allow_build,
+        no_build_isolation=overrides.no_build_isolation,
     )
     return sbom_json, sbom_basename or cfg.sbom_basename
 

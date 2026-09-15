@@ -133,8 +133,17 @@ def generate(
     content_type_method: str | None = None,
     update_registry: bool | None = None,
     use_lockfile: bool | None = None,
+    allow_build: bool = False,
+    no_build_isolation: bool = False,
 ) -> str:
-    """Smart unified entrypoint for generating SPDX 3 SBOMs across all target types."""
+    """Smart unified entrypoint for generating SPDX 3 SBOMs across all target types.
+
+    ``allow_build``/``no_build_isolation`` only take effect for a project
+    directory/sdist target (the ``generate_project_sbom()`` dispatch
+    below) -- see that function's own docstring for why they're plain
+    ``bool``, not the ``bool | None``-deferring-to-config shape every
+    other flag here uses.
+    """
     target_str = str(target).strip()
     classification = _classify_target(target_str)
 
@@ -211,4 +220,6 @@ def generate(
         offline=offline,
         update_registry=update_registry,
         use_lockfile=use_lockfile,
+        allow_build=allow_build,
+        no_build_isolation=no_build_isolation,
     )

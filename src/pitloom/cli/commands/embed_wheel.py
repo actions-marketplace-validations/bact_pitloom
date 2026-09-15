@@ -28,7 +28,13 @@ from pitloom.cli.commands.utils import (
 )
 from pitloom.cli.commands.validate_wheel import _validate_location
 from pitloom.cli.commands.verify_wheel import _check_location, _check_name_version
-from pitloom.cli.options import _resolve_creation_metadata, add_offline_argument
+from pitloom.cli.options import (
+    _resolve_creation_metadata,
+    add_allow_build_argument,
+    add_no_build_isolation_argument,
+    add_offline_argument,
+    warn_no_build_isolation_no_effect,
+)
 from pitloom.core.config import PitloomConfig
 from pitloom.core.creation import CreationMetadata
 from pitloom.extract.project import read_project
@@ -216,6 +222,9 @@ def _run_embed_wheel_command(args: argparse.Namespace) -> int:
         )
         return 1
 
+    if args.no_build_isolation and not args.allow_build:
+        warn_no_build_isolation_no_effect(args.project_dir or "embed-wheel")
+
     resolved = _resolve_project_dir_and_config(args.project_dir)
     if resolved is None:
         return 1
@@ -229,6 +238,8 @@ def _run_embed_wheel_command(args: argparse.Namespace) -> int:
         content_type_method=args.content_type_method,
         provenance=resolve_effective_provenance(pitloom_config, args),
         offline=args.offline,
+        allow_build=args.allow_build,
+        no_build_isolation=args.no_build_isolation,
     )
     batch = _EmbedBatchContext(
         project_dir=project_dir,
@@ -375,4 +386,6 @@ def add_parser(subparsers: Any, parent_parser: argparse.ArgumentParser) -> None:
         ),
     )
     add_offline_argument(embed_parser, " during SBOM generation.")
+    add_allow_build_argument(embed_parser)
+    add_no_build_isolation_argument(embed_parser)
     embed_parser.set_defaults(func=_run_embed_wheel_command)

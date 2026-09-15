@@ -20,10 +20,10 @@ from pathlib import Path
 
 import pytest
 
+from pitloom.extract.project._installed_reconcile import _requires_python_equal
 from pitloom.extract.project.installed import (
     _discover_candidate,
     _parse_installed_metadata,
-    _requires_python_equal,
     find_installed_metadata_candidate,
     read_installed_metadata,
 )

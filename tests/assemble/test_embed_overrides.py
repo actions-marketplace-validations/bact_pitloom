@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import sys
 import zipfile
 from pathlib import Path
@@ -26,7 +27,7 @@ from installer.sources import WheelFile
 from pitloom import __main__
 from pitloom.core.config import PitloomConfig
 from pitloom.core.models import _build_merkle_tree
-from pitloom.core.project import ProjectMetadata
+from pitloom.core.project import ProjectFile, ProjectMetadata
 from pitloom.core.provenance import ProvenanceConfig
 from pitloom.embed import (
     ConfigOverrides,
@@ -163,6 +164,59 @@ packages = ["ctpkg"]
     assert any(f.get("contentType") for f in files), (
         "content-type override did not reach the SBOM's file list"
     )
+
+
+def test_embed_wheel_defers_cleanup_past_ai_model_scan(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression: ``embed.py``'s ``_build_sbom_from_project_and_wheel``
+    has the same cleanup-timing hazard as ``generate_project_sbom()``
+    (see ``tests/assemble/test_generate_project_sbom_allow_build.py``'s
+    sibling test) -- ``scan_project_for_ai_models()`` runs after
+    ``get_wheel_files()`` here too, and must still see a build-and-read-
+    sourced file's bytes before ``get_wheel_files()``'s cleanup callback
+    removes them."""
+    (tmp_path / "pyproject.toml").write_text(
+        """
+[project]
+name = "ctpkg"
+version = "1.0.0"
+
+[tool.hatch.build.targets.wheel]
+packages = ["ctpkg"]
+""",
+        encoding="utf-8",
+    )
+    pkg_dir = tmp_path / "ctpkg"
+    pkg_dir.mkdir()
+    (pkg_dir / "__init__.py").write_text("x = 1\n", encoding="utf-8")
+    wheel_path = _make_dummy_wheel(tmp_path / "dist", "ctpkg", "1.0.0")
+
+    fake_extract_dir = tmp_path / "fake-extract"
+    fake_extract_dir.mkdir()
+    py_file = fake_extract_dir / "mod.py"
+    py_file.write_text("x = 1\n", encoding="utf-8")
+    project_file = ProjectFile(
+        physical_path=str(py_file),
+        distribution_path="ctpkg/mod.py",
+    )
+    cleanup_calls: list[str] = []
+
+    def _cleanup() -> None:
+        cleanup_calls.append("cleanup")
+        py_file.unlink()
+
+    monkeypatch.setattr(
+        "pitloom.embed.get_wheel_files",
+        lambda *a, **k: (None, [project_file], _cleanup),
+    )
+    with caplog.at_level(logging.WARNING):
+        embed_wheel_sbom(wheel_path, project_dir=tmp_path)
+
+    assert cleanup_calls == ["cleanup"]
+    assert "could not read for usage scanning" not in caplog.text
 
 
 def _sbom_files_by_name(sbom_json: str) -> dict[str, dict[str, Any]]:
@@ -311,9 +365,10 @@ def test_embed_wheel_scan_failure_keeps_wheel_files(
 ) -> None:
     """A get_wheel_files() scan failure must not empty the SBOM's file list.
 
-    ``get_wheel_files()`` returns ``(None, [])`` on any scan failure; the
-    merge in ``_build_sbom_from_project_and_wheel`` must fall back to the
-    wheel's own files rather than propagating that empty result.
+    ``get_wheel_files()`` returns ``(None, [], <no-op cleanup>)`` on any
+    scan failure; the merge in ``_build_sbom_from_project_and_wheel``
+    must fall back to the wheel's own files rather than propagating
+    that empty result.
     """
     (tmp_path / "pyproject.toml").write_text(
         """
@@ -332,7 +387,9 @@ packages = ["ctpkg"]
 
     wheel_path = _make_dummy_wheel(tmp_path / "dist", "ctpkg", "1.0.0")
 
-    monkeypatch.setattr("pitloom.embed.get_wheel_files", lambda *a, **k: (None, []))
+    monkeypatch.setattr(
+        "pitloom.embed.get_wheel_files", lambda *a, **k: (None, [], lambda: None)
+    )
 
     _, _, sbom_json, _, _ = embed_wheel_sbom(
         wheel_path,

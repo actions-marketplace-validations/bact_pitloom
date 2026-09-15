@@ -104,20 +104,17 @@ full picture.
 ## Near-term
 
 **Next up:**
+[Generic multi-candidate field representation](#metadata-quality) --
 [Non-Hatchling file discovery](#non-hatchling-file-discovery-feature-parity)
-below -- a major feature-parity gap affecting the accuracy of `loom
-project`'s file inventory for any non-Hatchling project. Setuptools,
-Poetry, PDM-backend, and Flit-core support are done (see priority
-table in [non-hatchling-file-discovery.md](non-hatchling-file-discovery.md));
-`uv_build` is next, without a committed version yet.
+below is now closed for every backend, including `uv_build` (via the
+generic `--allow-build` build-and-read mechanism, not a dedicated static
+rescan -- see below).
 
 **Suggested sequencing after that** (2026-09-14, not a commitment, just
 the current read of what's ready to pick up vs. what still needs a
 design pass):
 
-1. `uv_build` file discovery (above) -- ready to implement, priority
-   table already exists.
-2. [Generic multi-candidate field representation](#metadata-quality)
+1. [Generic multi-candidate field representation](#metadata-quality)
    -- now concretely motivated: license (`deps_license.py`), dependency
    version (`deps_installed.py`), and project metadata fields
    (`extract/project/installed.py`, landed via
@@ -125,7 +122,7 @@ design pass):
    hand-build their own `ConflictCandidate` list at their own call
    site -- a third, independent instance of the same duplication is
    usually the right time to generalize.
-3. [OSV.dev vulnerability lookup](#metadata-quality) -- **not** ready to
+2. [OSV.dev vulnerability lookup](#metadata-quality) -- **not** ready to
    hand to an implementer as-is; needed its own design pass first (SPDX3
    mapping, which dependency pool to query, PEP 440-based range
    matching) -- now resolved, see
@@ -133,19 +130,18 @@ design pass):
 
 ### Non-Hatchling file discovery (feature parity)
 
-- [ ] **`get_wheel_files()` file discovery is not backend-agnostic** --
-  partially fixed (2026-08-27): now a per-backend dispatch facade
-  (`src/pitloom/core/_models_wheel.py`), with setuptools, Poetry,
-  PDM-backend, and Flit-core closed; any backend without a dedicated
-  module (`uv_build`, ...) still falls back to the Hatchling heuristic,
-  which can silently produce a **wrong** file list for a non-Hatchling
-  layout. Two tracks remain: static/declarative backends (`uv_build`)
-  need a backend-aware rescan; compiled/native backends (`maturin`,
-  `scikit-build-core`, `meson-python`) need a build-and-read mechanism,
-  since their files don't exist pre-build. See
-  [non-hatchling-file-discovery.md](non-hatchling-file-discovery.md)
-  for the bug detail, the Track A/B split, the dependency-packaging
-  (optional-extras) decision, and the full backend priority order.
+- [x] **`get_wheel_files()` file discovery is not backend-agnostic** --
+  closed (2026-09-15): setuptools, Poetry, PDM-backend, and Flit-core
+  each have a dedicated static rescan module; `uv_build` (and any other
+  backend with no static module, or whose static discovery fails)
+  resolves via a new generic, backend-agnostic build-and-read mechanism
+  gated behind `--allow-build` (real PEP 517 build, opt-in, no
+  `[tool.pitloom]` equivalent -- see [`docs/cli.md`](../../docs/cli.md#building-a-project-to-discover-its-file-list---allow-build)).
+  Track B (compiled/native backends: `maturin`, `scikit-build-core`,
+  `meson-python`) is already covered by the same mechanism once their
+  own toolchain happens to be available -- no further Pitloom code
+  needed. See [non-hatchling-file-discovery.md](non-hatchling-file-discovery.md)
+  for the full design/history.
 
 ### Build backend improvements
 

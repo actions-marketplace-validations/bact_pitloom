@@ -17,7 +17,10 @@ shared ``IncludedFile``/``FileHeaderExtras``/``FileScanConfig`` types;
 :mod:`pitloom.core._models_wheel_setuptools` for the backend
 implementations; ``working-docs/implementation/sbom-lifecycle-stages.md``
 for why this stays a static-config read, never a build, for every
-backend.
+backend by default; :mod:`pitloom.core._models_wheel_build_and_read`
+for the opt-in (``--allow-build``) exception to that -- a generic,
+backend-agnostic real PEP 517 build, used when static discovery has no
+module for a backend or that backend's own static discovery fails.
 """
 
 from __future__ import annotations
@@ -26,7 +29,7 @@ import hashlib
 import logging
 import operator
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -77,6 +80,19 @@ class _DiscoveryLock:
     lock of its own to get the same guarantee; a future *writer*-style
     backend should add itself to :data:`_WRITER_BACKENDS` the same way
     setuptools/PDM-backend do.
+
+    Deliberate exception: the generic build-and-read mechanism
+    (:mod:`pitloom.core._models_wheel_build_and_read`, invoked via
+    ``--allow-build``) does NOT go through this lock at all, in either
+    mode -- it provably touches no process-wide mutable state (the real
+    build runs in a subprocess with its own explicit ``cwd=``, never
+    Pitloom's own), so it needs neither a reader's nor a writer's
+    guarantee. It is also categorically slower (network, venv creation,
+    a real build -- seconds to tens of seconds) than every in-process
+    backend here; holding even a read lock around it would block a
+    concurrent writer for the entire build duration, a large, surprising
+    latency coupling with no actual state to protect. See
+    ``_try_build_and_read`` below, which calls it unguarded.
     """
 
     def __init__(self) -> None:
@@ -209,16 +225,69 @@ def _skip_hatchling_fallback(
     return True
 
 
+def _noop_cleanup() -> None:
+    """Cleanup for every discovery path that never allocates a temp
+    directory -- i.e. every path except a successful build-and-read."""
+
+
+def _try_build_and_read(
+    backend: str,
+    project_dir: Path,
+    *,
+    no_build_isolation: bool,
+    reason: str,
+) -> tuple[list[IncludedFile], Callable[[], None]] | None:
+    """Shared entry point for both ``--allow-build`` call sites in
+    :func:`_discover_included_files`: logs the one security-relevant
+    ``WARNING:`` (wording varies by *reason*), then delegates to the
+    generic, backend-agnostic
+    :func:`~pitloom.core._models_wheel_build_and_read.build_and_read_wheel`.
+
+    Never invoked unless ``allow_build=True`` at the caller -- enforced
+    by the caller, not here, so this function has no ``allow_build``
+    parameter of its own to accidentally forget to check.
+    """
+    # pylint: disable-next=import-outside-toplevel
+    from pitloom.core._models_wheel_build_and_read import build_and_read_wheel
+
+    log.warning(
+        "Build: --allow-build is invoking a real PEP 517 build for %s "
+        "(backend=%r, %s) to discover its file list -- this executes "
+        "third-party build-time code%s",
+        project_dir,
+        backend,
+        reason,
+        ", without build isolation (--no-build-isolation)"
+        if no_build_isolation
+        else " in an isolated build environment",
+    )
+    return build_and_read_wheel(project_dir, isolated=not no_build_isolation)
+
+
 def _discover_included_files(
-    project_dir: Path, *, assume_backend: str | None = None
-) -> list[IncludedFile]:
+    project_dir: Path,
+    *,
+    assume_backend: str | None = None,
+    allow_build: bool = False,
+    no_build_isolation: bool = False,
+) -> tuple[list[IncludedFile], Callable[[], None]]:
     """Resolve the wheel's file list via the project's build backend.
 
     Any backend other than Hatchling that doesn't have a dedicated
     discovery module (or whose static config can't be resolved) falls
     back to the Hatchling-based heuristic, with a ``WARNING:`` since
     the result may not accurately reflect that backend's actual
-    inclusion rules.
+    inclusion rules -- unless *allow_build* opts into a real PEP 517
+    build instead (see
+    :mod:`pitloom.core._models_wheel_build_and_read`), which is tried
+    first in both of those cases (no dedicated module at all, or a
+    dedicated module whose own static discovery failed) before falling
+    back to Hatchling.
+
+    Returns the resolved files plus a cleanup callback the caller MUST
+    invoke once done consuming the files' ``.path`` values -- a no-op
+    for every path except a successful build-and-read, whose real files
+    live in a temp directory the callback removes.
 
     *assume_backend*, when given, skips reading ``pyproject.toml`` and
     detecting the backend entirely and dispatches straight to that
@@ -255,11 +324,30 @@ def _discover_included_files(
     if backend not in (None, "hatchling"):
         discoverer = backend_discoverers.get(backend)
         if discoverer is None:
+            # No static module for this backend at all -- uv_build
+            # today, any future/unrecognized backend, or a Track B
+            # backend (maturin, scikit-build-core, meson-python) once
+            # its own toolchain happens to be available. No
+            # backend-specific code needed for any of these to start
+            # working the moment allow_build=True.
+            if allow_build:
+                build_result = _try_build_and_read(
+                    backend,
+                    project_dir,
+                    no_build_isolation=no_build_isolation,
+                    reason="no static discovery module registered",
+                )
+                if build_result is not None:
+                    return build_result
+                # _try_build_and_read/build_and_read_wheel() already
+                # logged its own specific failure WARNING:; fall
+                # through to the generic "not backend-aware" warning.
             log.warning(
                 "File discovery for build backend %r is not yet "
-                "backend-aware -- using Hatchling-based heuristic, file "
-                "list may be inaccurate for this project",
+                "backend-aware%s -- using Hatchling-based heuristic, "
+                "file list may be inaccurate for this project",
                 backend,
+                "" if not allow_build else " (build-and-read failed)",
             )
         else:
             # Only a "writer" backend (setuptools, PDM) process-wide
@@ -277,16 +365,35 @@ def _discover_included_files(
             with lock_ctx:
                 files = discoverer(project_dir, pyproject_data=pyproject_data)
             if files is not None:
-                return files
+                return files, _noop_cleanup
+            # The registered backend's own static discoverer gave up.
+            # This is the "robustness fallback for Track A" the
+            # roadmap names for the build-and-read mechanism -- ANY
+            # registered backend (setuptools, poetry, pdm, flit)
+            # benefits automatically here, with zero backend-specific
+            # wiring, because build_and_read_wheel() doesn't care what
+            # backend it is. Must never be reached when the static
+            # discoverer already succeeded above (that returns
+            # immediately) -- a real build must never run when the
+            # fast, safe static rescan already worked.
+            if allow_build:
+                build_result = _try_build_and_read(
+                    backend,
+                    project_dir,
+                    no_build_isolation=no_build_isolation,
+                    reason="its own static discovery failed",
+                )
+                if build_result is not None:
+                    return build_result
             if _skip_hatchling_fallback(backend, pyproject_data, project_dir):
-                return []
+                return [], _noop_cleanup
 
     # Hatchling's discover() never touches cwd (project_dir is always
     # already absolute here -- see get_wheel_files), so concurrent
     # Hatchling calls only need to be kept out of a concurrent writer's
     # chdir window, never out of each other's way.
     with _DISCOVERY_LOCK.read():
-        return _models_wheel_hatchling.discover(project_dir) or []
+        return _models_wheel_hatchling.discover(project_dir) or [], _noop_cleanup
 
 
 def _build_project_file_entry(
@@ -351,8 +458,23 @@ def get_wheel_files(
     content_type_overrides: tuple[ContentTypeOverride, ...] = (),
     assume_backend: str | None = None,
     skip_merkle_root: bool = False,
-) -> tuple[str | None, list[ProjectFile]]:
+    allow_build: bool = False,
+    no_build_isolation: bool = False,
+) -> tuple[str | None, list[ProjectFile], Callable[[], None]]:
     """Get all files included in the wheel and compute their SHA-256 Merkle root.
+
+    Returns ``(merkle_root, project_files, cleanup)``. ``cleanup`` MUST be
+    called once the caller is done reading any returned
+    :class:`~pitloom.core.project.ProjectFile`'s bytes from disk -- a
+    no-op for every static backend, but for a build-and-read-sourced
+    result (see *allow_build* below) it removes the temporary extraction
+    directory those files physically live in. Call it only after every
+    downstream step that re-reads a file's bytes from
+    ``physical_path`` finishes (e.g. AI-model scanning/enrichment) --
+    calling it too early turns those re-reads into spurious "file not
+    found" failures for build-and-read-sourced files specifically
+    (their ``physical_path`` doesn't resolve under *project_dir* at
+    all, unlike every other backend's).
 
     Discovers the file set via the project's build backend (see
     :func:`_discover_included_files`), respecting that backend's own
@@ -379,6 +501,16 @@ def get_wheel_files(
     (a cheap open/close probe replaces the full read) so a genuine
     access failure still degrades the whole call to ``(None, [])``,
     same as when hashing is on.
+
+    *allow_build* opts into the build-and-read mechanism as a fallback
+    when static discovery has no module for the backend or that
+    backend's own static discovery fails -- this executes third-party
+    build-time code from *project_dir* (subprocess; may install
+    build-requires from the network unless *no_build_isolation*), the
+    first mechanism in Pitloom to do so. Off by default; deliberately
+    has no ``[tool.pitloom]`` config-file equivalent (unlike every other
+    keyword here) -- the target project's own config must never be able
+    to silently opt itself into code execution for whoever scans it.
     """
     project_dir = project_dir.resolve()
     parse_header = None
@@ -408,9 +540,17 @@ def get_wheel_files(
     )
 
     try:
-        included_files = _discover_included_files(
-            project_dir, assume_backend=assume_backend
+        included_files, cleanup_discovery = _discover_included_files(
+            project_dir,
+            assume_backend=assume_backend,
+            allow_build=allow_build,
+            no_build_isolation=no_build_isolation,
         )
+    # pylint: disable=broad-exception-caught
+    except Exception:
+        return None, [], _noop_cleanup
+
+    try:
         project_files: list[ProjectFile] = []
         file_entries: list[tuple[str, bytes]] = []
         need_bytes = scan_file_headers or detect_content_type or not skip_merkle_root
@@ -431,10 +571,16 @@ def get_wheel_files(
                 file_entries.append((project_file.distribution_path, digest_bytes))
     # pylint: disable=broad-exception-caught
     except Exception:
-        return None, []
+        # A genuine per-file read failure never leaves a build-and-read
+        # temp directory behind: the caller never receives this
+        # cleanup_discovery, since (None, [], _noop_cleanup) carries a
+        # no-op instead -- so it must run here, immediately.
+        cleanup_discovery()
+        return None, [], _noop_cleanup
 
     if not project_files:
-        return None, []
+        cleanup_discovery()
+        return None, [], _noop_cleanup
 
     # Discovery order isn't guaranteed stable across runs/filesystems
     # (e.g. setuptools' find_all_modules() uses glob.glob() with no
@@ -443,11 +589,11 @@ def get_wheel_files(
     # across builds of the same, unchanged project.
     project_files.sort(key=lambda project_file: project_file.distribution_path)
     if skip_merkle_root:
-        return None, project_files
+        return None, project_files, cleanup_discovery
 
     file_entries.sort(key=operator.itemgetter(0))
     # pylint: disable-next=import-outside-toplevel,cyclic-import
     from pitloom.core.models import _build_merkle_tree
 
     merkle_root = _build_merkle_tree([digest for _, digest in file_entries])
-    return merkle_root, project_files
+    return merkle_root, project_files, cleanup_discovery

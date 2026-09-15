@@ -23,8 +23,11 @@ from pitloom.cli.options import (
     _resolve_output_path,
     _resolve_project_generation_settings,
     _resolve_project_paths,
+    add_allow_build_argument,
+    add_no_build_isolation_argument,
     add_offline_argument,
     add_use_lockfile_argument,
+    warn_no_build_isolation_no_effect,
 )
 from pitloom.cli.verbose import _print_verbose
 
@@ -35,6 +38,8 @@ def _run_project_command(args: argparse.Namespace) -> int:
     project_dir, config_path = _resolve_project_paths(args)
     if project_dir is None:
         return 1
+    if args.no_build_isolation and not args.allow_build:
+        warn_no_build_isolation_no_effect(project_dir)
 
     (
         project_metadata,
@@ -73,6 +78,8 @@ def _run_project_command(args: argparse.Namespace) -> int:
         extract_file_header=args.extract_file_header,
         content_type=args.content_type,
         content_type_method=args.content_type_method,
+        allow_build=args.allow_build,
+        no_build_isolation=args.no_build_isolation,
     )
     _print_sbom_output_path(output_path)
     return 0
@@ -104,4 +111,6 @@ def add_parser(subparsers: Any, parent_parser: argparse.ArgumentParser) -> None:
         "only (no-op for an sdist archive target: no lock-file concept "
         "applies there)",
     )
+    add_allow_build_argument(proj_parser)
+    add_no_build_isolation_argument(proj_parser)
     proj_parser.set_defaults(func=_run_project_command)

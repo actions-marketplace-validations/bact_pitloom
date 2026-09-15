@@ -72,7 +72,7 @@ def test_project_doc_identity_matches_build_doc_uuid_with_locked_dependencies() 
     project_metadata, _config, _config_path = read_project(POETRY_FIXTURE)
     assert project_metadata.locked_dependencies  # guard: fixture must exercise this
 
-    merkle_root, project_files = get_wheel_files(POETRY_FIXTURE)
+    merkle_root, project_files, _ = get_wheel_files(POETRY_FIXTURE)
     project_metadata.files = project_files
     doc = DocumentModel(
         project=project_metadata,
@@ -102,7 +102,7 @@ def test_project_doc_identity_matches_build_doc_uuid_with_use_lockfile_disabled(
     )
     assert not project_metadata.locked_dependencies
 
-    merkle_root, project_files = get_wheel_files(tmp_path)
+    merkle_root, project_files, _ = get_wheel_files(tmp_path)
     project_metadata.files = project_files
     doc = DocumentModel(
         project=project_metadata,
@@ -131,7 +131,7 @@ def test_project_doc_identity_auto_matches_config_default(tmp_path: Path) -> Non
     assert pitloom_config.use_lockfile is False
     assert not project_metadata.locked_dependencies
 
-    merkle_root, project_files = get_wheel_files(tmp_path)
+    merkle_root, project_files, _ = get_wheel_files(tmp_path)
     project_metadata.files = project_files
     doc = DocumentModel(
         project=project_metadata,

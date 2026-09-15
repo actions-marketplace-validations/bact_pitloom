@@ -74,6 +74,32 @@ def has_resolvable_pyproject_config(
     )
 
 
+def is_dist_info_path(distribution_path: str) -> bool:
+    """Whether *distribution_path* falls under a wheel's own
+    ``<name>-<version>.dist-info/`` directory -- build-generated,
+    never a project source file.
+
+    No existing static backend module needs this: each one's underlying
+    library (``recurse_included_files()``, ``find_files_to_add()``,
+    ``WheelBuilder.get_files()``, ``Module.iter_files()``, setuptools'
+    ``build_py``) never surfaces ``.dist-info`` paths from its own
+    file-discovery entry point in the first place. This is the first
+    consumer -- :mod:`pitloom.core._models_wheel_build_and_read`, which
+    reads an already-built wheel's real zip contents (which genuinely
+    does contain ``.dist-info``) and must filter it back out to match
+    every other backend's ``IncludedFile`` contract of pre-build source
+    files only.
+
+    *distribution_path* MUST already be POSIX-normalized (see
+    :func:`to_posix_distribution_path`) -- this function does no
+    normalization of its own and will not recognize a
+    backslash-separated path as a ``.dist-info`` path.
+    """
+    return "/" in distribution_path and distribution_path.split("/", 1)[0].endswith(
+        ".dist-info"
+    )
+
+
 def to_posix_distribution_path(path: str) -> str:
     """Normalize *path* to forward-slash separators for use as an
     ``IncludedFile.distribution_path`` -- a wheel's internal paths are

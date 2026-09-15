@@ -25,8 +25,11 @@ from pitloom.cli.commands.utils import (
 from pitloom.cli.options import (
     _resolve_common_options,
     _resolve_project_generation_settings,
+    add_allow_build_argument,
+    add_no_build_isolation_argument,
     add_offline_argument,
     add_use_lockfile_argument,
+    warn_no_build_isolation_no_effect,
 )
 
 
@@ -51,6 +54,8 @@ def _run_generate_command(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 1
+    if args.no_build_isolation and not args.allow_build:
+        warn_no_build_isolation_no_effect(args.target)
 
     target_path = Path(args.target) if args.target else None
     if (
@@ -86,6 +91,8 @@ def _run_generate_command(args: argparse.Namespace) -> int:
             extract_file_header=args.extract_file_header,
             content_type=args.content_type,
             content_type_method=args.content_type_method,
+            allow_build=args.allow_build,
+            no_build_isolation=args.no_build_isolation,
         )
         _print_sbom_output_path(args.output)
         return 0
@@ -114,6 +121,8 @@ def _run_generate_command(args: argparse.Namespace) -> int:
         extract_file_header=args.extract_file_header,
         content_type=args.content_type,
         content_type_method=args.content_type_method,
+        allow_build=args.allow_build,
+        no_build_isolation=args.no_build_isolation,
     )
     _print_sbom_output_path(args.output)
     return 0
@@ -151,4 +160,6 @@ def add_parser(subparsers: Any, parent_parser: argparse.ArgumentParser) -> None:
         "sdist archive / wheel / model file / HF URL / env: no-op (no "
         "lock-file concept applies).",
     )
+    add_allow_build_argument(gen_parser)
+    add_no_build_isolation_argument(gen_parser)
     gen_parser.set_defaults(func=_run_generate_command)

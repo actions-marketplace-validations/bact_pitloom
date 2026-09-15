@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +21,7 @@ from pitloom.assemble._model_generator import (
 )
 from pitloom.assemble.spdx3.document import build, build_deployed
 from pitloom.assemble.spdx3.fragments import merge_fragments
+from pitloom.core._models_wheel import _noop_cleanup
 from pitloom.core.config import VALID_CONTENT_TYPE_METHODS, PitloomConfig
 from pitloom.core.creation import CreationMetadata
 from pitloom.core.document import DocumentModel
@@ -153,8 +155,19 @@ def generate_project_sbom(
     offline: bool | None = None,
     update_registry: bool | None = None,
     use_lockfile: bool | None = None,
+    allow_build: bool = False,
+    no_build_isolation: bool = False,
 ) -> str:
     """Generate a Source SPDX 3 SBOM for a Python project or sdist archive.
+
+    ``allow_build``/``no_build_isolation`` are plain ``bool`` (default
+    ``False``), unlike every other flag-shaped parameter here -- they
+    deliberately have no ``pitloom_config.*`` fallback to defer to when
+    unset. A caller must pass ``allow_build=True`` explicitly every time
+    it wants Pitloom to execute the target project's own PEP 517 build
+    backend; there is no config-cascade layer for it, since the config
+    file lives in the (untrusted) project being scanned and must never be
+    able to silently opt itself into code execution.
 
     ``use_lockfile`` only affects metadata resolved by this call: if the
     caller pre-supplies BOTH ``project_metadata`` and ``pitloom_config``
@@ -208,17 +221,21 @@ def generate_project_sbom(
         merkle_root = None
         project_files = project_metadata.files
         search_root = target_path.parent
+        cleanup_discovery: Callable[[], None] = _noop_cleanup
     else:
-        merkle_root, project_files = get_wheel_files(
+        merkle_root, project_files, cleanup_discovery = get_wheel_files(
             target_path,
             scan_file_headers=effective_extract_file_header,
             detect_content_type=effective_content_type,
             content_type_method=effective_content_type_method,
             content_type_overrides=pitloom_config.content_type.overrides,
+            allow_build=allow_build,
+            no_build_isolation=no_build_isolation,
         )
-        # Pitloom's file discovery is a static config-driven walk, never a
-        # real wheel build -- it never reproduces the
-        # `.dist-info/licenses/...` entries a real build would add for
+        # Pitloom's file discovery is, by default, a static config-driven
+        # walk, never a real wheel build (the sole opt-in exception is
+        # allow_build's build-and-read mechanism) -- it never reproduces
+        # the `.dist-info/licenses/...` entries a real build would add for
         # `[project.license-files]`. Resolve those directly so they still
         # show up in the SBOM's file list, before
         # replace_with_fresh_containers() below makes `project_files` the
@@ -238,15 +255,25 @@ def generate_project_sbom(
         )
         search_root = target_path
 
-    ai_models = (
-        scan_project_for_ai_models(target_path, project_files)
-        if target_path.is_dir()
-        else []
-    )
+    # cleanup_discovery (a no-op unless allow_build's build-and-read
+    # sourced project_files) must stay alive through every step below
+    # that still re-reads a ProjectFile's bytes from disk via its
+    # physical_path -- AI-model scanning and enrichment are the last
+    # such steps; nothing after this block reads file bytes again
+    # (document assembly only uses distribution_path/physical_path as
+    # string keys, never re-opens the file).
+    try:
+        ai_models = (
+            scan_project_for_ai_models(target_path, project_files)
+            if target_path.is_dir()
+            else []
+        )
 
-    enrichment_results_by_model = run_enrichers_for_models(
-        ai_models, effective_enrich_config, target_path
-    )
+        enrichment_results_by_model = run_enrichers_for_models(
+            ai_models, effective_enrich_config, target_path
+        )
+    finally:
+        cleanup_discovery()
 
     resolved_registry = resolve_registry(
         search_root, registry if registry is not None else pitloom_config.ids_file

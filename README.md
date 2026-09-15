@@ -20,7 +20,7 @@ The file is placed in the `{name}-{version}.dist-info/sboms` directory,
 ensuring compliance with the PyPA
 [Package Installation Metadata][dist-info] specification ([PEP 770]).
 
-See user manual at https://bact.github.io/pitloom/
+See user manual at <https://bact.github.io/pitloom/>
 
 [SPDX 3]: https://spdx.github.io/spdx-spec/
 [dist-info]: https://packaging.python.org/en/latest/specifications/recording-installed-packages/#the-dist-info-directory
@@ -424,7 +424,7 @@ none given, the fragment records the unattended-run default (Pitloom
 itself as both creator and tool).
 
 The run also records *which script produced what*: the calling script
-becomes a `software_File` (with a SHA-256 hash) with `generates`
+becomes a `software_File` (with an SHA-256 hash) with `generates`
 relationships to the model it trained and/or the output datasets it wrote.
 Datasets that exist on disk get `verifiedUsing` SHA-256 hashes. These
 `generates` edges are scoped `build` (`LifecycleScopedRelationship`) --

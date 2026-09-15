@@ -686,5 +686,5 @@
     "langfuse/types.py"
   ],
   "known_gaps": "ALL",
-  "known_gaps_note": "No discover() module exists for uv_build yet (roadmap item #5, depends on the build-and-read mechanism, item #4) -- discovery currently falls back to the Hatchling heuristic with a WARNING, which this fixture is not meant to validate. Vendored now as a genuine, confirmed uv_build project (build-backend = \"uv_build\" in its own pyproject.toml) so a real discover_uv_build() has something to validate against once it lands -- known_gaps: \"ALL\" until then."
+  "known_gaps_note": "No static discover() module exists for uv_build (none is possible -- it's a thin PEP 517 shim with no in-process introspection API). This fixture's known_gaps: \"ALL\" reflects the default (non---allow-build) discovery path only, which still falls back to the Hatchling heuristic with a WARNING, unchanged by the --allow-build feature. Real, --allow-build-gated build-and-read discovery for uv_build is covered separately by a slow @pytest.mark.pypi_network test (test_models_wheel_uv_build_real_world.py), not by this fast-path fixture."
 }
