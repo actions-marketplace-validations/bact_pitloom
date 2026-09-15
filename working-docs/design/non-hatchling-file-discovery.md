@@ -263,6 +263,25 @@ work above; each is its own reviewed change.
   (`project_dir`-relative `distribution_path`, checked for existence),
   which needs threading `project_dir` into a currently filesystem-free
   assembly function -- a real design change, not a quick patch.
+  **Partially addressed** (2026-09-15, a later PR #215 review round): a
+  *separate* AI-model registry lookup, `_ai_package.py`'s
+  `_lookup_ai_model_entity`, was found with the identical hazard but no
+  guard at all -- it offered the raw ephemeral `physical_path` as its
+  only path-based candidate, guaranteed to never match anything, unlike
+  `_document_files.py`'s two-attempt (still-insufficient) lookup above.
+  Fixed by adding a `file_path_relative` fallback via the new shared
+  `pitloom.core.project.project_relative_or_fallback()` helper (also now
+  used by `_document_files.py`'s determinism fix and
+  `enrich._resolve_model_search_dir`, consolidating what had been three
+  independent inline implementations of the same "prefer a
+  project-relative stand-in over an absolute physical_path" check -- see
+  CLAUDE.md's "Recurring bug patterns" section). This closes the
+  guaranteed-never-match case for AI models but does **not** fully solve
+  the general problem above: `file_path_relative` still won't match an
+  entry `pitloom ids generate` pinned under the *original*
+  project-relative `physical_path` for a `src/`-layout project, so the
+  real fix (a third, existence-checked candidate) described above still
+  applies equally here.
 - **Real static `uv_build` discoverer for `[tool.uv.build-backend]`** --
   validated empirically (2026-09-15, see
   [allow-build-validation.md](../implementation/allow-build-validation.md#--allow-build-build-and-read-with-vs-without-2026-09-15))

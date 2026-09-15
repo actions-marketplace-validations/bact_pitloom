@@ -156,11 +156,15 @@ design pass):
   repeated across 6+ modules), one low-priority dev-script dedup, one
   id-registry gap (`--allow-build`-sourced files can't match a
   `pitloom ids generate`-pinned entry, since their `physical_path` is an
-  ephemeral temp path), and one precision gap (a real static `uv_build`
-  discoverer for `[tool.uv.build-backend]`, to stop the Hatchling
-  fallback from over-including or, worse, zero-including files for some
-  real packages -- already `WARNING:`-flagged, not silent). None block
-  shipped work; each is independently fixable. See
+  ephemeral temp path -- **partially addressed** 2026-09-15: a separate,
+  previously-unguarded AI-model registry lookup in `_ai_package.py` was
+  found and fixed, but `_document_files.py`'s own `software_File` lookup
+  still needs the harder fix described below), and one precision gap (a
+  real static `uv_build` discoverer for `[tool.uv.build-backend]`, to
+  stop the Hatchling fallback from over-including or, worse,
+  zero-including files for some real packages -- already
+  `WARNING:`-flagged, not silent). None block shipped work; each is
+  independently fixable. See
   [non-hatchling-file-discovery.md](non-hatchling-file-discovery.md#open-follow-up-tech-debt-from-pr-215s---allow-build-review)
   for full detail on each.
 
@@ -184,18 +188,21 @@ design pass):
   `pyproject.toml` gap-fills undeclared fields; static source stays
   authoritative on conflict (recorded, never silently substituted).
   See [installed-dist-info-source.md](installed-dist-info-source.md).
-- [ ] **Unify `extract/project/installed.py`'s RFC 822 Core-Metadata
-  parser with `extract/wheel.py`'s** -- duplicated `Project-URL`-splitting
-  logic, deliberately left unmerged in V1. See
+- [x] **Unify `extract/project/installed.py`'s RFC 822 Core-Metadata
+  parser with `extract/wheel.py`'s** -- closed (2026-09-15, PR #215):
+  widened to all four sites found with the same duplicated
+  `Project-URL`-splitting shape (`wheel.py`, `installed.py`, `sdist.py`,
+  `deps_originator.py`), consolidated into one parametrized
+  `extract/_core_metadata.py::parse_project_urls()`. See
   [installed-dist-info-source.md](installed-dist-info-source.md#relationship-to-extractwheelpys-parser).
 - [ ] **Real installed `.dist-info` (site-packages) as a metadata
   source** -- the deferred, backend-agnostic phase: a user-supplied
   venv/site-packages path, cross-checked via `direct_url.json`.
   See ["Deferred: real installed dist-info (site-packages)"](installed-dist-info-source.md#deferred-real-installed-dist-info-site-packages).
-- [ ] **Split `extract/project/installed.py`** -- 535 lines, over the
-  ~400-500 soft limit. Discovery+parsing vs. reconciliation is the
-  natural seam (a sibling `_installed_reconcile.py`); deferred rather
-  than split immediately, revisit alongside other file-size cleanup.
+- [x] **Split `extract/project/installed.py`** -- closed (2026-09-15,
+  PR #215): discovery+parsing stayed in `installed.py` (now ~340 lines);
+  reconciliation moved to the sibling `_installed_reconcile.py`, exactly
+  the seam previously identified.
 - [ ] **`resolve_project_with_lockfile()`'s peek/reread pays for
   installed-metadata discovery twice** (once per `read_project()` call)
   when the lock cascade is auto-detected. Already an accepted,

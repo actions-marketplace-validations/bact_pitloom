@@ -27,7 +27,7 @@
 - The Hatchling build hook (`pitloom.plugins.hatch`) reads project metadata from `self.metadata` via `pitloom.extract.hatchling.metadata_from_hatchling()`.
 - The CLI (`pitloom.__main__`) and `generate_project_sbom()`'s default parsing path both resolve metadata via `pitloom.extract.project.read_project()`.
 - Both paths converge on `pitloom.assemble.spdx3.document.build()`.
-- **`physical_path` vs `distribution_path`**: on-disk project-root-relative path vs in-package/built path -- diverge for any `src/`-layout project. `software_File.name` in the SPDX graph always uses `distribution_path`. Any file-lookup/registry code keyed by path must check both, not just `physical_path`.
+- **`physical_path` vs `distribution_path`**: on-disk project-root-relative path vs in-package/built path -- diverge for any `src/`-layout project. `software_File.name` in the SPDX graph always uses `distribution_path`. Any file-lookup/registry code keyed by path must check both, not just `physical_path`. A second hazard, distinct from the `src/`-layout divergence: for a `--allow-build` build-and-read discovered file, `physical_path` is an *absolute* path into a temporary extraction directory, not project-relative at all (see `ProjectFile.physical_path`'s own docstring in `core/project.py`). This recurred three times across independent consumers before being consolidated (PR #215) into one shared helper, `pitloom.core.project.project_relative_or_fallback(physical_path, fallback)` -- any new consumer that joins `physical_path` onto `project_dir`, uses it as a registry-lookup key, or bakes it into a determinism-sensitive string should call this helper instead of writing a new inline `Path(...).is_absolute()` check by hand.
 - **Stage-scoped helpers must take an explicit stage flag**: a helper shared by both a source-stage caller (e.g. `read_pyproject()`) and a build-stage caller (e.g. the Hatchling hook's metadata gap-fill) must not rely on call-site discipline to stay stage-appropriate -- thread an explicit parameter (`include_locked_dependencies=False`-style) through it. A source-stage-only artifact (e.g. `poetry.lock`) silently leaking into a build-stage helper because both callers happened to share one function is the same class of bug the `physical_path`/`distribution_path` split above warns about.
 
 ### Usage surfaces
@@ -313,6 +313,55 @@ shape described, not just the module where each was first found.
   downstream (an outer `except`, a caller's fail-loud contract) was
   implicitly relying on that operation's failure mode, not just its
   return value.
+- **A guard added for one direction of a symmetric hazard often leaves
+  the mirror direction open.** `_DiscoveryLock`'s (PR #215)
+  reentrancy guard was first added only to `write()` (same-thread
+  write-then-write re-acquisition), which reads like the complete fix --
+  but the identical deadlock is equally reachable via write-then-read (a
+  thread holding the write lock calling back into discovery through a
+  *reader* backend, actually the more common path since three of four
+  registered backends are readers). Only caught by a follow-up review
+  that empirically reproduced the write-then-read hang with a live,
+  timeout-bounded repro script, not by re-reading the code. When adding
+  a guard for one specific interaction of a shared resource (a lock's
+  two acquisition modes, a cascade's two directions, a cache's read vs.
+  invalidate path), explicitly enumerate every symmetric interaction
+  before considering the fix complete -- for a concurrency/reentrancy
+  claim specifically, write a minimal `threading.Event`/timeout-bounded
+  repro (`done.wait(timeout=N)`) before and after the fix; it's faster
+  and more convincing than static reasoning, and doubles as the shape
+  for the regression test.
+- **A log message inside a function with multiple exit branches must
+  describe what that branch actually did, not the function's typical
+  behavior.** `_discover_with_no_static_module()` (PR #215)
+  unconditionally logged `"...using Hatchling-based heuristic, file
+  list may be inaccurate"` even on the branch that returns `[]` without
+  ever invoking Hatchling (no `[project]` table present) -- true only of
+  the function's *other* exit branch. When a function gains a new
+  early-return branch, re-check every log call that executes before it
+  reads correctly on that new branch too, not just the branch that
+  motivated adding the log call originally.
+- **A shared helper's return type should match what every caller needs,
+  not force each one to re-narrow it.** `_resolve_bool_cascade()` (PR
+  #215) initially returned `bool | None` -- correct given one input can
+  itself be `None` -- which pushed a `bool(...)` wrap onto all 4 of its
+  call sites, exactly the per-call-site repetition the helper was
+  extracted to eliminate. Fixed by having the helper return `bool`
+  directly. When extracting a helper specifically to deduplicate a
+  pattern, check whether every caller ends up coercing its return value
+  the same way -- if so, that coercion belongs inside the helper.
+- **Reaching into another module's leading-underscore (module-private)
+  name from outside that module is a maintenance trap even when it
+  currently works.** `extract/project/_installed_reconcile.py` (PR
+  #215) imported `core.project._PROVENANCE_KEY_ALIASES` directly across
+  the module boundary; nothing stopped `core.project` from
+  restructuring that internal detail later, silently breaking a
+  consumer the underscore convention implied didn't exist. Fixed by
+  adding a small public wrapper (`provenance_key_for()`) next to the
+  private data, called by both the defining module and the external
+  consumer. When a genuine cross-module dependency exists on a private
+  name, promote a narrow accessor function rather than importing the
+  private name itself.
 
 ## CLI output
 
