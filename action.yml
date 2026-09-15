@@ -105,6 +105,27 @@ inputs:
       config, which is on by default.
     required: false
     default: ""
+  allow-build:
+    description: >-
+      SECURITY: allow Pitloom to invoke the scanned project's own PEP 517
+      build backend (subprocess; may install build-requires from the
+      network) to discover a wheel's real file list, when static
+      discovery has no module for the backend or that backend's own
+      static discovery fails ("true"/"false"). Executes third-party
+      build-time code from the project being scanned -- only enable this
+      for a project whose build script you trust. Unlike every other
+      flag above, this has no [tool.pitloom] config-file equivalent and
+      is never silently enabled; the default here is "false", not empty
+      string, to match that -- there is no config layer to defer to.
+    required: false
+    default: "false"
+  no-build-isolation:
+    description: >-
+      With allow-build, skip creating an isolated build environment and
+      use the current runner's already-installed build backend instead
+      ("true"/"false"). No effect without allow-build.
+    required: false
+    default: "false"
   args:
     description: "Extra raw flags passed through to the loom command."
     required: false
@@ -192,6 +213,8 @@ runs:
         PL_MAX_SOURCE_METADATA_BYTES: ${{ inputs.max-source-metadata-bytes }}
         PL_OFFLINE: ${{ inputs.offline }}
         PL_USE_LOCKFILE: ${{ inputs.use-lockfile }}
+        PL_ALLOW_BUILD: ${{ inputs.allow-build }}
+        PL_NO_BUILD_ISOLATION: ${{ inputs.no-build-isolation }}
         PL_ARGS: ${{ inputs.args }}
       run: |
         set -euo pipefail
@@ -278,6 +301,18 @@ runs:
             loom_args+=("--use-lockfile")
           elif [ "${PL_USE_LOCKFILE}" = "false" ]; then
             loom_args+=("--no-use-lockfile")
+          fi
+        fi
+        # "--allow-build"/"--no-build-isolation" exist on both "loom
+        # project" and "loom embed-wheel" (both rescan a project
+        # directory via get_wheel_files()), but not "loom model" (no
+        # project-dir file discovery there).
+        if [ -z "${PL_MODEL}" ]; then
+          if [ "${PL_ALLOW_BUILD}" = "true" ]; then
+            loom_args+=("--allow-build")
+          fi
+          if [ "${PL_NO_BUILD_ISOLATION}" = "true" ]; then
+            loom_args+=("--no-build-isolation")
           fi
         fi
         if [ -n "${PL_ARGS}" ]; then

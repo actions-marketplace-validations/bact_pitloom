@@ -96,6 +96,13 @@ ai = [
     "onnx>=1.22.0",
     "safetensors[numpy]>=0.8.0",
 ]
+# PyPA build: powers --allow-build's build-and-read file discovery
+# (pitloom.core._models_wheel_build_and_read). Optional -- the mechanism
+# executes third-party build-time code, and is a categorically heavier,
+# opt-in mechanism, unlike the mandatory Track A backend libs above. See
+# working-docs/design/non-hatchling-file-discovery.md's "Dependency
+# packaging strategy". pyproject_hooks comes in transitively via build.
+build = ["build>=1.2.2"]
 content-type = ["magika>=1.0.3"]
 
 fasttext = ["fasttext==0.9.3"] # or fasttext-community>=0.11.7
@@ -134,6 +141,7 @@ lint = [
     "ruff>=0.16.7",
 ]
 test = [
+    "build>=1.2.2",                # for the uv_build build-and-read integration test
     "check-wheel-contents>=0.6.3",
     "installer>=1.0.1",
     "pytest>=9.1.1",
@@ -275,15 +283,15 @@ init-hook = "import sys; sys.path.insert(0, 'src'); sys.path.insert(0, 'examples
 source-roots = ["src", "examples/sentimentdemo-aibom/src"]
 
 [tool.pylint.design]
-max-args = 6                  # Target: 5
-max-attributes = 12           # Target: 10
-max-branches = 12             # Target: 12
-max-locals = 17               # Target: 15
-max-nested-blocks = 5         # Target: 4
-max-positional-arguments = 6  # Track max-args
-max-public-methods = 20       # Target: 20
-max-returns = 6               # Target: 6
-max-statements = 50           # Target: 50
+max-args = 6                 # Target: 5
+max-attributes = 12          # Target: 10
+max-branches = 12            # Target: 12
+max-locals = 17              # Target: 15
+max-nested-blocks = 5        # Target: 4
+max-positional-arguments = 6 # Track max-args
+max-public-methods = 20      # Target: 20
+max-returns = 6              # Target: 6
+max-statements = 50          # Target: 50
 
 [tool.pylint.format]
 max-line-length = 88
@@ -291,7 +299,8 @@ max-line-length = 88
 [tool.pytest.ini_options]
 addopts = [
     "--import-mode=importlib",
-    "-n", "auto",
+    "-n",
+    "auto",
     "--dist=loadscope",
     "--strict-markers",
     "--strict-config",

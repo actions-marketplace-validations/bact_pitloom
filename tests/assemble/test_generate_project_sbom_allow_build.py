@@ -1,0 +1,336 @@
+# SPDX-FileContributor: Arthit Suriyawongkul
+# SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
+# SPDX-FileType: SOURCE
+# SPDX-License-Identifier: Apache-2.0
+
+"""Tests that ``allow_build``/``no_build_isolation`` reach
+``get_wheel_files()`` from every library-API entry point that accepts
+them (:func:`pitloom.assemble.generate_project_sbom`,
+:func:`pitloom.assemble.generate`) -- the library-API counterpart of the
+CLI-level checks in ``tests/cli/test_cli_parser.py``. Both parameters are
+plain ``bool = False`` (no ``[tool.pitloom]`` cascade), so there is no
+config-precedence case to test here, unlike ``use_lockfile``'s sibling
+test module.
+"""
+
+from __future__ import annotations
+
+import io
+import logging
+import tarfile
+from pathlib import Path
+from unittest import mock
+
+import pytest
+
+from pitloom.assemble import generate, generate_project_sbom
+from pitloom.core.project import ProjectFile
+from tests.cli.shared import _make_simple_project
+
+
+def test_generate_project_sbom_threads_allow_build(tmp_path: Path) -> None:
+    project_dir = _make_simple_project(tmp_path)
+
+    with mock.patch(
+        "pitloom.assemble._generators.get_wheel_files",
+        return_value=(None, [], lambda: None),
+    ) as mocked:
+        generate_project_sbom(
+            project_dir, offline=True, allow_build=True, no_build_isolation=True
+        )
+
+    assert mocked.call_args.kwargs["allow_build"] is True
+    assert mocked.call_args.kwargs["no_build_isolation"] is True
+
+
+def test_generate_project_sbom_defers_cleanup_past_ai_model_scan(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Regression: ``get_wheel_files()``'s cleanup callback (a real
+    filesystem removal only for a build-and-read result, see
+    ``_models_wheel_build_and_read.py``) must not run before
+    ``scan_project_for_ai_models()`` re-reads each returned
+    ``ProjectFile``'s bytes from ``physical_path`` -- calling it too
+    early turns every ``.py`` file into a spurious "could not read for
+    usage scanning" WARNING instead of a clean scan. Caught by manually
+    running ``--allow-build`` against a real vendored ``uv_build``
+    fixture, where every one of its ~90 Python files logged this
+    warning. Simulates a build-and-read-sourced file here (a real file
+    physically outside *project_dir*, deleted by ``cleanup``) without
+    needing a real PEP 517 build."""
+    project_dir = _make_simple_project(tmp_path)
+    fake_extract_dir = tmp_path / "fake-extract"
+    fake_extract_dir.mkdir()
+    py_file = fake_extract_dir / "mod.py"
+    py_file.write_text("x = 1\n", encoding="utf-8")
+
+    project_file = ProjectFile(
+        physical_path=str(py_file),
+        distribution_path="demo/mod.py",
+        digest_sha256="e" * 64,
+    )
+    cleanup_calls: list[str] = []
+
+    def _cleanup() -> None:
+        cleanup_calls.append("cleanup")
+        py_file.unlink()
+
+    with mock.patch(
+        "pitloom.assemble._generators.get_wheel_files",
+        return_value=(None, [project_file], _cleanup),
+    ):
+        with caplog.at_level(logging.WARNING):
+            generate_project_sbom(project_dir, offline=True, allow_build=True)
+
+    assert cleanup_calls == ["cleanup"]
+    assert "could not read for usage scanning" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    "target",
+    [
+        "pitloom.assemble._generators.resolve_license_file_entries",
+        "pitloom.core.project.ProjectMetadata.replace_with_fresh_containers",
+        "pitloom.assemble._generators.scan_project_for_ai_models",
+        "pitloom.assemble._generators.run_enrichers_for_models",
+    ],
+    ids=[
+        "license_resolution",
+        "fresh_containers",
+        "ai_model_scan",
+        "enrichment",
+    ],
+)
+def test_generate_project_sbom_cleanup_runs_even_if_step_raises(
+    tmp_path: Path, target: str
+) -> None:
+    """Regression, one case per step inside the try/finally block that
+    guards ``cleanup_discovery()`` (see ``_generators.py``'s own comment
+    on that block): a build-and-read temp directory must not leak
+    regardless of WHICH of the four steps between ``get_wheel_files()``
+    returning and the function moving on (license-file resolution, the
+    fresh-containers copy, AI-model scanning, enrichment) raises --
+    every one of them used to run *outside* the ``try/finally`` before
+    this was fixed, and a future refactor that moves any single one of
+    them back outside it must fail exactly this one parametrize case,
+    not silently pass the other three."""
+    project_dir = _make_simple_project(tmp_path)
+    cleanup_calls: list[str] = []
+
+    def _cleanup() -> None:
+        cleanup_calls.append("cleanup")
+
+    with mock.patch(
+        "pitloom.assemble._generators.get_wheel_files",
+        return_value=(None, [], _cleanup),
+    ):
+        with mock.patch(target, side_effect=RuntimeError("boom")):
+            with pytest.raises(RuntimeError, match="boom"):
+                generate_project_sbom(project_dir, offline=True, allow_build=True)
+
+    assert cleanup_calls == ["cleanup"]
+
+
+def test_generate_project_sbom_cleanup_runs_strictly_last_in_order(
+    tmp_path: Path,
+) -> None:
+    """Order-sensitivity guard, stronger than the parametrized
+    exception-based test above: that test only proves cleanup is called
+    at all when a step raises, which does NOT catch a step being moved
+    to run *after* cleanup instead of before it -- cleanup would still
+    end up called exactly once either way, so a call-count assertion
+    passes even for a real ordering regression (confirmed: temporarily
+    moving ``run_enrichers_for_models()`` to run after
+    ``cleanup_discovery()`` left every case of that parametrized test
+    green). This test instead records every step's own name into one
+    shared list and asserts the exact order, so a future refactor that
+    reorders or hoists any single step across the try/finally boundary
+    is caught precisely, regardless of whether that step happens to
+    raise."""
+    project_dir = _make_simple_project(tmp_path)
+    call_order: list[str] = []
+
+    def _cleanup() -> None:
+        call_order.append("cleanup")
+
+    def _fake_license_resolution(*_args: object, **_kwargs: object) -> list[object]:
+        call_order.append("license_resolution")
+        return []
+
+    def _fake_scan(*_args: object, **_kwargs: object) -> list[object]:
+        call_order.append("ai_model_scan")
+        return []
+
+    def _fake_enrich(*_args: object, **_kwargs: object) -> list[object]:
+        call_order.append("enrichment")
+        return []
+
+    with (
+        mock.patch(
+            "pitloom.assemble._generators.get_wheel_files",
+            return_value=(None, [], _cleanup),
+        ),
+        mock.patch(
+            "pitloom.assemble._generators.resolve_license_file_entries",
+            side_effect=_fake_license_resolution,
+        ),
+        mock.patch(
+            "pitloom.assemble._generators.scan_project_for_ai_models",
+            side_effect=_fake_scan,
+        ),
+        mock.patch(
+            "pitloom.assemble._generators.run_enrichers_for_models",
+            side_effect=_fake_enrich,
+        ),
+    ):
+        generate_project_sbom(project_dir, offline=True, allow_build=True)
+
+    assert call_order == [
+        "license_resolution",
+        "ai_model_scan",
+        "enrichment",
+        "cleanup",
+    ]
+
+
+def test_generate_project_sbom_defaults_allow_build_false(tmp_path: Path) -> None:
+    project_dir = _make_simple_project(tmp_path)
+
+    with mock.patch(
+        "pitloom.assemble._generators.get_wheel_files",
+        return_value=(None, [], lambda: None),
+    ) as mocked:
+        generate_project_sbom(project_dir, offline=True)
+
+    assert mocked.call_args.kwargs["allow_build"] is False
+    assert mocked.call_args.kwargs["no_build_isolation"] is False
+
+
+@pytest.mark.parametrize(
+    ("allow_build", "no_build_isolation"),
+    [(True, False), (False, True), (True, True)],
+    ids=["allow_build_only", "no_build_isolation_only", "both"],
+)
+def test_generate_warns_allow_build_no_effect_on_non_project_target(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+    allow_build: bool,
+    no_build_isolation: bool,
+) -> None:
+    """Regression: an explicit ``allow_build=True``/``no_build_isolation=
+    True`` given for a non-project target (env/wheel/model-file/HF -- none
+    of which ever reach ``get_wheel_files()``, the only consumer of these
+    two flags) used to be silently dropped with zero feedback, unlike its
+    sibling ``use_lockfile`` (which already gets
+    ``warn_use_lockfile_no_effect()``) -- a "no silent deviations"
+    violation per CLAUDE.md. Confirmed live: ``loom generate mymodel.gguf
+    --allow-build`` parsed and ran with no indication the flag did
+    nothing. A wheel target is used here since it needs no real file on
+    disk beyond a name ``generate()``'s classifier recognizes."""
+    with mock.patch("pitloom.assemble.generate_wheel_sbom", return_value="{}"):
+        with caplog.at_level(logging.WARNING):
+            generate(
+                str(tmp_path / "pkg-1.0-py3-none-any.whl"),
+                allow_build=allow_build,
+                no_build_isolation=no_build_isolation,
+            )
+
+    assert "Build:" in caplog.text
+    assert "--allow-build/--no-build-isolation has no effect" in caplog.text
+
+
+def test_generate_no_warning_when_allow_build_left_default_on_non_project_target(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The no-op warning above must not fire when the caller never
+    touched ``allow_build``/``no_build_isolation`` (both left at their
+    ``False`` default) -- only an explicit, meaningful-elsewhere value
+    is a deviation worth flagging."""
+    with mock.patch("pitloom.assemble.generate_wheel_sbom", return_value="{}"):
+        with caplog.at_level(logging.WARNING):
+            generate(str(tmp_path / "pkg-1.0-py3-none-any.whl"))
+
+    assert "--allow-build/--no-build-isolation has no effect" not in caplog.text
+
+
+def test_generate_dispatches_allow_build_to_project_sbom(tmp_path: Path) -> None:
+    """``generate()``'s own "project" classification branch (a plain
+    directory target, not env/wheel/model/HF) must forward both flags
+    unchanged to :func:`generate_project_sbom`."""
+    project_dir = _make_simple_project(tmp_path)
+
+    with mock.patch(
+        "pitloom.assemble.generate_project_sbom", return_value="{}"
+    ) as mocked:
+        generate(project_dir, offline=True, allow_build=True, no_build_isolation=True)
+
+    assert mocked.call_args.kwargs["allow_build"] is True
+    assert mocked.call_args.kwargs["no_build_isolation"] is True
+
+
+def _make_sdist(tmp_path: Path) -> Path:
+    sdist_path = tmp_path / "demo-1.0.0.tar.gz"
+    with tarfile.open(sdist_path, "w:gz") as tf:
+        pkg_info = b"Metadata-Version: 2.1\nName: demo\nVersion: 1.0.0\n"
+        ti = tarfile.TarInfo(name="demo-1.0.0/PKG-INFO")
+        ti.size = len(pkg_info)
+        tf.addfile(ti, io.BytesIO(pkg_info))
+        pyproject = b'[project]\nname = "demo"\nversion = "1.0.0"\n'
+        ti2 = tarfile.TarInfo(name="demo-1.0.0/pyproject.toml")
+        ti2.size = len(pyproject)
+        tf.addfile(ti2, io.BytesIO(pyproject))
+    return sdist_path
+
+
+@pytest.mark.parametrize(
+    ("allow_build", "no_build_isolation"),
+    [(True, False), (False, True), (True, True)],
+    ids=["allow_build_only", "no_build_isolation_only", "both"],
+)
+def test_generate_project_sbom_warns_allow_build_no_effect_on_sdist_target(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+    allow_build: bool,
+    no_build_isolation: bool,
+) -> None:
+    """Regression: an sdist-archive target never reaches
+    ``get_wheel_files()`` (files come from the archive's own listing, see
+    ``_generators.py``'s ``target_path.is_file()`` branch) -- an explicit
+    ``allow_build``/``no_build_isolation`` given for one used to be
+    silently dropped with zero feedback, unlike the identical no-op case
+    for a non-project ``generate()`` target (already covered above) --
+    docs/cli.md's own ``--allow-build`` section now documents this
+    sdist case explicitly as a no-op-with-WARNING:, not a no-op silently.
+    ``get_wheel_files`` is mocked so a genuine call would fail the test
+    outright (unexpected-call AssertionError) rather than just going
+    unnoticed."""
+    sdist_path = _make_sdist(tmp_path)
+
+    with mock.patch(
+        "pitloom.assemble._generators.get_wheel_files"
+    ) as mocked_get_wheel_files:
+        with caplog.at_level(logging.WARNING):
+            generate_project_sbom(
+                sdist_path,
+                offline=True,
+                allow_build=allow_build,
+                no_build_isolation=no_build_isolation,
+            )
+
+    mocked_get_wheel_files.assert_not_called()
+    assert "Build:" in caplog.text
+    assert "--allow-build/--no-build-isolation has no effect" in caplog.text
+    assert "sdist archive target" in caplog.text
+
+
+def test_generate_project_sbom_no_warning_for_sdist_when_allow_build_default(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The no-op warning above must not fire for an sdist target when
+    the caller never touched ``allow_build``/``no_build_isolation``."""
+    sdist_path = _make_sdist(tmp_path)
+
+    with caplog.at_level(logging.WARNING):
+        generate_project_sbom(sdist_path, offline=True)
+
+    assert "--allow-build/--no-build-isolation has no effect" not in caplog.text

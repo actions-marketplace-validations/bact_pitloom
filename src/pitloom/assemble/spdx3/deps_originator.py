@@ -25,9 +25,11 @@ from urllib.parse import urlparse
 from spdx_python_model.bindings import v3_0_1 as spdx3
 
 from pitloom.assemble.spdx3.provenance import ProvenanceEncoder, emit_provenance
+from pitloom.core._models_wheel_types import is_dist_info_path
 from pitloom.core.models import generate_spdx_id
 from pitloom.core.provenance import ProvenanceConfig
 from pitloom.export.spdx3_json import Spdx3JsonExporter, require_spdx_id
+from pitloom.extract._core_metadata import parse_project_urls
 from pitloom.extract._extract_utils import pkg_meta_get
 from pitloom.extract._file_headers import guess_content_type
 
@@ -125,7 +127,7 @@ def _resolve_author_or_maintainer(
 
 def _read_candidate_copyright(candidate: Any) -> str | None:
     """Read head of dist-info candidate file and extract copyright regex match."""
-    if not str(candidate).split("/", 1)[0].endswith(".dist-info"):
+    if not is_dist_info_path(str(candidate)):
         return None
     try:
         text = candidate.read_text(encoding="utf-8")
@@ -160,14 +162,11 @@ def _find_license_copyright(dist_name: str, pkg_meta: PackageMetadata) -> str | 
 
 
 def _parse_project_urls(pkg_meta: PackageMetadata) -> dict[str, str]:
-    """Return a lowercased-label -> URL dict from ``Project-URL`` metadata entries."""
-    result: dict[str, str] = {}
-    entries = pkg_meta.get_all("Project-URL") or []
-    for entry in entries:
-        if "," in entry:
-            label, url = entry.split(",", 1)
-            result[label.strip().lower()] = url.strip()
-    return result
+    """Return a lowercased-label -> URL dict from ``Project-URL`` metadata
+    entries. Delegates to the shared
+    :func:`pitloom.extract._core_metadata.parse_project_urls` helper; this
+    wrapper is kept since other code in this module imports it."""
+    return parse_project_urls(pkg_meta, lowercase_labels=True, include_homepage=False)
 
 
 def _resolve_metadata_url(

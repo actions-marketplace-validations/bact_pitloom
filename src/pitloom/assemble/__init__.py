@@ -36,7 +36,10 @@ from pitloom.embed import (
     embed_wheel_sbom,
     find_embedded_sbom,
 )
-from pitloom.extract.project import warn_use_lockfile_no_effect
+from pitloom.extract.project import (
+    warn_allow_build_no_effect,
+    warn_use_lockfile_no_effect,
+)
 from pitloom.extract.remote import is_huggingface_source
 from pitloom.ids import IdRegistry
 
@@ -116,7 +119,7 @@ def target_resolves_to_project(target: Path | str) -> bool:
     return _classify_target(target) == "project"
 
 
-# pylint: disable=too-many-arguments,too-many-positional-arguments
+# pylint: disable=too-many-arguments,too-many-locals,too-many-positional-arguments
 def generate(
     target: Path | str = ".",
     *,
@@ -133,8 +136,17 @@ def generate(
     content_type_method: str | None = None,
     update_registry: bool | None = None,
     use_lockfile: bool | None = None,
+    allow_build: bool = False,
+    no_build_isolation: bool = False,
 ) -> str:
-    """Smart unified entrypoint for generating SPDX 3 SBOMs across all target types."""
+    """Smart unified entrypoint for generating SPDX 3 SBOMs across all target types.
+
+    ``allow_build``/``no_build_isolation`` only take effect for a project
+    directory/sdist target (the ``generate_project_sbom()`` dispatch
+    below) -- see that function's own docstring for why they're plain
+    ``bool``, not the ``bool | None``-deferring-to-config shape every
+    other flag here uses.
+    """
     target_str = str(target).strip()
     classification = _classify_target(target_str)
 
@@ -143,6 +155,13 @@ def generate(
             target_str,
             "for this target (no lock-file concept applies to env/wheel/"
             "model-file/Hugging-Face targets)",
+        )
+
+    if (allow_build or no_build_isolation) and classification != "project":
+        warn_allow_build_no_effect(
+            target_str,
+            "for this target (no build-backend file discovery applies to "
+            "env/wheel/model-file/Hugging-Face targets)",
         )
 
     if classification == "env":
@@ -211,4 +230,6 @@ def generate(
         offline=offline,
         update_registry=update_registry,
         use_lockfile=use_lockfile,
+        allow_build=allow_build,
+        no_build_isolation=no_build_isolation,
     )

@@ -145,7 +145,11 @@ def _build_document_model(
     """
     metadata = metadata_from_hatchling(hatch_metadata, project_dir)
     creation_metadata = _build_creation_metadata(pitloom_config)
-    merkle_root, project_files = get_wheel_files(
+    # allow_build stays at its default False here (this is the Hatchling
+    # build hook -- the backend is Hatchling by construction, never a
+    # build-and-read candidate), so the returned cleanup is always a
+    # no-op; call it immediately rather than threading it further.
+    merkle_root, project_files, _cleanup = get_wheel_files(
         project_dir,
         scan_file_headers=pitloom_config.extract_file_header,
         detect_content_type=pitloom_config.content_type.enabled,
@@ -157,6 +161,7 @@ def _build_document_model(
         # out what this call site already knows.
         assume_backend="hatchling",
     )
+    _cleanup()
     # Same static-walk-vs-real-build gap as generate_project_sbom() (see
     # pitloom.assemble._generators) -- get_wheel_files() never reproduces
     # the `.dist-info/licenses/...` entries a real build's

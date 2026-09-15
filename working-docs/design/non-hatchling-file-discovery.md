@@ -1,6 +1,6 @@
 ---
 Created: 2026-04-14
-Last-Modified: 2026-09-02
+Last-Modified: 2026-09-15
 SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 SPDX-FileType: DOCUMENTATION
 SPDX-License-Identifier: CC0-1.0
@@ -17,17 +17,18 @@ never a build), [backend-file-discovery-validation.md](../implementation/backend
 ## The bug
 
 `get_wheel_files()` file discovery is not backend-agnostic --
-**partially fixed (2026-08-27):** `get_wheel_files()`
-(`src/pitloom/core/_models_wheel.py`) is now a dispatch facade over
-one discovery module per backend (`_models_wheel_hatchling.py`,
+**closed (2026-09-15):** `get_wheel_files()`
+(`src/pitloom/core/_models_wheel.py`) is a dispatch facade over
+one discovery module per static/declarative backend (`_models_wheel_hatchling.py`,
 `_models_wheel_setuptools.py`, `_models_wheel_poetry.py`,
-`_models_wheel_pdm.py`, `_models_wheel_flit.py`), with any backend
-that doesn't have a dedicated module yet (`uv_build`, ...) falling
-back to the Hatchling heuristic -- now with a logged warning instead
-of silently risking an inaccurate result. Setuptools, Poetry,
-PDM-backend, and Flit-core are closed (see priority table below); the
-bug below (originally reported for setuptools) still stands as
-documentation for every backend still on the fallback path.
+`_models_wheel_pdm.py`, `_models_wheel_flit.py`); any backend with no
+dedicated module (`uv_build`, or a Track B backend, or any future/
+unrecognized backend) resolves via the generic build-and-read mechanism
+(`_models_wheel_build_and_read.py`, see below) when `--allow-build` is
+passed, and otherwise falls back to the Hatchling heuristic with a
+logged warning, same as before. The bug below (originally reported for
+setuptools) still stands as documentation for the default
+(non-`--allow-build`) fallback path, which is unchanged by this closure.
 
 Confirmed by direct testing before the fix:
 
@@ -45,9 +46,11 @@ Confirmed by direct testing before the fix:
   directory-shaped entries) instead of the `mypkg/__init__.py` the
   actual wheel would contain.
 - The same applied to Poetry, PDM-backend, and Flit-core (all now
-  closed) and still applies to `uv_build` projects with their own
-  inclusion config -- this affects **any non-Hatchling backend**
-  without a dedicated module, not setuptools specifically.
+  closed) and still applies by default (without `--allow-build`) to
+  `uv_build` projects with their own inclusion config -- this affects
+  **any non-Hatchling backend** without a dedicated static module, not
+  setuptools specifically. Passing `--allow-build` closes the gap for
+  `uv_build` (and any other unhandled backend) via a real build instead.
 - Impact differs by command: `loom project`/`loom generate` (Source
   SBOM, directory target) has no wheel to fall back on, so the wrong
   file list, hashes, and Merkle-root integrity hash go straight into
@@ -83,13 +86,16 @@ Two fundamentally different classes of backend, needing two different
 fixes:
 
 - **Track A -- static/declarative backends** (setuptools, Poetry,
-  PDM-backend, Flit-core, `uv_build`): every file that ends up in the
+  PDM-backend, Flit-core): every file that ends up in the
   wheel already exists as a real file in `project_dir` before any build
   runs. A backend-aware rescan (read each backend's own inclusion
   config, walk the matching files) is correct and sufficient here --
   the same strategy `get_wheel_files()` already uses for Hatchling,
   just with each backend's own config format instead of
-  `[tool.hatch.build...]`.
+  `[tool.hatch.build...]`. `uv_build` is a Track A backend in principle
+  (its files exist pre-build too) but has no in-process introspection
+  API to write a rescan against (see the priority table below) -- it
+  resolves via the build-and-read mechanism instead, same as Track B.
 - **Track B -- compiled/native backends** (`maturin`,
   `scikit-build-core`, `meson-python`): the wheel's actual contents
   (compiled `.so`/`.pyd` extensions, platform-specific artifacts,
@@ -100,14 +106,22 @@ fixes:
   already solves for `embed-wheel`, but for Track B there is no static
   fallback at all. The only correct fix is a **build-and-read**
   mechanism: actually invoke the project's declared backend to produce
-  a real wheel, then discover files by reading it with the existing
-  `read_wheel()` -- the same function `embed-wheel` already trusts as
-  ground truth. One implementation unlocks all three Track B backends
-  at once (and doubles as a robustness fallback for Track A, and for
-  any future/unrecognized backend), at the cost of actually running a
-  build (slower, executes arbitrary build-time code, needs the
-  backend's build dependencies installed) -- a real trade-off `loom
-  project` doesn't currently make.
+  a real wheel, then discover files by extracting them from it (see
+  `_models_wheel_build_and_read.py`), mirroring the same ground-truth
+  principle `_merge_file_extras`/`read_wheel()` already use for
+  `embed-wheel`. **Implemented (2026-09-15)** as a generic,
+  backend-agnostic mechanism gated behind the CLI's `--allow-build` flag
+  (opt-in: it executes third-party build-time code, needs the backend's
+  build dependencies installed, and is categorically slower than an
+  in-process rescan) -- one implementation covers `uv_build` today, and
+  automatically extends to any Track B backend (`maturin`,
+  `scikit-build-core`, `meson-python`) the moment its own toolchain is
+  available, with no further Pitloom code needed. It also doubles as a
+  robustness fallback for Track A: when a registered backend's own
+  static rescan fails on a given project, `--allow-build` retries via a
+  real build before giving up. See
+  [`docs/cli.md`](../../docs/cli.md#building-a-project-to-discover-its-file-list---allow-build)
+  for the full flag/security documentation.
 
 ## Dependency packaging strategy
 
@@ -158,6 +172,15 @@ never metadata.
   implicit in the build-and-read trade-off noted above (item #4); this
   decision makes explicit that the mechanism's dependencies, not just
   its runtime behavior, should be opt-in.
+  **Implemented (2026-09-15):** `pitloom[build]` (`build>=1.2.2`) is the
+  new optional extra backing the mechanism (`pyproject_hooks` comes in
+  transitively via `build`; `virtualenv` was deliberately not added --
+  `build`'s default isolated-env backend uses the stdlib `venv` module,
+  which is enough). No individual Track B backend (`maturin`, etc.) has
+  its own extra -- there's nothing backend-specific to depend on; the
+  isolated build environment installs whichever backend a *target*
+  project's own `[build-system] requires` names, same as it does for
+  `uv_build`.
 
 Priority order, weighing popularity, prevalence in AI/ML Python
 projects, implementation size, and reuse leverage across backends:
@@ -167,10 +190,10 @@ projects, implementation size, and reuse leverage across backends:
 | 1 | setuptools | A | **Done (2026-08-27).** Was the single most-installed backend with no dedicated support; now resolved via `setuptools.config.pyprojecttoml`/`setupcfg` + `build_py` introspection (`src/pitloom/core/_models_wheel_setuptools.py`). See [setuptools-support.md](../implementation/setuptools-support.md). |
 | 2 | Poetry | A | **Done (2026-08-31).** Declarative `[tool.poetry]`/`packages`/`exclude` config, no build-time code execution to model -- resolved by delegating to poetry-core's own `WheelBuilder.find_files_to_add()` (`src/pitloom/core/_models_wheel_poetry.py`), the same delegate-to-the-real-library pattern as Hatchling's module (poetry-core is fully declarative, unlike setuptools). Also gained `poetry.lock`-resolved transitive dependencies (source-stage only) as an additional parity item beyond the original file-discovery scope. |
 | 3 | PDM-backend, Flit-core | A | **Done (2026-09-02).** Both PEP 621-native and declarative -- resolved via `Builder.get_files()`/`WheelBuilder._collect_files()` for PDM-backend (`src/pitloom/core/_models_wheel_pdm.py`) and `flit_core.common.Module.iter_files()` for Flit-core (`src/pitloom/core/_models_wheel_flit.py`), the same delegate-to-the-real-library pattern as Poetry's module. Also closed the paired "PDM / Flit extractors" metadata item from Medium-term in the same pass (`pitloom.extract.project.pdm`/`flit`, dynamic `version`/`description` resolution). See [backend-file-discovery-validation.md](../implementation/backend-file-discovery-validation.md)'s Flit-core/PDM-backend round. |
-| 4 | Build-and-read fallback | (mechanism) | Not a backend -- the mechanism Track B requires. Moved up from its original slot (was 5): `uv_build` (next row) is now expected to consume this mechanism too, not just the three Track B backends, so it's a prerequisite for step 5 as well as steps 6-7. Medium effort, the single highest-leverage item on this list. |
-| 5 | `uv_build` | A (via build-and-read) | `uv_build` (PyPI package `uv_build`) is a thin PEP 517 shim that shells out to a compiled `uv-build` binary via subprocess, with no in-process introspection API comparable to Hatchling's `WheelBuilder`. No existing logic to adapt for a hand-rolled rescan, so the practical path is the build-and-read mechanism (step 4) rather than a Track A rescan, despite files existing pre-build in principle. Still the fastest-growing default for new pure-Python projects on `uv`'s adoption curve, so kept ahead of the Track B backends -- just moved behind the mechanism it now depends on, and behind the genuinely cheap Track A items (2-3). |
-| 6 | `maturin`, `scikit-build-core` | B | Tied -- both are surging in the AI/ML stack specifically (Rust-based tooling via PyO3 for `maturin`; CUDA/C++/Fortran extensions for `scikit-build-core`), both need exactly the build-and-read mechanism from step 4, and neither is meaningfully cheaper or more valuable than the other. |
-| 7 | `meson-python` | B | Same mechanism as step 6, but lower priority for Pitloom's own user base specifically: it's foundational to the AI/ML ecosystem (NumPy, SciPy) but those are far more often a Pitloom user's *dependency* than a project they're generating an SBOM for directly. |
+| 4 | Build-and-read fallback | (mechanism) | **Done (2026-09-15).** Generic, backend-agnostic (`_models_wheel_build_and_read.py`), gated behind `--allow-build`; needs no per-backend name to dispatch on. Landed together with step 5, since `uv_build`'s only viable path was this mechanism. |
+| 5 | `uv_build` | A (via build-and-read) | **Done (2026-09-15).** `uv_build` (PyPI package `uv_build`) is a thin PEP 517 shim that shells out to a compiled `uv-build` binary via subprocess, with no in-process introspection API comparable to Hatchling's `WheelBuilder`. No existing logic to adapt for a hand-rolled rescan, so it resolves via the build-and-read mechanism (step 4) rather than a Track A rescan, despite files existing pre-build in principle. `uv_build` itself is never a Pitloom dependency (mandatory or optional) -- only `build` (PyPA), as the new optional `pitloom[build]` extra, is added; the isolated build environment installs `uv_build` from the *target* project's own `[build-system] requires`. |
+| 6 | `maturin`, `scikit-build-core` | B | Automatically covered by step 4's mechanism once each backend's own toolchain is available -- no further Pitloom code needed; not separately implemented in this pass. Tied -- both are surging in the AI/ML stack specifically (Rust-based tooling via PyO3 for `maturin`; CUDA/C++/Fortran extensions for `scikit-build-core`), and neither is meaningfully cheaper or more valuable than the other. |
+| 7 | `meson-python` | B | Same as step 6 -- already covered by the mechanism, not separately implemented. Lower priority for Pitloom's own user base specifically: it's foundational to the AI/ML ecosystem (NumPy, SciPy) but those are far more often a Pitloom user's *dependency* than a project they're generating an SBOM for directly. |
 
 Caveat: the research behind this ranking (see the conversation this
 list came from) is qualitative, not install-count data -- re-validate
@@ -196,3 +219,73 @@ process-wide `os.chdir()` (its own package auto-discovery globs
 relative to the process cwd, not the `Builder`'s `location`). `uv_build`
 (item #5) still needs the build-and-read mechanism (item #4) rather
 than this pattern.
+
+## Open follow-up tech debt (from PR #215's `--allow-build` review)
+
+The priority table above is closed for every backend, but the PR #215
+review that landed the build-and-read mechanism (item #4/#5) surfaced
+five smaller, independently-fixable follow-ups. None block the closed
+work above; each is its own reviewed change.
+
+- **Consolidate the duplicated blanket-except pattern across Track A
+  backend discovery modules** -- the "`try: ... except Exception as exc:
+  log.warning('<Backend> file discovery failed for %s: %s', ...);
+  return None`" contract is byte-for-byte duplicated across
+  `_models_wheel_{setuptools,poetry,pdm,flit}.py`. Deliberately deferred
+  out of PR #215 (cosmetic, unrelated to landing `uv_build` support,
+  adds regression surface to four stable, individually
+  real-world-validated modules for no feature benefit).
+- **Factor out the hand-rolled `tool` -> `tool.X` -> nested-table walk
+  repeated across 6+ modules** -- `has_uv_build_backend_overrides()`
+  (`_models_wheel_types.py`) reimplements the same isinstance-guarded
+  chain `_load_pitloom_tool_section()` and every `extract/project/*.py`
+  metadata producer (`poetry.py`, `pdm.py`, `setuptools_cfg.py`,
+  `pyproject.py`, `pyproject_dynamic.py`) already does independently --
+  the "pattern hand-copied across 3+ call sites drifts" class CLAUDE.md
+  calls out by name. A shared `get_tool_table(data, *keys)`-style helper
+  would touch several stable, already-tested producer modules.
+- **`scripts/compare_allow_build.py` duplicates sdist extraction already
+  in `tests/fixtures/real_world.py`** -- `_extract_archive()`
+  reimplements `extract_sdist()`'s tar/zip-open, `filter="data"`,
+  single-top-level-dir logic, generalized to accept any archive path.
+  Dev-only script, not shipped code, no user-facing risk -- low priority.
+- **`--allow-build`-sourced files never match a `pitloom ids
+  generate`-pinned registry entry** -- `IdRegistry.generate()` (`ids.py`)
+  keys every entry by physical, project-root-relative path; a
+  build-and-read-sourced `ProjectFile.physical_path` is an ephemeral
+  temp path instead, so neither of `_document_files.py`'s two lookup
+  attempts (`physical_path`, then `distribution_path`) can ever match a
+  pre-pinned entry for such a file -- a new spdxId is silently minted
+  instead. Harvest-to-harvest id stability (a normal `loom project` run
+  finding ids a *previous* `loom project` run wrote) is unaffected --
+  both write and read sides key by `distribution_path` there. Real fix
+  needs `_document_files.py`'s registry lookup to gain a third candidate
+  (`project_dir`-relative `distribution_path`, checked for existence),
+  which needs threading `project_dir` into a currently filesystem-free
+  assembly function -- a real design change, not a quick patch.
+- **Real static `uv_build` discoverer for `[tool.uv.build-backend]`** --
+  validated empirically (2026-09-15, see
+  [allow-build-validation.md](../implementation/allow-build-validation.md#--allow-build-build-and-read-with-vs-without-2026-09-15))
+  that the Hatchling-heuristic fallback over-includes files a project's
+  own `wheel-exclude`/`wheel-include`/`module-name` directives in
+  `[tool.uv.build-backend]` would drop (15 extra files for the
+  rendercv-2.8 fixture, all correctly excluded by `--allow-build`'s real
+  build). `--allow-build` already closes this gap exactly, so this is a
+  precision improvement for the *default* (no-flag) path only --
+  parsing `[tool.uv.build-backend]` statically, the same shape of work
+  as the existing setuptools/Poetry/PDM/Flit modules. **Partially
+  addressed** (2026-09-15): the fallback's `WARNING:` now names this
+  specific divergence risk and points at `--allow-build` when
+  `wheel-exclude`/`wheel-include` is actually present
+  (`has_uv_build_backend_overrides()` in `_models_wheel_types.py`).
+  **Wider sweep** (2026-09-15, 9 more real packages, see
+  [allow-build-validation.md](../implementation/allow-build-validation.md#--allow-build-wider-sweep-9-more-real-uv_build-packages-2026-09-15))
+  found a second, more severe failure shape: a `module-name` that
+  doesn't match Hatchling's zero-config guess (django-model-import)
+  makes the fallback fail outright with zero files, not just
+  over-include -- already loudly `WARNING:`-logged, and a future real
+  discoverer would need to handle two distinct config schemas, not one:
+  `[tool.uv.build-backend]` (current) and an older flat
+  `[tool.uv_build]` (found on ffmpeg-normalize, currently invisible to
+  `has_uv_build_backend_overrides()` too, though no practical divergence
+  was observed for it).

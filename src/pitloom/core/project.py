@@ -10,6 +10,7 @@ from __future__ import annotations
 import dataclasses
 import logging
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, ClassVar, TypedDict
 
 log = logging.getLogger(__name__)
@@ -20,7 +21,25 @@ class ProjectFile:
     """A file included in the project distribution.
 
     Attributes:
-        physical_path: Absolute or relative path to the physical file on disk.
+        physical_path: Project-root-relative path to the physical file on
+            disk (see CLAUDE.md's ``physical_path``/``distribution_path``
+            contract) -- except for a file sourced via the generic
+            ``--allow-build`` build-and-read mechanism
+            (``pitloom.core._models_wheel_build_and_read``), where it is
+            instead an absolute path into a temporary extraction
+            directory: that mechanism's real files never live under the
+            project's own root, so no project-relative path exists for
+            them (``_build_project_file_entry()``'s
+            ``source.relative_to(project_dir)`` falls back to
+            ``source.as_posix()`` when it raises ``ValueError``). Not
+            project-relative in that one case -- do not assume this field
+            is always a relative path without checking; any consumer
+            that joins it onto ``project_dir`` (e.g.
+            ``pitloom.enrich._resolve_model_search_dir``) must check
+            ``Path(physical_path).is_absolute()`` first and fall back to
+            ``distribution_path``/``file_path_relative``, since
+            ``pathlib``'s own join semantics silently discard the
+            left-hand side when the right-hand operand is absolute.
         distribution_path: Canonical path of the file inside the wheel/package.
         digest_sha256: Hex-encoded SHA-256 digest of the file contents.
             ``None`` when discovered via
@@ -69,6 +88,24 @@ class ProjectFile:
     content_type: str | None = None
     content_type_method: str | None = None
     is_license_file: bool = False
+
+
+def project_relative_or_fallback(physical_path: str, fallback: str) -> str:
+    """*physical_path* if it's project-relative, else *fallback*.
+
+    Every consumer that needs a stable, project-relative stand-in for
+    ``ProjectFile.physical_path`` (a registry-lookup key, a
+    determinism-sensitive provenance string, a directory to join onto
+    ``project_dir``) hits the same hazard documented on
+    :attr:`ProjectFile.physical_path`: for a build-and-read
+    (``--allow-build``) discovered file, ``physical_path`` is an
+    absolute path into a fresh ``tempfile.mkdtemp()`` directory that
+    differs every run and never matches a project-relative value.
+    *fallback* is normally ``distribution_path``/``file_path_relative``.
+    """
+    if Path(physical_path).is_absolute():
+        return fallback
+    return physical_path
 
 
 class _ConflictCandidateRequired(TypedDict):
@@ -189,9 +226,10 @@ class ProjectMetadata:
         would silently corrupt *self* too unless every such caller
         remembers to defensively copy first -- a hazard this repo has
         already hit twice independently (:func:`merge_project_metadata`
-        and :func:`~pitloom.extract.project.installed.reconcile_installed_metadata`
-        each patched it separately for ``provenance``/``field_conflicts``
-        before this method existed). Prefer this over a bare
+        and ``reconcile_installed_metadata()`` in
+        ``pitloom.extract.project._installed_reconcile`` each patched it
+        separately for ``provenance``/``field_conflicts`` before this
+        method existed). Prefer this over a bare
         ``dataclasses.replace()`` call whenever the result will be
         mutated in place afterward, for any container field -- not just
         the two fields that happened to trigger a bug report first.
@@ -220,6 +258,18 @@ _PROVENANCE_KEY_ALIASES: dict[str, str] = {
     "license_name": "license",
     "locked_dependency_hashes": "locked_dependencies",
 }
+
+
+def provenance_key_for(field_name: str) -> str:
+    """The literal ``provenance`` dict key *field_name* is actually
+    recorded under -- see :data:`_PROVENANCE_KEY_ALIASES` above. Public
+    wrapper so a cross-module consumer (e.g.
+    :mod:`pitloom.extract.project._installed_reconcile`, which needs the
+    identical "explicitly declared" lookup this module's own
+    :func:`merge_project_metadata` uses) doesn't have to reach into a
+    leading-underscore module-private name to get it.
+    """
+    return _PROVENANCE_KEY_ALIASES.get(field_name, field_name)
 
 
 def merge_project_metadata(
@@ -297,7 +347,7 @@ def merge_project_metadata(
         if f.name in ("name", "provenance", "field_conflicts"):
             continue
         primary_value = getattr(primary, f.name)
-        provenance_key = _PROVENANCE_KEY_ALIASES.get(f.name, f.name)
+        provenance_key = provenance_key_for(f.name)
         if not primary_value and provenance_key not in primary.provenance:
             setattr(merged, f.name, getattr(secondary, f.name))
     return merged

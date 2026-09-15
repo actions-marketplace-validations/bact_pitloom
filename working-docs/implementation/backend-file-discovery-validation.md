@@ -1,6 +1,6 @@
 ---
 Created: 2026-08-28
-Last-Modified: 2026-09-03
+Last-Modified: 2026-09-15
 SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 SPDX-FileType: DOCUMENTATION
 SPDX-License-Identifier: CC0-1.0
@@ -69,6 +69,25 @@ build-time-generated file (VCS-derived `_version.py`, a compiled
 extension) legitimately appearing only in the wheel is not a defect --
 it's outside what static analysis can ever see; see
 [sbom-lifecycle-stages.md](sbom-lifecycle-stages.md).
+
+**Variant for `--allow-build`**: the same "diff against ground truth"
+method, applied one level differently -- `loom project` run *twice*
+(with and without `--allow-build`) against the same project, rather
+than `project` vs. `wheel` once. This answers three questions the
+plain method above doesn't: (1) does a registered backend's real build
+ever run when its own static discovery already succeeded (it must
+not); (2) for a backend with no static module, how does the
+Hatchling-heuristic fallback's file list actually differ from a real
+build's (extra files, missing files, or both); (3) does `--allow-build`
+reproduce a real published wheel's file list exactly, when one is
+available to check against (`tests/fixtures/real-world-projects/*/*/
+expected.json`). Automated as
+[`scripts/compare_allow_build.py`](../../scripts/compare_allow_build.py)
+-- run it by hand against a project directory, an sdist archive, or a
+vendored fixture (`--fixture BACKEND/NAME`) whenever
+`--allow-build`/`--no-build-isolation` or backend dispatch changes; see
+its own docstring for usage. See the uv_build round below for a worked
+result.
 
 ## Setuptools (10 packages, 2026-08-28)
 
@@ -555,3 +574,18 @@ own packaging doesn't use PEP 751 for itself.
     ID, but honest and traceable, instead of confidently wrong.
   - See `test_detect_license_from_text_rejects_short_label` in
     `tests/assemble/test_license_normalization.py`.
+
+
+## `--allow-build` build-and-read validation (2026-09-15)
+
+11 real `uv_build` packages plus one fixture per registered backend,
+validated with `scripts/compare_allow_build.py`: `--allow-build`
+reproduced the real published wheel exactly in every case tested; the
+"never build when static discovery already succeeded" invariant held
+for all four registered backends. Found and fixed one warning-wording
+gap (`has_uv_build_backend_overrides()`) and one new failure shape
+(a `module-name` override causing Hatchling's fallback to return zero
+files, not just imprecise ones). See
+[allow-build-validation.md](allow-build-validation.md) for the full
+two rounds -- split into its own file once it pushed this document past
+its size limit.

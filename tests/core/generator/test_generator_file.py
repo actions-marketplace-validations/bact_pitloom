@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from typing import cast
 
 from pitloom.assemble.spdx3.document import build
 from pitloom.core.creation import CreationMetadata
@@ -50,6 +51,86 @@ def test_build_file_native_copyright_and_declared_license() -> None:
         and e.get("spdxId") == license_target_id
     )
     assert license_elem["simplelicensing_licenseText"] == "MIT"
+
+
+def test_build_file_absolute_physical_path_uses_distribution_path_in_provenance() -> (
+    None
+):
+    """Regression: a build-and-read-discovered file's ``physical_path``
+    is an absolute path into a ``tempfile.mkdtemp()`` directory that
+    differs every run (see ``ProjectFile.physical_path``'s docstring and
+    ``_models_wheel_build_and_read.py``) -- emitting it verbatim into a
+    "Source: ..." provenance string breaks CLAUDE.md's "SBOM output"
+    determinism invariant, since two runs of an unchanged project would
+    then never be bit-for-bit identical. Confirmed live via a real
+    ``--allow-build`` run against a synthetic uv_build project before
+    this fix: two runs' emitted ``comment``/Annotation ``source`` fields
+    differed only in the temp directory's random suffix. The fix uses
+    ``distribution_path`` (always deterministic) instead of
+    ``physical_path`` whenever the latter is absolute."""
+    files = [
+        ProjectFile(
+            physical_path="/tmp/pitloom-build-and-read-abc123/pkg/tagged.py",
+            distribution_path="pkg/tagged.py",
+            digest_sha256="a" * 64,
+            copyright_text="2026 Test Author",
+            copyright_source="spdx_tag",
+            spdx_license_identifier="MIT",
+        )
+    ]
+    graph = _build_graph_for_files(files)
+    file_elem = _find_file_element(graph, "pkg/tagged.py")
+    comment = cast("str", file_elem["comment"])
+
+    assert "pitloom-build-and-read" not in comment
+    assert comment == (
+        "Metadata provenance: copyright_text: Source: pkg/tagged.py | "
+        "Field: SPDX-FileCopyrightText"
+    )
+
+    fields = _annotation_fields_for(graph, file_elem["spdxId"])
+    assert fields is not None
+    assert fields["copyright_text"]["source"] == "pkg/tagged.py"
+
+    relationships = [e for e in graph if e.get("type") == "Relationship"]
+    license_rels = [r for r in relationships if r.get("from") == file_elem["spdxId"]]
+    license_target_id = cast("list[str]", license_rels[0]["to"])[0]
+    license_elem = next(e for e in graph if e.get("spdxId") == license_target_id)
+    assert license_elem["simplelicensing_licenseText"] == "MIT"
+
+
+def test_build_file_absolute_physical_path_is_deterministic_across_runs() -> None:
+    """Same file content, two different (simulated) tempdir paths for
+    ``physical_path`` -- as two separate ``--allow-build`` runs of the
+    same unchanged project would produce, since ``tempfile.mkdtemp()``
+    picks a fresh random directory name each time. The two runs' graphs
+    must be identical, guarding against the exact non-determinism bug
+    fixed alongside this test (see the sibling test above for the full
+    failure mode)."""
+    common_kwargs = {
+        "distribution_path": "pkg/tagged.py",
+        "digest_sha256": "a" * 64,
+        "copyright_text": "2026 Test Author",
+        "copyright_source": "spdx_tag",
+        "spdx_license_identifier": "MIT",
+    }
+    graph_run_1 = _build_graph_for_files(
+        [
+            ProjectFile(
+                physical_path="/tmp/pitloom-build-and-read-run1xyz/pkg/tagged.py",
+                **common_kwargs,  # type: ignore[arg-type]
+            )
+        ]
+    )
+    graph_run_2 = _build_graph_for_files(
+        [
+            ProjectFile(
+                physical_path="/tmp/pitloom-build-and-read-run2different/pkg/tagged.py",
+                **common_kwargs,  # type: ignore[arg-type]
+            )
+        ]
+    )
+    assert graph_run_1 == graph_run_2
 
 
 def test_build_file_primary_purpose_and_content_type_independent() -> None:

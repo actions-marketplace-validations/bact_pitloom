@@ -91,7 +91,12 @@ def _project_doc_identity(
     project_metadata, _pitloom_config, _config_path = resolve_project_with_lockfile(
         project_dir, use_lockfile
     )
-    merkle_root, project_files = get_wheel_files(project_dir)
+    # allow_build intentionally omitted (stays False): this doc-identity
+    # helper is only reachable from the model/enrich commands, which have
+    # no --allow-build CLI flag of their own to read. The returned
+    # cleanup is therefore always a no-op; call it immediately.
+    merkle_root, project_files, _cleanup = get_wheel_files(project_dir)
+    _cleanup()
     project_metadata.files = project_files
     doc_uuid = compute_doc_uuid(
         name=project_metadata.name,

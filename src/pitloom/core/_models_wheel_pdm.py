@@ -5,8 +5,9 @@
 
 """PDM-backend-backed wheel file discovery.
 
-See also: :mod:`pitloom.core._models_wheel` (dispatch facade -- this
-backend is registered as a "writer", see ``_WRITER_BACKENDS`` there),
+See also: :mod:`pitloom.core._models_wheel_dispatch` (dispatch facade --
+this backend is registered with ``needs_write_lock=True``, see
+:class:`~pitloom.core._models_wheel_dispatch._RegisteredBackend`),
 :mod:`pitloom.core._models_wheel_types`,
 :mod:`pitloom.core._models_wheel_setuptools` (the other "writer"
 backend, same ``_chdir`` contract); :mod:`pitloom.extract.project.pdm` (the
@@ -38,12 +39,12 @@ def _chdir(project_dir: Path) -> Iterator[None]:
     *project_dir* for the duration of the call.
 
     This process-wide ``os.chdir()`` is only safe because
-    :mod:`pitloom.core._models_wheel` -- the sole caller of
+    :mod:`pitloom.core._models_wheel_dispatch` -- the sole caller of
     :func:`discover` -- runs every call to this function under its
     read/write discovery lock's exclusive write mode (this backend is
-    listed in ``_WRITER_BACKENDS`` there), which keeps it from
-    overlapping any other backend's discovery call; this module holds
-    no lock of its own.
+    registered with ``needs_write_lock=True`` there), which keeps it
+    from overlapping any other backend's discovery call; this module
+    holds no lock of its own.
     """
     original_cwd = Path.cwd()
     os.chdir(project_dir)

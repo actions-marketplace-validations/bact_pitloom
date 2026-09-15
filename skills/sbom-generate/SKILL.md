@@ -318,15 +318,24 @@ back a JSON file that looks complete but isn't:
   against a project directory -- check `pyproject.toml`'s
   `[build-system] build-backend` *before* generating, not after.
   Hatchling, setuptools, Poetry, PDM-backend, and Flit-core get
-  accurate file-level discovery (which files, hashes, Merkle root);
-  any other backend (`uv_build`, etc.) falls back to a Hatchling-based
-  heuristic and logs a `WARNING:` that the file list can be silently
-  incomplete or mis-pathed. Project-level metadata (name, version,
-  dependencies, license, authors) is read independently and unaffected
-  either way. Say this upfront when you see an unsupported backend,
-  don't wait for the user to ask why the SBOM looks off -- full detail
-  in [docs/cli.md's Generate an SBOM
+  accurate file-level discovery (which files, hashes, Merkle root) by
+  default; any other backend (`uv_build`, or one still without its own
+  toolchain, e.g. `maturin`/`scikit-build-core`/`meson-python`) falls
+  back to a Hatchling-based heuristic and logs a `WARNING:` that the
+  file list can be silently incomplete or mis-pathed. Project-level
+  metadata (name, version, dependencies, license, authors) is read
+  independently and unaffected either way. Say this upfront when you
+  see an unsupported backend, don't wait for the user to ask why the
+  SBOM looks off -- full detail in [docs/cli.md's Generate an SBOM
   section](https://bact.github.io/pitloom/cli/#generate-an-sbom).
+  `--allow-build` (`loom project`/`loom generate`/`loom embed-wheel`
+  only) closes this gap by actually invoking the project's own PEP 517
+  build backend to discover the real file list -- but it executes
+  third-party build-time code, so **never pass `--allow-build` (or
+  `allow_build=True` via the library API) on the user's behalf unless
+  they have explicitly asked for it in this conversation.** Mention it
+  as an available option when an unsupported backend comes up; don't
+  decide to use it yourself.
 
 ## See also
 

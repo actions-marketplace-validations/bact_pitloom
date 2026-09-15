@@ -250,11 +250,16 @@ def resolve_license_file_entries(
     :attr:`~pitloom.core.project.ProjectMetadata.files`.
 
     Pitloom's file discovery (``get_wheel_files()`` /
-    ``_discover_included_files()``) is a static, config-driven file-selection
-    walk, never a real wheel build -- so it never reproduces the
+    ``_discover_included_files()``) never reproduces
     ``<name>-<version>.dist-info/licenses/<path>`` entries a real build's
-    ``WheelBuilder.add_licenses()`` would add. This fills that gap directly:
-    called by the CLI/library generation path
+    ``WheelBuilder.add_licenses()`` would add: by default it's a static,
+    config-driven file-selection walk that never touches ``.dist-info`` at
+    all, and even ``--allow-build``'s build-and-read mechanism (which does
+    invoke a real build) deliberately filters every ``.dist-info/*`` entry
+    back out of its result, to keep every backend's ``IncludedFile``
+    contract limited to pre-build source files -- see
+    ``pitloom.core._models_wheel_build_and_read``. This fills that gap
+    directly: called by the CLI/library generation path
     (:mod:`pitloom.assemble._generators`) and the Hatchling build hook
     (:mod:`pitloom.plugins.hatch`) after they've resolved ``project_dir`` and
     ``metadata.license_files``, so the resulting entries survive those call

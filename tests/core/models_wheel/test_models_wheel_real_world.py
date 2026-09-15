@@ -27,7 +27,7 @@ from pathlib import Path
 
 import pytest
 
-from pitloom.core._models_wheel import _discover_included_files
+from pitloom.core._models_wheel_dispatch import _discover_included_files
 from tests.fixtures.real_world import (
     expected_distribution_paths,
     extract_sdist,
@@ -71,8 +71,11 @@ def test_discover_matches_real_wheel(
 
     extracted_root = extract_sdist(project_dir, tmp_path)
 
-    included = _discover_included_files(extracted_root, assume_backend=backend)
-    discovered = {f.distribution_path for f in included}
+    included, cleanup = _discover_included_files(extracted_root, assume_backend=backend)
+    try:
+        discovered = {f.distribution_path for f in included}
+    finally:
+        cleanup()
 
     missing = expected - discovered
     extra = discovered - expected

@@ -100,7 +100,7 @@ def test_get_wheel_files_scan_file_headers_disabled_by_default(
     monkeypatch.setattr("pitloom.extract._file_headers.parse_file_header", _spy_parse)
     monkeypatch.setattr("pitloom.extract._file_headers.guess_content_type", _spy_guess)
 
-    _root, files = get_wheel_files(tmp_path)
+    _root, files, _ = get_wheel_files(tmp_path)
 
     assert not calls
     tagged = next(f for f in files if f.distribution_path == "pkg/tagged.py")
@@ -129,7 +129,7 @@ def test_get_wheel_files_scan_file_headers_enabled_content_type_disabled(
 
     monkeypatch.setattr("pitloom.extract._file_headers.guess_content_type", _spy_guess)
 
-    _root, files = get_wheel_files(tmp_path, scan_file_headers=True)
+    _root, files, _ = get_wheel_files(tmp_path, scan_file_headers=True)
 
     assert not content_type_calls
     tagged = next(f for f in files if f.distribution_path == "pkg/tagged.py")
@@ -149,7 +149,7 @@ def test_get_wheel_files_detect_content_type_enabled(
     tagged_file, plain_file = _make_header_project(tmp_path)
     _patch_recurse(monkeypatch, tagged_file, plain_file)
 
-    _root, files = get_wheel_files(
+    _root, files, _ = get_wheel_files(
         tmp_path, scan_file_headers=True, detect_content_type=True
     )
 
@@ -171,13 +171,13 @@ def test_get_wheel_files_merkle_root_identical_across_flag_combinations(
     tagged_file, plain_file = _make_header_project(tmp_path)
 
     _patch_recurse(monkeypatch, tagged_file, plain_file)
-    root_off, _ = get_wheel_files(tmp_path)
+    root_off, _, _ = get_wheel_files(tmp_path)
 
     _patch_recurse(monkeypatch, tagged_file, plain_file)
-    root_headers, _ = get_wheel_files(tmp_path, scan_file_headers=True)
+    root_headers, _, _ = get_wheel_files(tmp_path, scan_file_headers=True)
 
     _patch_recurse(monkeypatch, tagged_file, plain_file)
-    root_both, _ = get_wheel_files(
+    root_both, _, _ = get_wheel_files(
         tmp_path, scan_file_headers=True, detect_content_type=True
     )
 
@@ -207,7 +207,7 @@ def test_get_wheel_files_content_type_override_shortcuts_detection(
     overrides = (
         ContentTypeOverride(pattern="pkg/tagged.py", content_type="text/special"),
     )
-    _root, files = get_wheel_files(
+    _root, files, _ = get_wheel_files(
         tmp_path, detect_content_type=True, content_type_overrides=overrides
     )
 
@@ -232,7 +232,7 @@ def test_get_wheel_files_content_type_override_inert_when_detection_off(
     overrides = (
         ContentTypeOverride(pattern="pkg/tagged.py", content_type="text/special"),
     )
-    _root, files = get_wheel_files(tmp_path, content_type_overrides=overrides)
+    _root, files, _ = get_wheel_files(tmp_path, content_type_overrides=overrides)
 
     for project_file in files:
         assert project_file.content_type is None
@@ -349,7 +349,7 @@ def test_get_wheel_files_content_type_method_magika_missing_inert_when_detection
     _patch_recurse(monkeypatch, tagged_file, plain_file)
     monkeypatch.setitem(sys.modules, "magika", cast(ModuleType, None))
 
-    _root, files = get_wheel_files(tmp_path, content_type_method="magika")
+    _root, files, _ = get_wheel_files(tmp_path, content_type_method="magika")
 
     for project_file in files:
         assert project_file.content_type is None
@@ -365,7 +365,7 @@ def test_get_wheel_files_content_type_independent_of_file_header_scanning(
     tagged_file, plain_file = _make_header_project(tmp_path)
     _patch_recurse(monkeypatch, tagged_file, plain_file)
 
-    _root, files = get_wheel_files(
+    _root, files, _ = get_wheel_files(
         tmp_path,
         scan_file_headers=scan_file_headers,
         detect_content_type=True,
@@ -384,7 +384,7 @@ def test_get_wheel_files_empty_and_external_path(
     """get_wheel_files handles empty file list, directories, and external paths."""
     # Empty files list returns (None, [])
     monkeypatch.setattr(WheelBuilder, "recurse_included_files", lambda _self: iter([]))
-    root, files = get_wheel_files(tmp_path)
+    root, files, _ = get_wheel_files(tmp_path)
     assert root is None
     assert not files
 
@@ -402,7 +402,7 @@ def test_get_wheel_files_empty_and_external_path(
         yield _FakeIncludedFile(str(ext_file), "pkg/external.py")
 
     monkeypatch.setattr(WheelBuilder, "recurse_included_files", _custom_recurse)
-    root, files = get_wheel_files(tmp_path)
+    root, files, _ = get_wheel_files(tmp_path)
     assert root is not None
     assert len(files) == 1
     assert files[0].distribution_path == "pkg/external.py"
@@ -417,12 +417,12 @@ def test_get_wheel_files_returns_none_on_unexpected_discovery_failure(
     not propagate out of get_wheel_files() -- it returns ``(None, [])``
     rather than crashing the whole SBOM generation."""
 
-    def _broken_discover(_project_dir: Path) -> list[object]:
+    def _broken_discover(_project_dir: Path, **_kwargs: object) -> list[object]:
         raise RuntimeError("boom")
 
     monkeypatch.setattr(
         "pitloom.core._models_wheel._discover_included_files", _broken_discover
     )
-    root, files = get_wheel_files(tmp_path)
+    root, files, _ = get_wheel_files(tmp_path)
     assert root is None
     assert files == []

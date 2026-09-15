@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from pitloom.core.project import ProjectFile, ProjectMetadata
+from pitloom.extract._core_metadata import parse_project_urls
 from pitloom.extract._toml_io import tomllib
 from pitloom.logging_config import field_loss_suffix
 
@@ -54,16 +55,10 @@ def _parse_pkg_info(pkg_info_text: str, source_label: str) -> ProjectMetadata:
     if requires_python:
         metadata.provenance["requires_python"] = source_label
 
-    project_urls = msg.get_all("Project-URL") or []
-    if project_urls:
-        urls: dict[str, str] = {}
-        for entry in project_urls:
-            if "," in entry:
-                label, url = entry.split(",", 1)
-                urls[label.strip()] = url.strip()
-        if urls:
-            metadata.urls = urls
-            metadata.provenance["urls"] = source_label
+    urls = parse_project_urls(msg, include_homepage=False)
+    if urls:
+        metadata.urls = urls
+        metadata.provenance["urls"] = source_label
 
     author = msg.get("Author")
     if author and author != "UNKNOWN":

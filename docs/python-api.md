@@ -95,6 +95,18 @@ produced. Passing only one of the two is not a supported combination:
 both are discarded and re-resolved from the target instead, with a
 `WARNING:` explaining why.
 
+Pass `allow_build=True` (plus optionally `no_build_isolation=True`) to
+`generate()`/`generate_project_sbom()` to let Pitloom invoke a project's
+own PEP 517 build backend to discover its real file list, when static
+discovery has no module for the backend (e.g. `uv_build`) or a supported
+backend's own static discovery fails -- see the CLI's
+[`--allow-build`](cli.md#building-a-project-to-discover-its-file-list---allow-build)
+for the full security rationale, which applies identically here. Unlike
+`use_lockfile` above, both default to plain `False` with **no**
+`[tool.pitloom]` config-file equivalent and must be passed explicitly
+every call -- there is no config layer for a scanned project to silently
+opt itself into.
+
 `pitloom.assemble` also exposes `generate_wheel_sbom()`,
 `generate_model_sbom()`, and `generate_env_sbom()` -- the same target
 kinds the [CLI](cli.md)'s `loom wheel` / `loom model` / `loom env`
@@ -114,6 +126,9 @@ modified_wheel, arcname, sbom_json, removed, floored = embed_wheel_sbom(
     wheel_path=Path("dist/mypackage-1.0.0-py3-none-any.whl"),
     project_dir=Path("."),
     overrides=ConfigOverrides(offline=True),  # optional
+    # ConfigOverrides also accepts allow_build/no_build_isolation (both
+    # default False, no [tool.pitloom] equivalent) -- see the
+    # --allow-build docs above.
 )
 
 # 2. Or embed an externally-generated, pre-written SBOM file (checked)

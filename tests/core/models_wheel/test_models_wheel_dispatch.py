@@ -62,7 +62,7 @@ def test_get_wheel_files_dispatches_setuptools_backend_to_its_module(
         "pitloom.core._models_wheel_hatchling.discover", _fail_if_called
     )
 
-    _root, files = get_wheel_files(tmp_path)
+    _root, files, _ = get_wheel_files(tmp_path)
 
     assert not hatchling_called
     assert [f.distribution_path for f in files] == ["pkg/a.py"]
@@ -97,7 +97,7 @@ def test_get_wheel_files_sorts_files_regardless_of_discovery_order(
         "pitloom.core._models_wheel_setuptools.discover", _unsorted_discover
     )
 
-    _root, files = get_wheel_files(tmp_path)
+    _root, files, _ = get_wheel_files(tmp_path)
 
     assert [f.distribution_path for f in files] == ["a.py", "m.py", "z.py"]
 
@@ -118,7 +118,7 @@ def test_get_wheel_files_setuptools_no_static_config_falls_back_with_warning(
     monkeypatch.setattr(WheelBuilder, "recurse_included_files", lambda _self: iter([]))
 
     with caplog.at_level(logging.WARNING):
-        root, files = get_wheel_files(tmp_path)
+        root, files, _ = get_wheel_files(tmp_path)
 
     assert root is None
     assert not files
@@ -140,7 +140,7 @@ def test_get_wheel_files_setuptools_no_pyproject_skips_doomed_hatchling_attempt(
     )
 
     with caplog.at_level(logging.WARNING):
-        root, files = get_wheel_files(tmp_path)
+        root, files, _ = get_wheel_files(tmp_path)
 
     assert root is None
     assert not files
@@ -170,11 +170,45 @@ def test_get_wheel_files_setuptools_build_system_only_skips_doomed_hatchling_att
     )
 
     with caplog.at_level(logging.WARNING):
-        root, files = get_wheel_files(tmp_path)
+        root, files, _ = get_wheel_files(tmp_path)
 
     assert root is None
     assert not files
     assert "no [project] table present" in caplog.text
+    assert "Hatchling" not in caplog.text
+
+
+def test_get_wheel_files_unhandled_backend_no_pyproject_skips_doomed_hatchling(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Regression: the no-static-module dispatch path (uv_build today,
+    or any future/unrecognized backend) must apply the same "skip a
+    doomed Hatchling attempt" guard its registered-backend sibling
+    already has (see
+    test_get_wheel_files_setuptools_no_pyproject_skips_doomed_hatchling_attempt
+    above) -- Hatchling's WheelBuilder requires a [project] table, so
+    with none present the fallback is guaranteed to fail too. Before
+    this fix, this case fell through unconditionally and logged a
+    second, confusing "Hatchling file discovery failed" error on top of
+    the already-clear "not yet backend-aware" one, for a project that
+    has nothing to do with Hatchling."""
+    (tmp_path / "pyproject.toml").write_text(
+        '[build-system]\nrequires = ["uv_build"]\nbuild-backend = "uv_build"\n',
+        encoding="utf-8",
+    )
+
+    with caplog.at_level(logging.WARNING):
+        root, files, _ = get_wheel_files(tmp_path)
+
+    assert root is None
+    assert not files
+    assert "not yet backend-aware" in caplog.text
+    assert "file discovery is unsupported for this project" in caplog.text
+    # Hatchling never actually runs in this branch -- the warning must
+    # not claim it does (a prior version unconditionally said "using
+    # Hatchling-based heuristic" even when returning zero files without
+    # ever calling Hatchling, which was misleading).
     assert "Hatchling" not in caplog.text
 
 
@@ -189,12 +223,52 @@ def test_get_wheel_files_unhandled_backend_falls_back_with_warning(
     _make_backend_project(tmp_path, "uv_build")
 
     with caplog.at_level(logging.WARNING):
-        root, files = get_wheel_files(tmp_path)
+        root, files, _ = get_wheel_files(tmp_path)
 
     assert root is None
     assert not files
     assert "uv_build" in caplog.text
     assert "Hatchling" in caplog.text
+    assert "--allow-build" not in caplog.text
+
+
+def test_get_wheel_files_uv_build_fallback_warns_about_wheel_exclude(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Regression: a uv_build project whose pyproject.toml declares
+    [tool.uv.build-backend] wheel-exclude gets a sharpened WARNING:
+    naming the concrete divergence risk and pointing at --allow-build --
+    confirmed empirically (allow-build-validation.md's
+    2026-09-15 round) to be exactly the case where the Hatchling
+    heuristic's file list diverges from a real build's."""
+    _make_backend_project(tmp_path, "uv_build")
+    with (tmp_path / "pyproject.toml").open("a", encoding="utf-8") as f:
+        f.write('\n[tool.uv.build-backend]\nwheel-exclude = ["pkg/vendored/**"]\n')
+
+    with caplog.at_level(logging.WARNING):
+        get_wheel_files(tmp_path)
+
+    assert "[tool.uv.build-backend]" in caplog.text
+    assert "--allow-build" in caplog.text
+
+
+def test_get_wheel_files_uv_build_fallback_no_hint_without_file_filter_keys(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A uv_build project with a [tool.uv.build-backend] table present
+    but declaring only non-file-filtering keys (e.g. module-root) must
+    not get the sharpened hint -- confirmed empirically (the langfuse
+    fixture declares module-root and still matches the heuristic
+    exactly), so warning there would be a false alarm."""
+    _make_backend_project(tmp_path, "uv_build")
+    with (tmp_path / "pyproject.toml").open("a", encoding="utf-8") as f:
+        f.write('\n[tool.uv.build-backend]\nmodule-root = ""\n')
+
+    with caplog.at_level(logging.WARNING):
+        get_wheel_files(tmp_path)
+
+    assert "uv_build" in caplog.text
+    assert "--allow-build" not in caplog.text
 
 
 def test_get_wheel_files_dispatches_flit_backend_to_its_module(
@@ -222,7 +296,7 @@ def test_get_wheel_files_dispatches_flit_backend_to_its_module(
         "pitloom.core._models_wheel_hatchling.discover", _fail_if_called
     )
 
-    _root, files = get_wheel_files(tmp_path)
+    _root, files, _ = get_wheel_files(tmp_path)
 
     assert not hatchling_called
     assert [f.distribution_path for f in files] == ["pkg/a.py"]
@@ -266,7 +340,7 @@ def test_get_wheel_files_dispatches_pdm_backend_to_its_module(
         "pitloom.core._models_wheel_hatchling.discover", _fail_if_called
     )
 
-    _root, files = get_wheel_files(tmp_path)
+    _root, files, _ = get_wheel_files(tmp_path)
 
     assert not hatchling_called
     assert [f.distribution_path for f in files] == ["pkg/a.py"]
@@ -310,7 +384,7 @@ def test_get_wheel_files_dispatches_poetry_backend_to_its_module(
         "pitloom.core._models_wheel_hatchling.discover", _fail_if_called
     )
 
-    _root, files = get_wheel_files(tmp_path)
+    _root, files, _ = get_wheel_files(tmp_path)
 
     assert not hatchling_called
     assert [f.distribution_path for f in files] == ["pkg/a.py"]
@@ -352,7 +426,7 @@ def test_get_wheel_files_setuptools_config_present_but_introspection_failed(
     )
 
     with caplog.at_level(logging.WARNING):
-        root, files = get_wheel_files(tmp_path)
+        root, files, _ = get_wheel_files(tmp_path)
 
     assert root is None
     assert not files
@@ -405,7 +479,7 @@ def test_get_wheel_files_relative_project_dir_keeps_physical_path_relative(
     monkeypatch.chdir(tmp_path.parent)
     relative_project_dir = Path(tmp_path.name)
 
-    _root, files = get_wheel_files(relative_project_dir)
+    _root, files, _ = get_wheel_files(relative_project_dir)
 
     assert len(files) == 1
     assert not Path(files[0].physical_path).is_absolute()

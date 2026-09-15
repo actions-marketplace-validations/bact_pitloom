@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import sys
 import zipfile
 from pathlib import Path
@@ -26,13 +27,14 @@ from installer.sources import WheelFile
 from pitloom import __main__
 from pitloom.core.config import PitloomConfig
 from pitloom.core.models import _build_merkle_tree
-from pitloom.core.project import ProjectMetadata
+from pitloom.core.project import ProjectFile, ProjectMetadata
 from pitloom.core.provenance import ProvenanceConfig
 from pitloom.embed import (
     ConfigOverrides,
     _apply_config_overrides,
     _build_sbom_standalone_wheel,
     _compute_wheel_merkle_root,
+    _merge_file_extras,
     embed_wheel_sbom,
 )
 from pitloom.ids import IdRegistry
@@ -163,6 +165,180 @@ packages = ["ctpkg"]
     assert any(f.get("contentType") for f in files), (
         "content-type override did not reach the SBOM's file list"
     )
+
+
+def _make_ctpkg_project_and_wheel(tmp_path: Path) -> Path:
+    """Shared fixture setup for the cleanup-timing tests below: a
+    minimal Hatchling project (``ctpkg``) plus its built wheel. Returns
+    the wheel path."""
+    (tmp_path / "pyproject.toml").write_text(
+        """
+[project]
+name = "ctpkg"
+version = "1.0.0"
+
+[tool.hatch.build.targets.wheel]
+packages = ["ctpkg"]
+""",
+        encoding="utf-8",
+    )
+    pkg_dir = tmp_path / "ctpkg"
+    pkg_dir.mkdir()
+    (pkg_dir / "__init__.py").write_text("x = 1\n", encoding="utf-8")
+    return _make_dummy_wheel(tmp_path / "dist", "ctpkg", "1.0.0")
+
+
+def test_embed_wheel_defers_cleanup_past_ai_model_scan(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression: ``embed.py``'s ``_build_sbom_from_project_and_wheel``
+    has the same cleanup-timing hazard as ``generate_project_sbom()``
+    (see ``tests/assemble/test_generate_project_sbom_allow_build.py``'s
+    sibling test) -- ``scan_project_for_ai_models()`` runs after
+    ``get_wheel_files()`` here too, and must still see a build-and-read-
+    sourced file's bytes before ``get_wheel_files()``'s cleanup callback
+    removes them."""
+    wheel_path = _make_ctpkg_project_and_wheel(tmp_path)
+
+    fake_extract_dir = tmp_path / "fake-extract"
+    fake_extract_dir.mkdir()
+    py_file = fake_extract_dir / "mod.py"
+    py_file.write_text("x = 1\n", encoding="utf-8")
+    project_file = ProjectFile(
+        physical_path=str(py_file),
+        distribution_path="ctpkg/mod.py",
+    )
+    cleanup_calls: list[str] = []
+
+    def _cleanup() -> None:
+        cleanup_calls.append("cleanup")
+        py_file.unlink()
+
+    monkeypatch.setattr(
+        "pitloom.embed.get_wheel_files",
+        lambda *a, **k: (None, [project_file], _cleanup),
+    )
+    with caplog.at_level(logging.WARNING):
+        embed_wheel_sbom(wheel_path, project_dir=tmp_path)
+
+    assert cleanup_calls == ["cleanup"]
+    assert "could not read for usage scanning" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    "target",
+    [
+        "pitloom.embed._merge_file_extras",
+        "pitloom.core.project.ProjectMetadata.replace_with_fresh_containers",
+        "pitloom.embed._compute_wheel_merkle_root",
+        "pitloom.embed.scan_project_for_ai_models",
+        "pitloom.embed.run_enrichers_for_models",
+    ],
+    ids=[
+        "merge_file_extras",
+        "fresh_containers",
+        "compute_merkle_root",
+        "ai_model_scan",
+        "enrichment",
+    ],
+)
+def test_embed_wheel_cleanup_runs_even_if_step_raises(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, target: str
+) -> None:
+    """Regression, one case per step inside the try/finally block that
+    guards ``cleanup_discovery()`` (see ``embed.py``'s own comment on
+    that block): a build-and-read temp directory must not leak
+    regardless of WHICH of the five steps between ``get_wheel_files()``
+    returning and the function moving on (the file-extras merge, the
+    fresh-containers copy, Merkle-root recomputation, AI-model
+    scanning, enrichment) raises -- every one of them used to run
+    *outside* the ``try/finally`` before this was fixed, and a future
+    refactor that moves any single one of them back outside it must
+    fail exactly this one parametrize case, not silently pass the
+    other four."""
+    wheel_path = _make_ctpkg_project_and_wheel(tmp_path)
+
+    cleanup_calls: list[str] = []
+
+    def _cleanup() -> None:
+        cleanup_calls.append("cleanup")
+
+    monkeypatch.setattr(
+        "pitloom.embed.get_wheel_files", lambda *a, **k: (None, [], _cleanup)
+    )
+
+    def _raise(*_args: object, **_kwargs: object) -> object:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(target, _raise)
+    with pytest.raises(RuntimeError, match="boom"):
+        embed_wheel_sbom(wheel_path, project_dir=tmp_path)
+
+    assert cleanup_calls == ["cleanup"]
+
+
+def test_embed_wheel_cleanup_runs_strictly_last_in_order(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Order-sensitivity guard, stronger than the parametrized
+    exception-based test above: that test only proves cleanup is called
+    at all when a step raises, which does NOT catch a step being moved
+    to run *after* cleanup instead of before it -- cleanup would still
+    end up called exactly once either way (confirmed via the sibling
+    check in test_generate_project_sbom_allow_build.py: the same class
+    of regression there left every parametrized exception case green).
+    This test instead records every step's own name into one shared
+    list and asserts the exact order, so a future refactor that
+    reorders or hoists any single step across the try/finally boundary
+    is caught precisely, regardless of whether that step happens to
+    raise."""
+    wheel_path = _make_ctpkg_project_and_wheel(tmp_path)
+
+    call_order: list[str] = []
+
+    def _cleanup() -> None:
+        call_order.append("cleanup")
+
+    monkeypatch.setattr(
+        "pitloom.embed.get_wheel_files", lambda *a, **k: (None, [], _cleanup)
+    )
+
+    real_merge_file_extras = _merge_file_extras
+
+    def _fake_merge(*args: object, **kwargs: object) -> object:
+        call_order.append("merge_file_extras")
+        return real_merge_file_extras(*args, **kwargs)  # type: ignore[arg-type]
+
+    real_compute_merkle = _compute_wheel_merkle_root
+
+    def _fake_merkle(*args: object, **kwargs: object) -> object:
+        call_order.append("compute_merkle_root")
+        return real_compute_merkle(*args, **kwargs)  # type: ignore[arg-type]
+
+    def _fake_scan(*_args: object, **_kwargs: object) -> list[object]:
+        call_order.append("ai_model_scan")
+        return []
+
+    def _fake_enrich(*_args: object, **_kwargs: object) -> list[object]:
+        call_order.append("enrichment")
+        return []
+
+    monkeypatch.setattr("pitloom.embed._merge_file_extras", _fake_merge)
+    monkeypatch.setattr("pitloom.embed._compute_wheel_merkle_root", _fake_merkle)
+    monkeypatch.setattr("pitloom.embed.scan_project_for_ai_models", _fake_scan)
+    monkeypatch.setattr("pitloom.embed.run_enrichers_for_models", _fake_enrich)
+
+    embed_wheel_sbom(wheel_path, project_dir=tmp_path)
+
+    assert call_order == [
+        "merge_file_extras",
+        "compute_merkle_root",
+        "ai_model_scan",
+        "enrichment",
+        "cleanup",
+    ]
 
 
 def _sbom_files_by_name(sbom_json: str) -> dict[str, dict[str, Any]]:
@@ -311,9 +487,10 @@ def test_embed_wheel_scan_failure_keeps_wheel_files(
 ) -> None:
     """A get_wheel_files() scan failure must not empty the SBOM's file list.
 
-    ``get_wheel_files()`` returns ``(None, [])`` on any scan failure; the
-    merge in ``_build_sbom_from_project_and_wheel`` must fall back to the
-    wheel's own files rather than propagating that empty result.
+    ``get_wheel_files()`` returns ``(None, [], <no-op cleanup>)`` on any
+    scan failure; the merge in ``_build_sbom_from_project_and_wheel``
+    must fall back to the wheel's own files rather than propagating
+    that empty result.
     """
     (tmp_path / "pyproject.toml").write_text(
         """
@@ -332,7 +509,9 @@ packages = ["ctpkg"]
 
     wheel_path = _make_dummy_wheel(tmp_path / "dist", "ctpkg", "1.0.0")
 
-    monkeypatch.setattr("pitloom.embed.get_wheel_files", lambda *a, **k: (None, []))
+    monkeypatch.setattr(
+        "pitloom.embed.get_wheel_files", lambda *a, **k: (None, [], lambda: None)
+    )
 
     _, _, sbom_json, _, _ = embed_wheel_sbom(
         wheel_path,
@@ -398,3 +577,102 @@ creation-comment = "from-cwd"
     with zipfile.ZipFile(wheel_path, "r") as zf:
         sbom_bytes = zf.read("flagpkg-1.0.0.dist-info/sboms/flagpkg-1.0.0.spdx3.json")
         assert b"from-cwd" not in sbom_bytes
+
+
+@pytest.mark.parametrize(
+    ("allow_build", "no_build_isolation"),
+    [(True, False), (False, True), (True, True)],
+    ids=["allow_build_only", "no_build_isolation_only", "both"],
+)
+def test_embed_wheel_warns_allow_build_no_effect_with_no_project_dir(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+    allow_build: bool,
+    no_build_isolation: bool,
+) -> None:
+    """Regression: with no resolvable project directory (no
+    ``--project-dir`` and no ``pyproject.toml`` in the target dir),
+    ``_generate_embed_sbom_json`` takes the ``project_dir is None``
+    branch straight into ``_build_sbom_standalone_wheel`` -- which never
+    accepts or reads ``allow_build``/``no_build_isolation`` -- so an
+    explicit request for a real build used to be silently dropped with
+    zero feedback. ``get_wheel_files`` is patched to raise if called, so
+    a real (accidental) build attempt would fail the test outright."""
+    empty_dir = tmp_path / "no_project_here"
+    empty_dir.mkdir()
+    wheel_path = _make_dummy_wheel(empty_dir, "nopkg", "1.0.0")
+
+    def _unexpected_call(*_a: object, **_k: object) -> object:
+        raise AssertionError("get_wheel_files must not be called")
+
+    monkeypatch.setattr("pitloom.embed.get_wheel_files", _unexpected_call)
+
+    with caplog.at_level(logging.WARNING):
+        embed_wheel_sbom(
+            wheel_path,
+            overrides=ConfigOverrides(
+                allow_build=allow_build, no_build_isolation=no_build_isolation
+            ),
+        )
+
+    assert "Build:" in caplog.text
+    assert "--allow-build/--no-build-isolation has no effect" in caplog.text
+    assert "no project directory to rescan" in caplog.text
+
+
+def test_embed_wheel_no_warning_with_no_project_dir_when_allow_build_default(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The no-op warning above must not fire when the caller never
+    touched ``allow_build``/``no_build_isolation``."""
+    empty_dir = tmp_path / "no_project_here"
+    empty_dir.mkdir()
+    wheel_path = _make_dummy_wheel(empty_dir, "nopkg", "1.0.0")
+
+    with caplog.at_level(logging.WARNING):
+        embed_wheel_sbom(wheel_path)
+
+    assert "--allow-build/--no-build-isolation has no effect" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("allow_build", "no_build_isolation"),
+    [(True, False), (False, True), (True, True)],
+    ids=["allow_build_only", "no_build_isolation_only", "both"],
+)
+def test_embed_wheel_warns_allow_build_no_effect_with_external_sbom(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+    allow_build: bool,
+    no_build_isolation: bool,
+) -> None:
+    """Regression: an externally-supplied ``--sbom`` is embedded verbatim
+    (``_generate_embed_sbom_json``'s ``sbom_path is not None`` branch) --
+    ``allow_build``/``no_build_isolation`` are never consulted there, so
+    an explicit request for a real build used to be silently dropped."""
+    wheel_path = _make_dummy_wheel(tmp_path, "extsbompkg", "1.0.0")
+    sbom_path = tmp_path / "external.spdx3.json"
+    sbom_path.write_text(
+        json.dumps({"@context": "https://spdx.org/rdf/3.0.1/spdx-context.jsonld"}),
+        encoding="utf-8",
+    )
+
+    def _unexpected_call(*_a: object, **_k: object) -> object:
+        raise AssertionError("get_wheel_files must not be called")
+
+    monkeypatch.setattr("pitloom.embed.get_wheel_files", _unexpected_call)
+
+    with caplog.at_level(logging.WARNING):
+        embed_wheel_sbom(
+            wheel_path,
+            sbom_path=sbom_path,
+            overrides=ConfigOverrides(
+                allow_build=allow_build, no_build_isolation=no_build_isolation
+            ),
+        )
+
+    assert "Build:" in caplog.text
+    assert "--allow-build/--no-build-isolation has no effect" in caplog.text
+    assert "externally-supplied --sbom" in caplog.text
