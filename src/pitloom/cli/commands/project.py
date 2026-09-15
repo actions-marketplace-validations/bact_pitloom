@@ -27,7 +27,7 @@ from pitloom.cli.options import (
     add_no_build_isolation_argument,
     add_offline_argument,
     add_use_lockfile_argument,
-    warn_no_build_isolation_no_effect,
+    warn_if_no_build_isolation_without_allow_build,
 )
 from pitloom.cli.verbose import _print_verbose
 
@@ -38,8 +38,7 @@ def _run_project_command(args: argparse.Namespace) -> int:
     project_dir, config_path = _resolve_project_paths(args)
     if project_dir is None:
         return 1
-    if args.no_build_isolation and not args.allow_build:
-        warn_no_build_isolation_no_effect(project_dir)
+    warn_if_no_build_isolation_without_allow_build(args, project_dir)
 
     (
         project_metadata,

@@ -20,7 +20,23 @@ class ProjectFile:
     """A file included in the project distribution.
 
     Attributes:
-        physical_path: Absolute or relative path to the physical file on disk.
+        physical_path: Project-root-relative path to the physical file on
+            disk (see CLAUDE.md's ``physical_path``/``distribution_path``
+            contract) -- except for a file sourced via the generic
+            ``--allow-build`` build-and-read mechanism
+            (``pitloom.core._models_wheel_build_and_read``), where it is
+            instead an absolute path into a temporary extraction
+            directory: that mechanism's real files never live under the
+            project's own root, so no project-relative path exists for
+            them (``_build_project_file_entry()``'s
+            ``source.relative_to(project_dir)`` falls back to
+            ``source.as_posix()`` when it raises ``ValueError``). Currently
+            harmless for both known consumers (a registry lookup that
+            falls back to ``distribution_path``; the AI-model scanner's
+            own path join, which resolves correctly for an absolute
+            operand via ``pathlib``'s join semantics) but not
+            project-relative in that one case -- do not assume this field
+            is always a relative path without checking.
         distribution_path: Canonical path of the file inside the wheel/package.
         digest_sha256: Hex-encoded SHA-256 digest of the file contents.
             ``None`` when discovered via

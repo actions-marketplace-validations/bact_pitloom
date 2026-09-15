@@ -306,6 +306,68 @@ def test_extract_wheel_to_included_files_skips_directory_entries(
     cleanup()
 
 
+def test_extract_wheel_to_included_files_rejects_zip_slip_entry(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A wheel entry whose name escapes the extraction directory via
+    ``../`` segments (a real build backend bug, or a corrupted/malicious
+    wheel) must never be written outside ``extract_dir`` -- skipped with
+    a ``WARNING:``, not silently written to an arbitrary filesystem
+    location. A sibling, non-escaping entry in the same wheel must still
+    extract normally."""
+    created_extract_dirs: list[Path] = []
+    real_mkdtemp = tempfile.mkdtemp
+
+    def _tracking_mkdtemp(
+        suffix: str | None = None, prefix: str | None = None, dir: str | None = None
+    ) -> str:
+        # tempfile.TemporaryDirectory() (used for the build-output dir)
+        # also calls mkdtemp() internally, positionally -- accept the
+        # full real signature, not just the prefix= kwarg this module's
+        # own extract_dir call uses, or that second call raises here
+        # instead of reaching the code this test means to exercise.
+        path = real_mkdtemp(suffix, prefix, dir)
+        if prefix is not None and prefix.startswith("pitloom-build-and-read-"):
+            created_extract_dirs.append(Path(path))
+        return path
+
+    monkeypatch.setattr(
+        "pitloom.core._models_wheel_build_and_read.tempfile.mkdtemp",
+        _tracking_mkdtemp,
+    )
+
+    def _fake_run_with_escaping_entry(
+        project_dir: Path, output_dir: Path, *, isolated: bool
+    ) -> Path:
+        wheel_path = output_dir / "pkg-1.0-py3-none-any.whl"
+        with zipfile.ZipFile(wheel_path, "w") as zf:
+            # ZipInfo accepts an arbitrary filename -- zipfile itself
+            # does not sanitize it; only ZipFile.extract()/extractall()
+            # apply their own (different) safety normalization, which
+            # this module deliberately doesn't use (it composes target
+            # paths itself, see _extract_wheel_to_included_files).
+            zf.writestr("../outside/evil.py", b"evil = 1\n")
+            zf.writestr("pkg/__init__.py", b"")
+        return wheel_path
+
+    monkeypatch.setattr(
+        "pitloom.core._models_wheel_build_and_read._run_pep517_build_wheel",
+        _fake_run_with_escaping_entry,
+    )
+
+    with caplog.at_level(logging.WARNING):
+        result = build_and_read_wheel(tmp_path)
+
+    assert result is not None
+    files, cleanup = result
+    assert {f.distribution_path for f in files} == {"pkg/__init__.py"}
+    assert len(created_extract_dirs) == 1
+    escape_target = created_extract_dirs[0].parent / "outside" / "evil.py"
+    assert not escape_target.exists()
+    assert "resolves outside the extraction directory" in caplog.text
+    cleanup()
+
+
 @pytest.mark.parametrize(
     ("distribution_path", "expected"),
     [

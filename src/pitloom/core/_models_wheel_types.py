@@ -74,6 +74,53 @@ def has_resolvable_pyproject_config(
     )
 
 
+_UV_BUILD_FILE_FILTER_KEYS = ("wheel-exclude", "wheel-include")
+"""``[tool.uv.build-backend]`` keys that actually filter which files
+reach the wheel -- deliberately narrower than every key that table can
+hold. ``module-name``/``module-root``/``namespace`` change *where*
+uv_build looks for the package, not which of its files it keeps, and
+empirically make no difference to the resolved file set (the langfuse
+fixture declares ``module-root`` and still matches the Hatchling
+heuristic exactly -- see the validation round cited below); including
+them here would warn on projects where the heuristic is already
+correct, same false-positive-warning failure mode this check exists to
+avoid on the *file list* itself."""
+
+
+def has_uv_build_backend_overrides(pyproject_data: dict[str, object]) -> bool:
+    """Whether the parsed ``pyproject.toml`` declares one of
+    ``[tool.uv.build-backend]``'s file-filtering keys
+    (:data:`_UV_BUILD_FILE_FILTER_KEYS`) with a non-empty value --
+    uv_build-specific include/exclude directives that only uv_build
+    itself understands.
+
+    uv_build has no static discovery module of its own (see
+    :mod:`pitloom.core._models_wheel_dispatch`), so the Hatchling-based
+    heuristic fallback used in its place has no way to honor these --
+    it can only see files that physically exist on disk, not a
+    directive telling it to exclude some of them. Confirmed empirically
+    (``working-docs/implementation/backend-file-discovery-validation.md``'s
+    "``--allow-build`` build-and-read" round, 2026-09-15): a project
+    with ``wheel-exclude`` populated is exactly the case where the
+    fallback's file list diverges from the real wheel's (over-inclusion
+    only, in the one case tested -- see that round's findings).
+
+    Used only to sharpen the fallback's own ``WARNING:`` wording with a
+    concrete pointer to ``--allow-build`` when this specific, known
+    divergence risk is present -- never to change dispatch behavior
+    itself, and never consulted for any backend other than uv_build."""
+    tool = pyproject_data.get("tool")
+    if not isinstance(tool, dict):
+        return False
+    uv = tool.get("uv")
+    if not isinstance(uv, dict):
+        return False
+    build_backend = uv.get("build-backend")
+    if not isinstance(build_backend, dict):
+        return False
+    return any(build_backend.get(key) for key in _UV_BUILD_FILE_FILTER_KEYS)
+
+
 def is_dist_info_path(distribution_path: str) -> bool:
     """Whether *distribution_path* falls under a wheel's own
     ``<name>-<version>.dist-info/`` directory -- build-generated,

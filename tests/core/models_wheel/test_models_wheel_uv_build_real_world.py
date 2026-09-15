@@ -3,33 +3,47 @@
 # SPDX-FileType: SOURCE
 # SPDX-License-Identifier: Apache-2.0
 
-"""Real ``--allow-build`` build-and-read discovery against the two
-vendored ``uv_build`` sdist fixtures.
+"""Real ``--allow-build`` build-and-read discovery against the vendored
+``uv_build`` sdist fixtures.
 
 Unlike ``test_models_wheel_real_world.py`` (fast, offline, exercises
 every *static* ``discover()`` against a real published wheel's file
-list), this test actually invokes PyPA ``build`` -- a real PEP 517
-build in an isolated venv, installing ``uv_build`` from the network --
-so it's marked ``@pytest.mark.pypi_network`` (opts out of
-``tests/conftest.py``'s default socket block) and is slow (creates a
-venv, installs build-requires, runs the real ``uv-build`` binary).
+list), ``test_build_and_read_matches_real_wheel`` below actually invokes
+PyPA ``build`` -- a real PEP 517 build in an isolated venv, installing
+``uv_build`` from the network -- so it's marked
+``@pytest.mark.pypi_network`` (opts out of ``tests/conftest.py``'s
+default socket block) and is slow (creates a venv, installs
+build-requires, runs the real ``uv-build`` binary).
 
-Both fixtures were verified empirically (2026-09-15, per the roadmap
-plan for this feature) to produce a byte-for-byte exact match against
-their real published wheel's non-``.dist-info`` file list -- zero known
-gaps for either. If a future ``uv_build`` release for either vendored
-version changes its build output, this test's exact-match assertion is
-expected to catch that as a failure, not silently mask it via a
-``known_gaps`` allowance the way the fast-path fixtures do.
+Every fixture here was verified empirically (2026-09-15, per the
+roadmap plan for this feature, then extended the same day with a wider
+real-world sweep -- see
+``working-docs/implementation/backend-file-discovery-validation.md``'s
+"``--allow-build`` build-and-read" round) to produce a byte-for-byte
+exact match against its real published wheel's non-``.dist-info`` file
+list -- zero known gaps for any of them. If a future ``uv_build``
+release for a vendored version changes its build output, this test's
+exact-match assertion is expected to catch that as a failure, not
+silently mask it via a ``known_gaps`` allowance the way the fast-path
+fixtures do.
+
+``test_default_discovery_fails_loudly_for_module_name_mismatch`` below
+is the fast, offline counterpart pinning the *other* half of the
+django-model-import fixture's story: its ``known_gaps_note`` documents
+that the DEFAULT (non-``--allow-build``) fallback doesn't just diverge
+imprecisely (as rendercv's over-inclusion does) but fails outright with
+zero files -- a real Hatchling limitation this test locks in as an
+expected, loudly-``WARNING:``-logged failure, not a silent one.
 """
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import pytest
 
-from pitloom.core._models_wheel import _discover_included_files
+from pitloom.core._models_wheel_dispatch import _discover_included_files
 from tests.fixtures.real_world import (
     REAL_WORLD_ROOT,
     extract_sdist,
@@ -95,3 +109,49 @@ def test_build_and_read_matches_real_wheel(project_dir: Path, tmp_path: Path) ->
     extra = discovered - expected
     assert not missing, f"in real wheel but not discovered: {sorted(missing)}"
     assert not extra, f"discovered but not in real wheel: {sorted(extra)}"
+
+
+def test_default_discovery_fails_loudly_for_module_name_mismatch(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Fast, offline (no ``--allow-build``, no real build, no network):
+    the django-model-import fixture's ``[tool.uv.build-backend]
+    module-name = ["djangomodelimport"]`` doesn't match what Hatchling's
+    zero-config heuristic would guess from the project name
+    (``django_model_import``) -- confirmed via manual `loom project`
+    (see the fixture's own ``known_gaps_note``) to make the DEFAULT
+    fallback fail outright with zero files, not just diverge
+    imprecisely the way rendercv's over-inclusion does. Pins this as a
+    loud, ``WARNING:``-logged failure (both the generic "not
+    backend-aware" warning and Hatchling's own specific "no directory
+    that matches the name of your project" one), not a silently-empty
+    result -- the distinction CLAUDE.md's "None vs [] is a distinct
+    signal" rule is about: this must resolve to ``get_wheel_files()``'s
+    "discovery failed" path (``None``, not an authoritative empty
+    list), which only happens when ``discover()`` itself returns
+    ``None``, confirmed here directly via ``_discover_included_files``
+    returning an empty list AND both warnings firing together."""
+    project_dir = next(
+        p for p in UV_BUILD_FIXTURES if p.name == "django-model-import-0.9.0"
+    )
+    if not sdist_available(project_dir):
+        pytest.skip(
+            f"{project_dir.name}: vendored sdist not present (excluded from "
+            "Pitloom's own sdist -- run from a full git checkout to "
+            "exercise this test)"
+        )
+
+    extracted_root = extract_sdist(project_dir, tmp_path)
+
+    with caplog.at_level(logging.WARNING):
+        included, cleanup = _discover_included_files(
+            extracted_root, assume_backend="uv_build"
+        )
+    try:
+        assert included == []
+    finally:
+        cleanup()
+
+    assert "not yet backend-aware" in caplog.text
+    assert "Hatchling file discovery failed" in caplog.text
+    assert "no directory that matches the name of your project" in caplog.text

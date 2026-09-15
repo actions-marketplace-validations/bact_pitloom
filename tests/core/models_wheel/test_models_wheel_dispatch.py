@@ -195,6 +195,46 @@ def test_get_wheel_files_unhandled_backend_falls_back_with_warning(
     assert not files
     assert "uv_build" in caplog.text
     assert "Hatchling" in caplog.text
+    assert "--allow-build" not in caplog.text
+
+
+def test_get_wheel_files_uv_build_fallback_warns_about_wheel_exclude(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Regression: a uv_build project whose pyproject.toml declares
+    [tool.uv.build-backend] wheel-exclude gets a sharpened WARNING:
+    naming the concrete divergence risk and pointing at --allow-build --
+    confirmed empirically (backend-file-discovery-validation.md's
+    2026-09-15 round) to be exactly the case where the Hatchling
+    heuristic's file list diverges from a real build's."""
+    _make_backend_project(tmp_path, "uv_build")
+    with (tmp_path / "pyproject.toml").open("a", encoding="utf-8") as f:
+        f.write('\n[tool.uv.build-backend]\nwheel-exclude = ["pkg/vendored/**"]\n')
+
+    with caplog.at_level(logging.WARNING):
+        get_wheel_files(tmp_path)
+
+    assert "[tool.uv.build-backend]" in caplog.text
+    assert "--allow-build" in caplog.text
+
+
+def test_get_wheel_files_uv_build_fallback_no_hint_without_file_filter_keys(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A uv_build project with a [tool.uv.build-backend] table present
+    but declaring only non-file-filtering keys (e.g. module-root) must
+    not get the sharpened hint -- confirmed empirically (the langfuse
+    fixture declares module-root and still matches the heuristic
+    exactly), so warning there would be a false alarm."""
+    _make_backend_project(tmp_path, "uv_build")
+    with (tmp_path / "pyproject.toml").open("a", encoding="utf-8") as f:
+        f.write('\n[tool.uv.build-backend]\nmodule-root = ""\n')
+
+    with caplog.at_level(logging.WARNING):
+        get_wheel_files(tmp_path)
+
+    assert "uv_build" in caplog.text
+    assert "--allow-build" not in caplog.text
 
 
 def test_get_wheel_files_dispatches_flit_backend_to_its_module(

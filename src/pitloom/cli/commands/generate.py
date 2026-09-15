@@ -29,7 +29,7 @@ from pitloom.cli.options import (
     add_no_build_isolation_argument,
     add_offline_argument,
     add_use_lockfile_argument,
-    warn_no_build_isolation_no_effect,
+    warn_if_no_build_isolation_without_allow_build,
 )
 
 
@@ -54,8 +54,7 @@ def _run_generate_command(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 1
-    if args.no_build_isolation and not args.allow_build:
-        warn_no_build_isolation_no_effect(args.target)
+    warn_if_no_build_isolation_without_allow_build(args, args.target)
 
     target_path = Path(args.target) if args.target else None
     if (

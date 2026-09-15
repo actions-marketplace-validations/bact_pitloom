@@ -47,10 +47,12 @@ jobs:
           cache-dependency-path: pyproject.toml
 
       - name: Install Pitloom from checkout
-        # Self-test runs project mode and embed-wheel mode.
+        # Self-test runs project mode, embed-wheel mode, and --allow-build
+        # (needs the "build" extra: PyPA build powers the build-and-read
+        # mechanism -- see pitloom.core._models_wheel_build_and_read).
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[validate]"
+          pip install -e ".[validate,build]"
           pip install build==1.6.0 check-wheel-contents==0.6.3 \
             installer==1.0.1
 
@@ -227,3 +229,84 @@ jobs:
 
           # 4. pip install --dry-run
           pip install --dry-run --target /tmp/pip-test --no-deps dist/*.whl
+
+      - name: Extract a real uv_build sdist fixture for --allow-build
+        # rendercv (uv_build-backed, no static discovery module of its own
+        # -- see pitloom.core._models_wheel_dispatch) exercises the generic,
+        # backend-agnostic build-and-read mechanism end to end through the
+        # Action, not just via unit tests. A real vendored sdist, not a
+        # synthetic fixture: --allow-build runs a real PEP 517 build, so
+        # the point is proving it against an actual third-party project.
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/uv-build-fixture"
+          tar -xzf \
+            tests/fixtures/real-world-projects/uv_build/rendercv-2.8/rendercv-2.8.tar.gz \
+            -C "${RUNNER_TEMP}/uv-build-fixture"
+          echo "UV_BUILD_PROJECT_PATH=${RUNNER_TEMP}/uv-build-fixture/rendercv-2.8" \
+            >> "${GITHUB_ENV}"
+
+      - name: Run Pitloom action with --allow-build against a uv_build project
+        id: pitloom-allow-build
+        uses: ./
+        with:
+          project-path: "${{ env.UV_BUILD_PROJECT_PATH }}"
+          output: "uv-build-allow-build-sbom.spdx3.json"
+          pretty: "true"
+          allow-build: "true"
+          install: "false"
+          upload-artifact: "false"
+
+      - name: Assert --allow-build discovered the project's real file list
+        # Without --allow-build, uv_build has no static discovery module
+        # (see backend_discoverers in _models_wheel_dispatch.py) and falls
+        # back to the Hatchling-based heuristic with a WARNING: -- for a
+        # foreign, non-Hatchling layout like rendercv's, that heuristic
+        # resolves far fewer files than the real wheel. Asserting a
+        # comfortably-real file count (the actual published wheel has 143
+        # files, per tests/fixtures/real-world-projects/uv_build/
+        # rendercv-2.8/expected.json) proves the real PEP 517 build ran,
+        # not just that some fallback file list happened to be non-empty.
+        run: |
+          set -euo pipefail
+
+          SBOM_PATH="${{ steps.pitloom-allow-build.outputs.sbom-path }}"
+          echo "uv_build --allow-build SBOM path: ${SBOM_PATH}"
+
+          if [ ! -s "${SBOM_PATH}" ]; then
+            echo "::error title=Missing SBOM::${SBOM_PATH} was not created."
+            exit 1
+          fi
+
+          python - "${SBOM_PATH}" <<'EOF'
+          import json
+          import sys
+
+          sbom_path = sys.argv[1]
+          with open(sbom_path, encoding="utf-8") as f:
+              sbom = json.load(f)
+
+          graph = sbom.get("@graph", [])
+          file_count = sum(1 for e in graph if e.get("type") == "software_File")
+          names = [e.get("name") for e in graph if e.get("type") == "software_Package"]
+
+          if "rendercv" not in names:
+              print(
+                  f"ERROR: 'rendercv' package not found in SBOM. Packages: {names}",
+                  file=sys.stderr,
+              )
+              sys.exit(1)
+
+          MIN_EXPECTED_FILES = 100  # real wheel has 143; a heuristic-only
+          # fallback (no real build) would resolve nowhere close to this.
+          if file_count < MIN_EXPECTED_FILES:
+              print(
+                  f"ERROR: only {file_count} software_File entries found -- "
+                  f"expected >= {MIN_EXPECTED_FILES}, suggesting --allow-build's "
+                  "real PEP 517 build did not actually run.",
+                  file=sys.stderr,
+              )
+              sys.exit(1)
+
+          print(f"--allow-build OK: {file_count} files discovered for rendercv.")
+          EOF

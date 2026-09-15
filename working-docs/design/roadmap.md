@@ -1,6 +1,6 @@
 ---
 Created: 2026-04-14
-Last-Modified: 2026-09-14
+Last-Modified: 2026-09-15
 SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 SPDX-FileType: DOCUMENTATION
 SPDX-License-Identifier: CC0-1.0
@@ -142,6 +142,61 @@ design pass):
   own toolchain happens to be available -- no further Pitloom code
   needed. See [non-hatchling-file-discovery.md](non-hatchling-file-discovery.md)
   for the full design/history.
+- [ ] **Immediate: consolidate the duplicated blanket-except pattern
+  across Track A backend discovery modules** -- the "`try: ... except
+  Exception as exc: log.warning('<Backend> file discovery failed for
+  %s: %s', ...); return None`" contract is byte-for-byte duplicated
+  across `_models_wheel_{setuptools,poetry,pdm,flit}.py`. Identified
+  during the `--allow-build` build-and-read work (PR #215) and
+  deliberately deferred out of that changeset (cosmetic, unrelated to
+  landing `uv_build` support, adds regression surface to four stable,
+  individually real-world-validated modules for no feature benefit) --
+  see that PR's Part D.
+- [ ] **`--allow-build`-sourced files never match a `pitloom ids
+  generate`-pinned registry entry** -- `IdRegistry.generate()` (`ids.py`)
+  keys every entry by physical, project-root-relative path; a
+  build-and-read-sourced `ProjectFile.physical_path` is an ephemeral
+  temp path instead (see `non-hatchling-file-discovery.md`), so neither
+  of `_document_files.py`'s two lookup attempts (`physical_path`, then
+  `distribution_path`) can ever match an `ids generate`-populated entry
+  for such a file -- a new spdxId is silently minted instead of the
+  pre-pinned one. Harvest-to-harvest id stability (a normal `loom
+  project` run finding ids a *previous* `loom project` run wrote) is
+  unaffected -- both write and read sides key by `distribution_path`
+  there. Identified during PR #215's review. Real fix needs
+  `_document_files.py`'s registry lookup to gain a third candidate
+  (`project_dir`-relative `distribution_path`, checked for existence)
+  or equivalent, which needs threading `project_dir` into a currently
+  filesystem-free assembly function -- a real design change, not a
+  quick patch.
+- [ ] **Real static `uv_build` discoverer for `[tool.uv.build-backend]`**
+  -- validated empirically (2026-09-15, see
+  [backend-file-discovery-validation.md](../implementation/backend-file-discovery-validation.md#--allow-build-build-and-read-with-vs-without-2026-09-15))
+  that the Hatchling-heuristic fallback over-includes files a project's
+  own `wheel-exclude`/`wheel-include`/`module-name` directives in
+  `[tool.uv.build-backend]` would drop (15 extra files for the
+  rendercv-2.8 fixture, all correctly excluded by `--allow-build`'s
+  real build). `--allow-build` already closes this gap exactly, so this
+  is a precision improvement for the *default* (no-flag) path only --
+  parsing `[tool.uv.build-backend]` statically, the same shape of work
+  as the existing setuptools/Poetry/PDM/Flit modules. **Partially
+  addressed** (2026-09-15): the fallback's `WARNING:` now names this
+  specific divergence risk and points at `--allow-build` when
+  `wheel-exclude`/`wheel-include` is actually present
+  (`has_uv_build_backend_overrides()` in `_models_wheel_types.py`) --
+  users are no longer left to discover the gap themselves, even though
+  the file list itself still isn't fixed without a real static module.
+  **Wider sweep** (2026-09-15, 9 more real packages, see
+  [backend-file-discovery-validation.md](../implementation/backend-file-discovery-validation.md#--allow-build-wider-sweep-9-more-real-uv_build-packages-2026-09-15))
+  found a second, more severe failure shape: a `module-name` that
+  doesn't match Hatchling's zero-config guess (django-model-import)
+  makes the fallback fail outright with zero files, not just
+  over-include -- already loudly `WARNING:`-logged (not silent), and a
+  future real discoverer would need to handle two distinct config
+  schemas, not one: `[tool.uv.build-backend]` (current) and an older
+  flat `[tool.uv_build]` (found on ffmpeg-normalize, currently invisible
+  to `has_uv_build_backend_overrides()` too, though no practical
+  divergence was observed for it).
 
 ### Build backend improvements
 
@@ -319,6 +374,22 @@ design pass):
   or remote release archives, capturing upstream VCS provenance (commit SHA,
   tag, repo URL) and delegating parsing to `extract.project` and `extract.lock`.
   See [remote-source-ingestion.md](remote-source-ingestion.md).
+
+### Testing / CI
+
+- [ ] **Real Windows CI run** -- `.github/workflows/test.yml` currently
+  runs `ubuntu-latest` only (Python 3.10, 3.14), despite CLAUDE.md's
+  "Pitloom must work seamlessly across Windows, macOS, and Linux"
+  requirement. Add a `windows-latest` job (Python 3.12). Flagged
+  explicitly during PR #215's review (`--allow-build`'s cross-platform
+  notes -- temp-dir handling, path separators -- are verified only by
+  reasoning, not by an actual Windows run) but this gap predates that
+  PR and affects every backend/module, not just build-and-read.
+- [ ] **Real macOS CI run** -- same gap, `macos-latest` job (Python
+  3.13), once the Windows job above is in place. Treat each CI-matrix
+  addition as its own reviewed step (a "new CI dependency with broad
+  impact" per CLAUDE.md's Boundaries section) rather than bundling it
+  into an unrelated feature PR.
 
 ### Diagnostics / logging
 

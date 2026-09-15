@@ -84,6 +84,113 @@ def test_generate_project_sbom_defers_cleanup_past_ai_model_scan(
     assert "could not read for usage scanning" not in caplog.text
 
 
+@pytest.mark.parametrize(
+    "target",
+    [
+        "pitloom.assemble._generators.resolve_license_file_entries",
+        "pitloom.core.project.ProjectMetadata.replace_with_fresh_containers",
+        "pitloom.assemble._generators.scan_project_for_ai_models",
+        "pitloom.assemble._generators.run_enrichers_for_models",
+    ],
+    ids=[
+        "license_resolution",
+        "fresh_containers",
+        "ai_model_scan",
+        "enrichment",
+    ],
+)
+def test_generate_project_sbom_cleanup_runs_even_if_step_raises(
+    tmp_path: Path, target: str
+) -> None:
+    """Regression, one case per step inside the try/finally block that
+    guards ``cleanup_discovery()`` (see ``_generators.py``'s own comment
+    on that block): a build-and-read temp directory must not leak
+    regardless of WHICH of the four steps between ``get_wheel_files()``
+    returning and the function moving on (license-file resolution, the
+    fresh-containers copy, AI-model scanning, enrichment) raises --
+    every one of them used to run *outside* the ``try/finally`` before
+    this was fixed, and a future refactor that moves any single one of
+    them back outside it must fail exactly this one parametrize case,
+    not silently pass the other three."""
+    project_dir = _make_simple_project(tmp_path)
+    cleanup_calls: list[str] = []
+
+    def _cleanup() -> None:
+        cleanup_calls.append("cleanup")
+
+    with mock.patch(
+        "pitloom.assemble._generators.get_wheel_files",
+        return_value=(None, [], _cleanup),
+    ):
+        with mock.patch(target, side_effect=RuntimeError("boom")):
+            with pytest.raises(RuntimeError, match="boom"):
+                generate_project_sbom(project_dir, offline=True, allow_build=True)
+
+    assert cleanup_calls == ["cleanup"]
+
+
+def test_generate_project_sbom_cleanup_runs_strictly_last_in_order(
+    tmp_path: Path,
+) -> None:
+    """Order-sensitivity guard, stronger than the parametrized
+    exception-based test above: that test only proves cleanup is called
+    at all when a step raises, which does NOT catch a step being moved
+    to run *after* cleanup instead of before it -- cleanup would still
+    end up called exactly once either way, so a call-count assertion
+    passes even for a real ordering regression (confirmed: temporarily
+    moving ``run_enrichers_for_models()`` to run after
+    ``cleanup_discovery()`` left every case of that parametrized test
+    green). This test instead records every step's own name into one
+    shared list and asserts the exact order, so a future refactor that
+    reorders or hoists any single step across the try/finally boundary
+    is caught precisely, regardless of whether that step happens to
+    raise."""
+    project_dir = _make_simple_project(tmp_path)
+    call_order: list[str] = []
+
+    def _cleanup() -> None:
+        call_order.append("cleanup")
+
+    def _fake_license_resolution(*_args: object, **_kwargs: object) -> list[object]:
+        call_order.append("license_resolution")
+        return []
+
+    def _fake_scan(*_args: object, **_kwargs: object) -> list[object]:
+        call_order.append("ai_model_scan")
+        return []
+
+    def _fake_enrich(*_args: object, **_kwargs: object) -> list[object]:
+        call_order.append("enrichment")
+        return []
+
+    with (
+        mock.patch(
+            "pitloom.assemble._generators.get_wheel_files",
+            return_value=(None, [], _cleanup),
+        ),
+        mock.patch(
+            "pitloom.assemble._generators.resolve_license_file_entries",
+            side_effect=_fake_license_resolution,
+        ),
+        mock.patch(
+            "pitloom.assemble._generators.scan_project_for_ai_models",
+            side_effect=_fake_scan,
+        ),
+        mock.patch(
+            "pitloom.assemble._generators.run_enrichers_for_models",
+            side_effect=_fake_enrich,
+        ),
+    ):
+        generate_project_sbom(project_dir, offline=True, allow_build=True)
+
+    assert call_order == [
+        "license_resolution",
+        "ai_model_scan",
+        "enrichment",
+        "cleanup",
+    ]
+
+
 def test_generate_project_sbom_defaults_allow_build_false(tmp_path: Path) -> None:
     project_dir = _make_simple_project(tmp_path)
 

@@ -21,7 +21,7 @@ from pitloom.assemble._model_generator import (
 )
 from pitloom.assemble.spdx3.document import build, build_deployed
 from pitloom.assemble.spdx3.fragments import merge_fragments
-from pitloom.core._models_wheel import _noop_cleanup
+from pitloom.core._models_wheel_dispatch import _noop_cleanup
 from pitloom.core.config import VALID_CONTENT_TYPE_METHODS, PitloomConfig
 from pitloom.core.creation import CreationMetadata
 from pitloom.core.document import DocumentModel
@@ -232,37 +232,44 @@ def generate_project_sbom(
             allow_build=allow_build,
             no_build_isolation=no_build_isolation,
         )
-        # Pitloom's file discovery is, by default, a static config-driven
-        # walk, never a real wheel build (the sole opt-in exception is
-        # allow_build's build-and-read mechanism) -- it never reproduces
-        # the `.dist-info/licenses/...` entries a real build would add for
-        # `[project.license-files]`. Resolve those directly so they still
-        # show up in the SBOM's file list, before
-        # replace_with_fresh_containers() below makes `project_files` the
-        # metadata's authoritative file list for this (directory) target
-        # -- every other dict/list field (provenance, field_conflicts,
-        # etc.) also gets its own fresh copy, so the caller's own
-        # `project_metadata` can never be silently mutated as a side
-        # effect of anything downstream.
-        project_files = project_files + resolve_license_file_entries(
-            target_path,
-            project_metadata.name,
-            project_metadata.version,
-            project_metadata.license_files,
-        )
-        project_metadata = project_metadata.replace_with_fresh_containers(
-            files=project_files
-        )
         search_root = target_path
 
     # cleanup_discovery (a no-op unless allow_build's build-and-read
-    # sourced project_files) must stay alive through every step below
-    # that still re-reads a ProjectFile's bytes from disk via its
-    # physical_path -- AI-model scanning and enrichment are the last
-    # such steps; nothing after this block reads file bytes again
-    # (document assembly only uses distribution_path/physical_path as
-    # string keys, never re-opens the file).
+    # sourced project_files) must stay alive -- and this whole block
+    # must run inside its try -- through every step below that either
+    # re-reads a ProjectFile's bytes from disk via physical_path (AI-
+    # model scanning, enrichment) or could itself raise before reaching
+    # them (license-file resolution, the fresh-containers copy): any of
+    # these raising before cleanup_discovery() runs would leak the
+    # build-and-read temp directory. Nothing after this block reads
+    # file bytes again (document assembly only uses distribution_path/
+    # physical_path as string keys, never re-opens the file).
     try:
+        if not target_path.is_file():
+            # Pitloom's file discovery is, by default, a static
+            # config-driven walk, never a real wheel build (the sole
+            # opt-in exception is allow_build's build-and-read
+            # mechanism) -- it never reproduces the
+            # `.dist-info/licenses/...` entries a real build would add
+            # for `[project.license-files]`. Resolve those directly so
+            # they still show up in the SBOM's file list, before
+            # replace_with_fresh_containers() below makes
+            # `project_files` the metadata's authoritative file list
+            # for this (directory) target -- every other dict/list
+            # field (provenance, field_conflicts, etc.) also gets its
+            # own fresh copy, so the caller's own `project_metadata`
+            # can never be silently mutated as a side effect of
+            # anything downstream.
+            project_files = project_files + resolve_license_file_entries(
+                target_path,
+                project_metadata.name,
+                project_metadata.version,
+                project_metadata.license_files,
+            )
+            project_metadata = project_metadata.replace_with_fresh_containers(
+                files=project_files
+            )
+
         ai_models = (
             scan_project_for_ai_models(target_path, project_files)
             if target_path.is_dir()

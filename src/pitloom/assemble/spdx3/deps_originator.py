@@ -25,6 +25,7 @@ from urllib.parse import urlparse
 from spdx_python_model.bindings import v3_0_1 as spdx3
 
 from pitloom.assemble.spdx3.provenance import ProvenanceEncoder, emit_provenance
+from pitloom.core._models_wheel_types import is_dist_info_path
 from pitloom.core.models import generate_spdx_id
 from pitloom.core.provenance import ProvenanceConfig
 from pitloom.export.spdx3_json import Spdx3JsonExporter, require_spdx_id
@@ -126,7 +127,7 @@ def _resolve_author_or_maintainer(
 
 def _read_candidate_copyright(candidate: Any) -> str | None:
     """Read head of dist-info candidate file and extract copyright regex match."""
-    if not str(candidate).split("/", 1)[0].endswith(".dist-info"):
+    if not is_dist_info_path(str(candidate)):
         return None
     try:
         text = candidate.read_text(encoding="utf-8")

@@ -558,6 +558,22 @@ regenerate the SBOM with `--registry` pointing at that file and confirm
 IDs are stable (byte-identical `@id` values) across repeated runs --
 this is what "Auto-sync the Loom ID registry" in `roadmap.md` depends on.
 
+**10. `--allow-build` with vs. without, and vs. ground truth**: general
+pattern for any change touching backend file-discovery dispatch or the
+build-and-read mechanism -- run `loom project` twice (with/without
+`--allow-build`) against the same project and diff the `software_File`
+results; a registered backend whose static discovery already succeeds
+must produce byte-identical output either way (a real build must never
+run then), and for a backend with no static module the two runs show
+exactly what the heuristic fallback gets wrong relative to a real
+build. Automated as `scripts/compare_allow_build.py` (works against a
+project directory, an sdist archive, or a vendored fixture via
+`--fixture BACKEND/NAME`; cross-checks against a fixture's own
+`expected.json` when one exists) -- see
+`working-docs/implementation/backend-file-discovery-validation.md`'s
+"`--allow-build` build-and-read" round for a worked example and
+`scripts/compare_allow_build.py`'s own docstring for usage.
+
 ## Shell scripts
 
 - Account for GNU/BSD/macOS/Unix tool differences.

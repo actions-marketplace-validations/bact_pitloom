@@ -27,7 +27,7 @@ from pathlib import Path
 
 import pytest
 
-from pitloom.core._models_wheel import _discover_included_files
+from pitloom.core._models_wheel_dispatch import _discover_included_files
 from tests.fixtures.real_world import (
     expected_distribution_paths,
     extract_sdist,

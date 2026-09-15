@@ -110,7 +110,16 @@ def _extract_wheel_to_included_files(
     composed via :class:`~pathlib.Path`'s own ``/`` operator, which
     accepts a ``/``-separated string as multiple path components on
     every platform including Windows -- never raw string concatenation.
+
+    Zip-slip guard: unlike every static discoverer (which only ever
+    walks real files already inside *project_dir*), this one writes
+    bytes to disk from a zip archive a real, external build process
+    just produced -- a ``../``-containing or absolute entry name (from
+    a buggy or malicious build backend) must never be allowed to
+    resolve outside *extract_dir* and overwrite an unrelated file
+    elsewhere on the filesystem.
     """
+    resolved_extract_dir = extract_dir.resolve()
     files: list[IncludedFile] = []
     with zipfile.ZipFile(wheel_path) as zf:
         for info in zf.infolist():
@@ -120,6 +129,14 @@ def _extract_wheel_to_included_files(
             if is_dist_info_path(distribution_path):
                 continue
             target = extract_dir / distribution_path
+            if not target.resolve().is_relative_to(resolved_extract_dir):
+                log.warning(
+                    "Build: %s: wheel entry %r resolves outside the "
+                    "extraction directory -- skipped, not written to disk",
+                    wheel_path,
+                    distribution_path,
+                )
+                continue
             target.parent.mkdir(parents=True, exist_ok=True)
             with zf.open(info) as src, target.open("wb") as dst:
                 shutil.copyfileobj(src, dst)

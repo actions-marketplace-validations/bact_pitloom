@@ -183,25 +183,34 @@ def _build_sbom_from_project_and_wheel(
         allow_build=allow_build,
         no_build_isolation=no_build_isolation,
     )
-    # Layer content-type/file-header extras onto the wheel's own file
-    # records rather than replacing them outright: replacing would drop
-    # .dist-info entries and any build-hook-injected files (e.g. compiled
-    # extensions, auditwheel-repaired shared libraries) that read_wheel()
-    # found in the actual wheel but that a source-tree rescan can't see.
-    merged_files = _merge_file_extras(wheel_metadata.files, project_files)
-    # replace_with_fresh_containers(), not a bare dataclasses.replace() or
-    # an in-place `.files =` assignment: every dict/list field NOT given
-    # here (provenance, field_conflicts, etc.) also gets its own fresh
-    # copy, so the caller's wheel_metadata (e.g. embed_wheel_sbom's
-    # read_wheel() result) can never be silently mutated as a side effect
-    # of anything downstream mutating this SBOM's own project_metadata.
-    project_metadata = wheel_metadata.replace_with_fresh_containers(files=merged_files)
-    merkle_root = _compute_wheel_merkle_root(merged_files)
     # cleanup_discovery (a no-op unless allow_build's build-and-read
-    # sourced project_files) must stay alive through both steps below --
-    # each still re-reads a ProjectFile's bytes from disk via
-    # physical_path -- not just through get_wheel_files() itself.
+    # sourced project_files) must stay alive -- and this whole block
+    # must run inside its try -- through every step below that either
+    # re-reads a ProjectFile's bytes from disk via physical_path (AI-
+    # model scanning, enrichment) or could itself raise before reaching
+    # them (the file-extras merge, the fresh-containers copy): any of
+    # these raising before cleanup_discovery() runs would leak the
+    # build-and-read temp directory.
     try:
+        # Layer content-type/file-header extras onto the wheel's own
+        # file records rather than replacing them outright: replacing
+        # would drop .dist-info entries and any build-hook-injected
+        # files (e.g. compiled extensions, auditwheel-repaired shared
+        # libraries) that read_wheel() found in the actual wheel but
+        # that a source-tree rescan can't see.
+        merged_files = _merge_file_extras(wheel_metadata.files, project_files)
+        # replace_with_fresh_containers(), not a bare
+        # dataclasses.replace() or an in-place `.files =` assignment:
+        # every dict/list field NOT given here (provenance,
+        # field_conflicts, etc.) also gets its own fresh copy, so the
+        # caller's wheel_metadata (e.g. embed_wheel_sbom's
+        # read_wheel() result) can never be silently mutated as a
+        # side effect of anything downstream mutating this SBOM's own
+        # project_metadata.
+        project_metadata = wheel_metadata.replace_with_fresh_containers(
+            files=merged_files
+        )
+        merkle_root = _compute_wheel_merkle_root(merged_files)
         ai_models = scan_project_for_ai_models(project_dir, project_files)
         enrichment_results = run_enrichers_for_models(
             ai_models, pitloom_config.enrich, project_dir

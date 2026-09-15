@@ -33,7 +33,7 @@ from pitloom.cli.options import (
     add_allow_build_argument,
     add_no_build_isolation_argument,
     add_offline_argument,
-    warn_no_build_isolation_no_effect,
+    warn_if_no_build_isolation_without_allow_build,
 )
 from pitloom.core.config import PitloomConfig
 from pitloom.core.creation import CreationMetadata
@@ -222,8 +222,9 @@ def _run_embed_wheel_command(args: argparse.Namespace) -> int:
         )
         return 1
 
-    if args.no_build_isolation and not args.allow_build:
-        warn_no_build_isolation_no_effect(args.project_dir or "embed-wheel")
+    warn_if_no_build_isolation_without_allow_build(
+        args, args.project_dir or "embed-wheel"
+    )
 
     resolved = _resolve_project_dir_and_config(args.project_dir)
     if resolved is None:
