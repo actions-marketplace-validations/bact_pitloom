@@ -8,11 +8,10 @@
 from __future__ import annotations
 
 import argparse
+import errno
 import hashlib
-import io
 import json
 import logging
-import stat
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -30,7 +29,14 @@ from pitloom.cli.commands.utils import (
     cli_error_handler,
 )
 from pitloom.core.config import FragmentConfig, read_pitloom_config
-from pitloom.extract._json_io import load_json_bytes
+
+#: errno values Path.exists()/is_file() themselves treat as "this path
+#: doesn't apply" rather than a real failure -- used below so a stat()
+#: failure is classified the same way, instead of collapsing every OSError
+#: (including a permission error) into "missing".
+_STAT_MISSING_ERRNOS = frozenset(
+    {errno.ENOENT, errno.ENOTDIR, errno.EBADF, errno.ELOOP}
+)
 
 log = logging.getLogger(__name__)
 
@@ -68,8 +74,10 @@ def _fragment_read_status(
     :func:`_fragment_sha256_status` -- avoids reading the same fragment
     file more than once. Returns ``(raw_bytes, read_ok, element_count)``:
 
-    - ``raw_bytes`` is the file's contents, or ``None`` if it couldn't be
-      read at all.
+    - ``raw_bytes`` is the file's contents, or ``None`` only if the file
+      itself couldn't be read (not on a JSON-parse failure) -- so a
+      fragment with broken JSON can still have its hash verified by
+      :func:`_fragment_sha256_status`, matching pre-existing behavior.
     - ``read_ok`` is False on a read/JSON-parse failure, or when the JSON
       doesn't parse as a valid SPDX3 JSON-LD document -- the same two
       conditions that make ``merge_fragments()`` treat a ``required=True``
@@ -85,20 +93,24 @@ def _fragment_read_status(
     read, JSON-parse, or SPDX3-parse failure.
     """
     try:
-        raw, data = load_json_bytes(fragment_path)
+        raw = fragment_path.read_bytes()
     except OSError as exc:
         log.warning(
             _fragment_read_failure_message(fragment_path, exc, required=required)
         )
         return None, False, None
+    try:
+        data = json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         log.warning(
             _fragment_read_failure_message(fragment_path, exc, required=required)
         )
-        return None, False, None
+        return raw, False, None
     elements = len(data.get("@graph", [])) if isinstance(data, dict) else None
     try:
-        spdx3.JSONLDDeserializer().read(io.BytesIO(raw), spdx3.SHACLObjectSet())
+        # deserialize_data(), not read() -- data is already parsed above,
+        # no need to hand the deserializer raw bytes to re-parse as JSON.
+        spdx3.JSONLDDeserializer().deserialize_data(data, spdx3.SHACLObjectSet())
     except Exception as exc:  # pylint: disable=broad-exception-caught
         # Matches merge_fragments()'s own broad catch (fragments.py) --
         # the JSON-LD deserializer can raise a wide variety of exception
@@ -166,20 +178,33 @@ def _print_fragment_list_line(
 
 def _report_fragment(project_dir: Path, frag: FragmentConfig) -> bool:
     """Log/print one configured fragment's status; return True if it's a
-    ``required=True`` fragment that's missing OR unreadable -- the same
-    condition that makes ``merge_fragments()`` raise ``FragmentMergeError``,
-    so the exit code stays a reliable predictor of a real build's outcome."""
+    ``required=True`` fragment that's missing, unreadable, or not a valid
+    SPDX3 JSON-LD document on its own -- the same per-fragment conditions
+    that make ``merge_fragments()`` raise ``FragmentMergeError``. This
+    predicts a real build's per-fragment read/parse outcome, not the
+    later cross-fragment merge itself (e.g. a dangling-reference failure
+    that only surfaces once fragments are merged together isn't caught
+    here -- see ``_raise_on_dangling_references`` in
+    ``assemble.spdx3.fragments``)."""
     fragment_path = project_dir / frag.path
     # A single stat() up front, reused for both `exists` and `modified` --
     # avoids both a second syscall and a TOCTOU gap where a later
     # separate stat() could raise on a file removed in between (the read
     # below has its own OSError handling, but stat() previously didn't).
+    # `exists` matches merge_fragments()'s own `.exists()` semantics (True
+    # for any path present, regardless of type) -- a stat() failure only
+    # means "missing" for the same errno set Path.exists()/is_file() treat
+    # that way; anything else (e.g. a permission error) is a real,
+    # present-but-inaccessible path, and the read attempt below reports
+    # that accurately instead of this function mislabeling it "not found".
     try:
         stat_result = fragment_path.stat()
-        mtime = stat_result.st_mtime if stat.S_ISREG(stat_result.st_mode) else None
-    except OSError:
+    except OSError as exc:
+        exists = exc.errno not in _STAT_MISSING_ERRNOS
         mtime = None
-    exists = mtime is not None
+    else:
+        exists = True
+        mtime = stat_result.st_mtime
     if not exists:
         log.warning(_missing_fragment_message(fragment_path, required=frag.required))
         raw, read_ok, elements = None, False, None
