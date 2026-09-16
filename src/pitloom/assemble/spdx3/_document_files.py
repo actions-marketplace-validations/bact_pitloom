@@ -331,7 +331,7 @@ def _add_package_files(
 
         registered_id = None
         if registry is not None:
-            # physical_path (project-root-relative, e.g. from `pitloom ids
+            # physical_path (project-root-relative, e.g. from `loom ids
             # generate`'s filesystem scan) is tried first; distribution_path
             # (the built package's internal path -- the only path a
             # software_File element's `name` field actually carries, so

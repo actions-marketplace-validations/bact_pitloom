@@ -47,7 +47,7 @@ log = logging.getLogger(__name__)
 
 # ai_AIPackage is deliberately excluded from auto-harvest: its correct
 # registry key is the model file's stem (only ever registered via the
-# extras-free `pitloom ids generate`), not its `.name`, which is
+# extras-free `loom ids generate`), not its `.name`, which is
 # extraction-dependent and varies with whether AI-format libraries are
 # installed. Harvesting it by name would write entries that never match
 # future lookups (see `_lookup_ai_model_entity`,
