@@ -9,12 +9,16 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import io
 import json
 import logging
+import stat
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from spdx_python_model.bindings import v3_0_1 as spdx3
 
 from pitloom.assemble.spdx3.fragments import (
     _fragment_read_failure_message,
@@ -26,6 +30,7 @@ from pitloom.cli.commands.utils import (
     cli_error_handler,
 )
 from pitloom.core.config import FragmentConfig, read_pitloom_config
+from pitloom.extract._json_io import load_json_bytes
 
 log = logging.getLogger(__name__)
 
@@ -58,37 +63,51 @@ def _run_fragment_validate(args: argparse.Namespace) -> int:
 def _fragment_read_status(
     fragment_path: Path, *, required: bool
 ) -> tuple[bytes | None, bool, int | None]:
-    """Read and JSON-parse *fragment_path* once, for both the element
-    count and the SHA-256 check below -- avoids reading the same fragment
-    file twice. Returns ``(raw_bytes, read_ok, element_count)``:
+    """Read *fragment_path* once, for the element count, the SPDX3-
+    validity check below, and the SHA-256 check in
+    :func:`_fragment_sha256_status` -- avoids reading the same fragment
+    file more than once. Returns ``(raw_bytes, read_ok, element_count)``:
 
     - ``raw_bytes`` is the file's contents, or ``None`` if it couldn't be
       read at all.
-    - ``read_ok`` is False on any read or JSON-parse failure -- this is
-      the same condition that also makes ``merge_fragments()`` treat a
-      ``required=True`` fragment as unmet, so callers should key exit-code
-      decisions on this, not on ``element_count``.
+    - ``read_ok`` is False on a read/JSON-parse failure, or when the JSON
+      doesn't parse as a valid SPDX3 JSON-LD document -- the same two
+      conditions that make ``merge_fragments()`` treat a ``required=True``
+      fragment as unmet, so callers should key exit-code decisions on
+      this, not on ``element_count``. (Syntactically valid JSON that
+      isn't valid SPDX3 -- e.g. missing ``@context``, unrecognised
+      ``type`` values -- fails here too, not just outright unparseable
+      JSON.)
     - ``element_count`` is the fragment's ``@graph`` length, or ``None``
       if the parsed JSON isn't an object (not itself a read failure).
 
-    Logs a WARNING (shared wording with ``merge_fragments()``) on any read
-    or parse failure.
+    Logs a WARNING (shared wording with ``merge_fragments()``) on any
+    read, JSON-parse, or SPDX3-parse failure.
     """
     try:
-        raw = fragment_path.read_bytes()
+        raw, data = load_json_bytes(fragment_path)
     except OSError as exc:
         log.warning(
             _fragment_read_failure_message(fragment_path, exc, required=required)
         )
         return None, False, None
-    try:
-        data = json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         log.warning(
             _fragment_read_failure_message(fragment_path, exc, required=required)
         )
-        return raw, False, None
+        return None, False, None
     elements = len(data.get("@graph", [])) if isinstance(data, dict) else None
+    try:
+        spdx3.JSONLDDeserializer().read(io.BytesIO(raw), spdx3.SHACLObjectSet())
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        # Matches merge_fragments()'s own broad catch (fragments.py) --
+        # the JSON-LD deserializer can raise a wide variety of exception
+        # types for a malformed/non-SPDX3 document, none of them a stable
+        # public contract worth narrowing to.
+        log.warning(
+            _fragment_read_failure_message(fragment_path, exc, required=required)
+        )
+        return raw, False, elements
     return raw, True, elements
 
 
@@ -116,11 +135,10 @@ def _fragment_sha256_status(
     return "mismatch"
 
 
-def _fragment_modified(fragment_path: Path) -> str:
-    """ISO 8601 UTC last-modified timestamp for *fragment_path*."""
-    return datetime.fromtimestamp(
-        fragment_path.stat().st_mtime, tz=timezone.utc
-    ).isoformat()
+def _fragment_modified(mtime: float) -> str:
+    """ISO 8601 UTC last-modified timestamp for a ``stat()`` result's
+    ``st_mtime``."""
+    return datetime.fromtimestamp(mtime, tz=timezone.utc).isoformat()
 
 
 def _print_fragment_list_line(
@@ -152,7 +170,16 @@ def _report_fragment(project_dir: Path, frag: FragmentConfig) -> bool:
     condition that makes ``merge_fragments()`` raise ``FragmentMergeError``,
     so the exit code stays a reliable predictor of a real build's outcome."""
     fragment_path = project_dir / frag.path
-    exists = fragment_path.is_file()
+    # A single stat() up front, reused for both `exists` and `modified` --
+    # avoids both a second syscall and a TOCTOU gap where a later
+    # separate stat() could raise on a file removed in between (the read
+    # below has its own OSError handling, but stat() previously didn't).
+    try:
+        stat_result = fragment_path.stat()
+        mtime = stat_result.st_mtime if stat.S_ISREG(stat_result.st_mode) else None
+    except OSError:
+        mtime = None
+    exists = mtime is not None
     if not exists:
         log.warning(_missing_fragment_message(fragment_path, required=frag.required))
         raw, read_ok, elements = None, False, None
@@ -162,7 +189,7 @@ def _report_fragment(project_dir: Path, frag: FragmentConfig) -> bool:
         )
 
     sha_status = _fragment_sha256_status(raw, frag.sha256, fragment_path)
-    modified = _fragment_modified(fragment_path) if exists else None
+    modified = _fragment_modified(mtime) if mtime is not None else None
 
     _print_fragment_list_line(
         frag, exists=exists, elements=elements, sha_status=sha_status, modified=modified

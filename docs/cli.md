@@ -305,9 +305,10 @@ depending on whether a `sha256` is configured and, if so, whether the
 file could be checked -- display only, not yet enforced before merge.
 A missing or broken fragment logs the same `WARNING:` wording a real
 build would log for it. Exits non-zero only when a `required = true`
-fragment is missing -- the one condition that would also fail an actual
-build (see [Merge fragments](#merge-fragments) above); a non-required
-missing fragment or a `SHA256` mismatch is informational only.
+fragment is missing, unreadable, or fails to parse as valid SPDX3
+JSON-LD -- the same conditions that would also fail an actual build
+(see [Merge fragments](#merge-fragments) above); a non-required missing
+fragment or a `SHA256` mismatch is informational only.
 
 ### Pin ids across fragments
 

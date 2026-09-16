@@ -32,6 +32,7 @@ from packaging.specifiers import SpecifierSet
 from packaging.utils import canonicalize_name
 from packaging.version import InvalidVersion, Version
 
+from pitloom.extract._json_io import load_json_bytes
 from pitloom.extract._toml_io import TOMLDecodeError, load_toml_file
 from pitloom.extract.lock._common_warnings import (
     warn_conflicting_versions,
@@ -175,8 +176,7 @@ def load_lock_json(lock_path: Path) -> dict[str, Any] | None:
         if cached is not None:
             return cached
     try:
-        with open(lock_path, encoding="utf-8") as f:
-            data = json.load(f)
+        _raw, data = load_json_bytes(lock_path)
     except FileNotFoundError:
         return None
     except (OSError, json.JSONDecodeError, UnicodeDecodeError) as exc:
