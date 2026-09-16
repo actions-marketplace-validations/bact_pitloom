@@ -17,18 +17,18 @@ and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Full release notes: <https://github.com/bact/pitloom/releases>
-- Commit history: <https://github.com/bact/pitloom/compare/v0.16.4...v0.17.0>
+- Commit history: <https://github.com/bact/pitloom/compare/v0.17.0...v0.18.0>
 
-## [Unreleased]
+## [0.18.0] - 2026-09-16
 
 ### Added
 
 - Poetry backend wheel file discovery and lock parsing ([#198])
-- `pitloom fragment validate` CLI command, using `spdx3-validate`'s
+- `loom fragment validate` CLI command, using `spdx3-validate`'s
   library API ([#200])
 - `--debug`/`--no-debug` flags / `PITLOOM_DEBUG` env var to surface
   `DEBUG:`-level diagnostics on stderr ([#201])
-- `pitloom verify-wheel`/`validate-wheel` CLI commands and matching
+- `loom verify-wheel`/`validate-wheel` CLI commands and matching
   `embed-wheel --verify`/`--validate` flags ([#202])
 - SBOM name/version cross-check to `verify-wheel`,
   with `--fail-on-mismatch` to make a mismatch fatal ([#204])
@@ -535,9 +535,9 @@ and a Claude Code plugin.
 
 - Loom ID registry:
   - a stable file/entity -> SPDX ID registry (`loom-ids.json`)
-  - `pitloom ids generate` pins ids (with SHA-256 hashes) for files under
+  - `loom ids generate` pins ids (with SHA-256 hashes) for files under
     chosen paths and for named entities (`--entity`)
-  - `pitloom ids import` harvests ids from an existing SPDX 3 SBOM
+  - `loom ids import` harvests ids from an existing SPDX 3 SBOM
   - `pitloom.loom`, the `loom -m` extractor, the Hatchling build hook, and
     `generate_sbom()` all consult the registry, so the same dataset, script,
     or model carries the same `spdxId` everywhere ([#91])
@@ -824,6 +824,7 @@ release because "Loom" and "Pyloom" were unavailable on PyPI.
 
 ---
 
+[0.18.0]: https://github.com/bact/pitloom/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/bact/pitloom/compare/v0.16.4...v0.17.0
 [0.16.4]: https://github.com/bact/pitloom/compare/v0.16.3...v0.16.4
 [0.16.3]: https://github.com/bact/pitloom/compare/v0.16.2...v0.16.3

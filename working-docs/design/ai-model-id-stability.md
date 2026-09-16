@@ -21,7 +21,7 @@ registry's auto-harvest (`_sync_registry` in
 extraction-dependent (varies with whether `ai` extras are installed),
 so a name-keyed harvest would write entries that never match
 `_lookup_ai_model_entity`'s lookup candidates. The only currently-stable
-path is the extras-free, filename-stem-keyed `pitloom ids generate`.
+path is the extras-free, filename-stem-keyed `loom ids generate`.
 Revisit whether auto-harvest can be safely extended once there's a
 reliable way to say "this is the same model I saw last time":
 

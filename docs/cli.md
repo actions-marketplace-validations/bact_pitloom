@@ -40,8 +40,8 @@ Install with extra content type detection:
 pip install "pitloom[content-type]"
 ```
 
-Install with SPDX 3 schema/SHACL validation support (`pitloom fragment
-validate`, `pitloom validate-wheel`):
+Install with SPDX 3 schema/SHACL validation support (`loom fragment
+validate`, `loom validate-wheel`):
 
 ```bash
 pip install "pitloom[validate]"
