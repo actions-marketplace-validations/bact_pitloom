@@ -13,6 +13,7 @@ soft limit).
 from __future__ import annotations
 
 import errno
+import os
 from pathlib import Path
 
 import pytest
@@ -97,10 +98,10 @@ def test_permission_denied_fragment_does_not_crash(
 
     real_stat = Path.stat
 
-    def fake_stat(self: Path, *args: object, **kwargs: object) -> object:
+    def fake_stat(self: Path, *, follow_symlinks: bool = True) -> os.stat_result:
         if self == frag_path:
             raise PermissionError(errno.EACCES, "Permission denied")
-        return real_stat(self, *args, **kwargs)
+        return real_stat(self, follow_symlinks=follow_symlinks)
 
     monkeypatch.setattr(Path, "stat", fake_stat)
 
