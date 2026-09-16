@@ -58,13 +58,12 @@ loom project .
 loom project /path/to/project -o sbom.spdx3.json
 ```
 
-> **Limitation:** the per-file inventory (file list, hashes, Merkle
-> root) is backend-aware and accurate for Hatchling, setuptools,
-> Poetry, PDM-backend, and Flit-core. Any other backend (`uv_build`,
-> etc.) falls back to a Hatchling-based heuristic and logs a
-> `WARNING:` -- the file list can be silently incomplete or mis-pathed.
-> Project-level metadata (name, version, dependencies, license,
-> authors) is read independently and unaffected either way.
+> **Limitation:** the per-file inventory (file list and hashes)
+> is backend-aware and accurate for Flit-core, PDM-backend, Poetry,
+> Hatchling, setuptools, and uv_build
+> (uv_build needs [`--allow-build` flag](#building-a-project-to-discover-its-file-list---allow-build)).
+> Other backends (e.g. maturin, scikit-build-core, meson-python)
+> fall back to a heuristic and log a `WARNING:`.
 
 If a lock file (`pylock.toml`, `uv.lock`, `poetry.lock`, `pdm.lock`,
 `Pipfile.lock`, or a fully pinned `requirements.txt`) is present next
@@ -355,7 +354,7 @@ Available on `project`/`generate`/`embed-wheel` only (not `wheel`/`enrich`/
 By default, Pitloom's file discovery is a **static read** of a project's
 build-backend config (Hatchling, setuptools, Poetry, PDM, Flit) -- it
 never executes the project's own build. For a backend with no static
-introspection at all (currently: `uv_build`), or when a supported
+introspection at all (currently: uv_build), or when a supported
 backend's own static discovery fails on a given project, Pitloom falls
 back to a Hatchling-based heuristic and prints a `WARNING:` -- the file
 list may be inaccurate in that case.
