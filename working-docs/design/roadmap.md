@@ -114,7 +114,7 @@ rescan -- see below).
 the current read of what's ready to pick up vs. what still needs a
 design pass):
 
-1. [`pitloom fragment list`](#sbom-fragments-merge-system) -- smallest
+1. [`loom fragment list`](#sbom-fragments-merge-system) -- smallest
    ready item found in the 2026-09-15 roadmap-linking pass: read-only,
    no merge-logic risk, immediate dev-visibility payoff. `FragmentConfig`
    and `fragment sign`/hash verification are the same size of win,
@@ -155,7 +155,7 @@ design pass):
   pattern across Track A modules; a hand-rolled `tool` table walk
   repeated across 6+ modules), one low-priority dev-script dedup, one
   id-registry gap (`--allow-build`-sourced files can't match a
-  `pitloom ids generate`-pinned entry, since their `physical_path` is an
+  `loom ids generate`-pinned entry, since their `physical_path` is an
   ephemeral temp path -- **partially addressed** 2026-09-15: a separate,
   previously-unguarded AI-model registry lookup in `_ai_package.py` was
   found and fixed, but `_document_files.py`'s own `software_File` lookup
@@ -318,16 +318,16 @@ be built:
   [fragment-merge-design.md](sbom-fragments/fragment-merge-design.md)
   for the mechanism this implements, but read the module itself for
   current behaviour.
-- [x] **`pitloom fragment validate`** -- already ships, already calls
+- [x] **`loom fragment validate`** -- already ships, already calls
   `spdx3_validate.validate()`'s library API directly as Phase 4 item 2
   specified (`cli/commands/fragment.py`).
 - [ ] **`FragmentConfig` dataclass** -- `PitloomConfig.fragments` is
   still a plain `list[str]` (`core/_config_types.py`); genuinely open,
   small, backward-compatible with a plain-string loader.
-- [ ] **`pitloom fragment list`** -- cheapest way to surface fragment
+- [ ] **`loom fragment list`** -- cheapest way to surface fragment
   status to developers (reads config, checks file existence/parse
   validity); genuinely open, no `fragment list` subcommand exists yet.
-- [ ] **`pitloom fragment sign` + SHA-256 verification in merge** --
+- [ ] **`loom fragment sign` + SHA-256 verification in merge** --
   genuinely open; the SHA-256 hashing that already exists in
   `_fragments_unify.py` is for same-identity element dedup, not
   fragment-file integrity/tamper checking.

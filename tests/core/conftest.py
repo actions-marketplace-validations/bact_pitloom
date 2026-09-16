@@ -11,6 +11,7 @@ from pitloom import loom
 from pitloom.assemble.spdx3.document import build
 from pitloom.assemble.spdx3.fragments import merge_fragments
 from pitloom.core.ai_metadata import AiModelFormat
+from pitloom.core.config import FragmentConfig
 from pitloom.core.creation import CreationMetadata, Creator
 from pitloom.core.document import DocumentModel
 from pitloom.core.project import ProjectFile, ProjectMetadata
@@ -38,7 +39,11 @@ def _merge_and_parse(
     ``{'key': 'lr', 'value': '0.01', 'type': 'DictionaryEntry'}``.
     """
     exporter = Spdx3JsonExporter()
-    merge_fragments(_FRAGMENTS_DIR, list(fragment_names), exporter)
+    merge_fragments(
+        _FRAGMENTS_DIR,
+        [FragmentConfig(path=name) for name in fragment_names],
+        exporter,
+    )
     data = json.loads(exporter.to_json(pretty=True))
     graph: list[dict[str, Any]] = data.get("@graph", [])
     index: dict[str, dict[str, Any]] = {e["@id"]: e for e in graph if "@id" in e}

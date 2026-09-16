@@ -24,11 +24,11 @@ and this project adheres to
 ### Added
 
 - Poetry backend wheel file discovery and lock parsing ([#198])
-- `pitloom fragment validate` CLI command, using `spdx3-validate`'s
+- `loom fragment validate` CLI command, using `spdx3-validate`'s
   library API ([#200])
 - `--debug`/`--no-debug` flags / `PITLOOM_DEBUG` env var to surface
   `DEBUG:`-level diagnostics on stderr ([#201])
-- `pitloom verify-wheel`/`validate-wheel` CLI commands and matching
+- `loom verify-wheel`/`validate-wheel` CLI commands and matching
   `embed-wheel --verify`/`--validate` flags ([#202])
 - SBOM name/version cross-check to `verify-wheel`,
   with `--fail-on-mismatch` to make a mismatch fatal ([#204])
@@ -55,6 +55,11 @@ and this project adheres to
   Annotation ([#214])
 - `--allow-build`/`--no-build-isolation`: opt-in build-and-read file
   discovery via a real PEP 517 build ([#215], [#216])
+- `FragmentConfig` dataclass for `[tool.pitloom.fragment]` entries --
+  role/description/required/sha256/link-to-main, backward-compatible
+  with plain path strings ([#217])
+- `loom fragment list` CLI command -- shows each configured
+  fragment's existence, element count, and SHA-256 match status ([#217])
 
 ### Fixed
 
@@ -108,6 +113,7 @@ and this project adheres to
 [#214]: https://github.com/bact/pitloom/pull/214
 [#215]: https://github.com/bact/pitloom/pull/215
 [#216]: https://github.com/bact/pitloom/pull/216
+[#217]: https://github.com/bact/pitloom/pull/217
 
 ## [0.17.0] - 2026-08-30
 

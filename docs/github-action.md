@@ -142,7 +142,7 @@ jobs:
       # (auto-harvest excludes AI packages -- see below). Omit this step
       # if the project has no AI model files.
       - name: Seed/refresh AI model registry entries
-        run: pitloom ids generate
+        run: loom ids generate
 
       - uses: bact/pitloom@v0.17.0
         with:
@@ -166,7 +166,7 @@ Two things worth calling out about that snippet:
   auto-harvest at all.** `ai_AIPackage` elements are deliberately excluded
   from auto-harvest, because their correct registry key is the model
   file's stem -- which only ever comes from the extras-free
-  `pitloom ids generate` step above. `extras: "ai"` only affects metadata
+  `loom ids generate` step above. `extras: "ai"` only affects metadata
   richness (architecture, hyperparameters, etc.), not which spdxId a model
   gets.
 - **Race conditions**: this workflow never competes with the publish

@@ -30,6 +30,7 @@ from pitloom.assemble.spdx3.fragments import (
     _find_fragment_document_id,
     merge_fragments,
 )
+from pitloom.core.config import FragmentConfig
 from pitloom.export.spdx3_json import Spdx3JsonExporter
 from pitloom.ids import IdRegistry
 
@@ -200,7 +201,14 @@ class TestHashFallbackUnification:
             run.add_dataset("data/train.txt")
 
         exporter = Spdx3JsonExporter()
-        merge_fragments(tmp_path, ["f1.spdx3.json", "f2.spdx3.json"], exporter)
+        merge_fragments(
+            tmp_path,
+            [
+                FragmentConfig(path="f1.spdx3.json"),
+                FragmentConfig(path="f2.spdx3.json"),
+            ],
+            exporter,
+        )
         graph = json.loads(exporter.to_json(pretty=True)).get("@graph", [])
         index = {e["spdxId"]: e for e in graph if "spdxId" in e}
         return graph, index

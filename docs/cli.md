@@ -40,8 +40,8 @@ Install with extra content type detection:
 pip install "pitloom[content-type]"
 ```
 
-Install with SPDX 3 schema/SHACL validation support (`pitloom fragment
-validate`, `pitloom validate-wheel`):
+Install with SPDX 3 schema/SHACL validation support (`loom fragment
+validate`, `loom validate-wheel`):
 
 ```bash
 pip install "pitloom[validate]"
@@ -144,7 +144,7 @@ skipped with a `WARNING:` naming why, regardless of `--fail-on-mismatch`.
 
 Validate a wheel's embedded SBOM content against its format's schema and
 SHACL rules (currently SPDX3 JSON-LD only, via the same `spdx3-validate`
-library used by [`pitloom fragment validate`](#validate-fragments) --
+library used by [`loom fragment validate`](#validate-fragments) --
 needs `pip install "pitloom[validate]"`):
 
 ```bash
@@ -270,8 +270,8 @@ subcommand's compact default.
 ### Validate fragments
 
 ```bash
-pitloom fragment validate combined.spdx3.json
-pitloom fragment validate base.spdx3.json fragment.spdx3.json  # + merged-graph check
+loom fragment validate combined.spdx3.json
+loom fragment validate base.spdx3.json fragment.spdx3.json  # + merged-graph check
 ```
 
 Checks JSON Schema and SHACL conformance via
@@ -285,6 +285,30 @@ finding to stderr with every line `ERROR:`-tagged -- a SHACL violation's
 Severity/Source Shape/Focus Node breakdown spans several `ERROR:` lines,
 not just one.
 
+### List configured fragments
+
+```bash
+loom fragment list
+loom fragment list --project-dir path/to/project
+```
+
+Reads `[tool.pitloom.fragment]` from that directory's `pyproject.toml`
+(default: cwd) and prints one line per configured fragment:
+
+```text
+PATH=fragments/model.spdx3.json ROLE=ai_model REQUIRED=false EXISTS=true ELEMENTS=42 SHA256=match MODIFIED=2026-09-10T12:00:00+00:00
+```
+
+`ELEMENTS` is the fragment's `@graph` entry count (`-` if the file is
+missing or unparseable); `SHA256` is `-`/`unknown`/`match`/`mismatch`
+depending on whether a `sha256` is configured and, if so, whether the
+file could be checked -- display only, not yet enforced before merge.
+A missing or broken fragment logs the same `WARNING:` wording a real
+build would log for it. Exits non-zero only when a `required = true`
+fragment is missing -- the one condition that would also fail an actual
+build (see [Merge fragments](#merge-fragments) above); a non-required
+missing fragment or a `SHA256` mismatch is informational only.
+
 ### Pin ids across fragments
 
 Fragments are written by independent runs, so the same dataset or model
@@ -292,8 +316,8 @@ would normally get a different `spdxId` in each run. Pin ids ahead of
 time, or reuse ids already present in an SBOM:
 
 ```bash
-pitloom ids generate data src --entity model      # pin ids before running
-pitloom ids import existing-sbom.spdx3.json       # or reuse ids from an SBOM
+loom ids generate data src --entity model      # pin ids before running
+loom ids import existing-sbom.spdx3.json       # or reuse ids from an SBOM
 ```
 
 `ids generate [PATH...]` flags: `-o`/`--registry FILE` (registry file to

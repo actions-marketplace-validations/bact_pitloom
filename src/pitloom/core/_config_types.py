@@ -19,6 +19,67 @@ VALID_CONTENT_TYPE_METHODS: frozenset[str] = frozenset({"auto", "magika", "exten
 
 
 @dataclass
+class FragmentConfig:
+    """Configuration for a single SBOM fragment source, from one entry in
+    ``[tool.pitloom.fragment] files``.
+
+    Attributes:
+        path: Path to the fragment file, relative to the project directory.
+        role: Optional, free-form label for what *part* this fragment's
+            root element(s) play in a pipeline/system -- input for a
+            *future* decision about which relationship type to emit
+            between this fragment and the rest of the graph, when the
+            merged elements' own types don't already make that obvious.
+            Not validated against a fixed vocabulary (this list is
+            examples, not a closed set) and not currently read by the
+            merge itself -- purely descriptive until that later work
+            lands. Recognised (but not enforced) values, grouped for
+            clarity (both groups are the same axis -- "what part does
+            this play" -- deliberately excluding a physical-format axis
+            like "binary": an AI model file is usually also a binary
+            artifact, so that would collide with ``"ai_model"``; and
+            excluding provenance facts like "what environment built
+            this", a different, still-deferred concern):
+
+            Pipeline artifacts: ``"input_dataset"``, ``"output_dataset"``,
+            ``"ai_model"`` (covers a training run's model output too --
+            use ``description`` for that detail, no separate value
+            needed), ``"software_package"``, ``"source"``.
+
+            Pipeline processes: ``"training_script"``,
+            ``"data_cleaning_script"``, ``"post_processing_script"``,
+            ``"guardrail_safety_function"``.
+
+            Distinct from the unrelated ``role`` concept in
+            ``pitloom.core.provenance``/``core.dataset_metadata
+            .DatasetReference.role`` (an SPDX-``RelationshipType``-mapped
+            tag like ``"trainedOn"`` -- a different taxonomy; don't
+            conflate the two). NOTE: ``DatasetReference.role`` is itself
+            expected to be renamed in a future, separate change -- if
+            that's landed by the time you're reading this, update this
+            cross-reference to whatever it's renamed to.
+        description: Human-readable description of what the fragment covers.
+        required: If True, a missing or unreadable fragment raises
+            ``FragmentMergeError`` instead of the default warn-and-skip.
+            Defaults to False.
+        sha256: Optional expected SHA-256 hex digest of the fragment file,
+            checked for display only by ``pitloom fragment list`` -- NOT
+            enforced during merge yet (see roadmap: "fragment sign +
+            SHA-256 verification in merge").
+        link_to_main: Reserved for a future SPDX relationship type between
+            the fragment's root element and the project's main package.
+            Stored but not yet acted on anywhere.
+    """
+
+    path: str
+    role: str | None = None
+    description: str | None = None
+    required: bool = False
+    sha256: str | None = None
+    link_to_main: str | None = None
+
+
+@dataclass
 # pylint: disable=too-many-instance-attributes
 class PitloomConfig:
     """Settings from the ``[tool.pitloom]`` section of ``pyproject.toml``.
@@ -28,7 +89,7 @@ class PitloomConfig:
     future versions only requires adding a new field here with a default value.
     """
 
-    fragments: list[str] = field(default_factory=list)
+    fragments: list[FragmentConfig] = field(default_factory=list)
     pretty: bool = False
     describe_relationship: bool | None = None
     sbom_basename: str | None = None

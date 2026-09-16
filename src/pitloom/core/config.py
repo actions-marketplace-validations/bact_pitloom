@@ -40,6 +40,7 @@ from pitloom.core._config_parse import (
 from pitloom.core._config_types import (
     _DEFAULT_PROVENANCE_SCHEMA,
     VALID_CONTENT_TYPE_METHODS,
+    FragmentConfig,
     PitloomConfig,
 )
 from pitloom.core.content_type_config import ContentTypeConfig, ContentTypeOverride
@@ -53,6 +54,7 @@ __all__ = [
     "CreationMetadata",
     "Creator",
     "EnrichConfig",
+    "FragmentConfig",
     "PitloomConfig",
     "ProvenanceConfig",
     "Tool",

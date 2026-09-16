@@ -377,15 +377,15 @@ See [Creation metadata](docs/creation-metadata.md) for what these fields
 record and why -- the who/what/when/how model behind every element Pitloom
 emits.
 
-### Loom IDs across fragments (`pitloom ids`)
+### Loom IDs across fragments (`loom ids`)
 
 Fragments are written by independent runs, so the same dataset or model
 would normally get a different `spdxId` in each -- leaving the merged SBOM
 as disconnected islands. The Loom ID registry (`loom-ids.json`) fixes that:
 
 ```console
-pitloom ids generate data src --entity model      # pin ids before running
-pitloom ids import existing-sbom.spdx3.json       # or reuse ids from an SBOM
+loom ids generate data src --entity model      # pin ids before running
+loom ids import existing-sbom.spdx3.json       # or reuse ids from an SBOM
 ```
 
 `pitloom.loom`, `loom model`, the build hook, and `generate()` all
@@ -399,7 +399,7 @@ resolved registry after each run (`update-registry`, on by default) --
 running `loom project` then `loom wheel` then `loom env` in sequence keeps
 the same spdxIds without a manual `ids generate`/`import` step in between.
 `ai_AIPackage` and `dataset_DatasetPackage` entries are the exceptions:
-`pitloom ids generate` remains the way to register AI models, since their
+`loom ids generate` remains the way to register AI models, since their
 stable key (the model file's stem) can't safely come from auto-harvest;
 datasets aren't registry-consulted at build time at all yet, so harvesting
 them would just write dead entries. See

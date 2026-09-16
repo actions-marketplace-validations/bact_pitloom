@@ -23,7 +23,7 @@ format-neutral -- location + recommended-extension check) and
 `spdx3-validate`'s library API), reusing
 `pitloom._wheel_sbom_location.find_embedded_sbom()` for the shared
 location logic and `pitloom.cli.commands.utils._validate_spdx3_documents()`
-(also now backing `pitloom fragment validate`) for the shared validation
+(also now backing `loom fragment validate`) for the shared validation
 path. `embed-wheel` gained `--verify`/`--validate` convenience flags
 that run the same checks against the wheel just embedded, mirroring how
 `wheel --embed` already chains into a shared function rather than
