@@ -312,6 +312,38 @@ def test_read_fragments_entry_neither_string_nor_table_raises() -> None:
         _read_fragments(pitloom_data)
 
 
+def test_read_fragments_files_not_a_list_returns_empty() -> None:
+    """A malformed 'files' (e.g. a table instead of a list) degrades to
+    empty rather than raising -- matches every other _read_* helper's
+    "wrong container shape at the top" behavior in this file."""
+    pitloom_data = {"fragment": {"files": "a.json"}}
+    assert _read_fragments(pitloom_data) == []
+
+
+def test_read_fragments_table_entry_non_str_role_raises() -> None:
+    pitloom_data = {"fragment": {"files": [{"path": "a.json", "role": 1}]}}
+    with pytest.raises(ValueError, match="'role' must be a string"):
+        _read_fragments(pitloom_data)
+
+
+def test_read_fragments_table_entry_non_str_description_raises() -> None:
+    pitloom_data = {"fragment": {"files": [{"path": "a.json", "description": ["x"]}]}}
+    with pytest.raises(ValueError, match="'description' must be a string"):
+        _read_fragments(pitloom_data)
+
+
+def test_read_fragments_table_entry_non_str_sha256_raises() -> None:
+    pitloom_data = {"fragment": {"files": [{"path": "a.json", "sha256": 123}]}}
+    with pytest.raises(ValueError, match="'sha256' must be a string"):
+        _read_fragments(pitloom_data)
+
+
+def test_read_fragments_table_entry_non_str_link_to_main_raises() -> None:
+    pitloom_data = {"fragment": {"files": [{"path": "a.json", "link-to-main": False}]}}
+    with pytest.raises(ValueError, match="'link-to-main' must be a string"):
+        _read_fragments(pitloom_data)
+
+
 # ---------------------------------------------------------------------------
 # Old-shaped keys raise instead of being silently ignored (moved-keys guard)
 # ---------------------------------------------------------------------------
