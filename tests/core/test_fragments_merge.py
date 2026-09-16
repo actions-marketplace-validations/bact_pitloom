@@ -1,4 +1,8 @@
 # ruff: noqa: F403, F405
+"""See also: test_fragments_merge_required.py (merge_fragments()'s
+required=True enforcement -- split out to keep this file under the
+project's file-size soft limit)."""
+
 from __future__ import annotations
 
 import json
@@ -11,11 +15,7 @@ from spdx_python_model.bindings import v3_0_1 as spdx3
 
 from pitloom import loom
 from pitloom.assemble import generate_project_sbom
-from pitloom.assemble.spdx3.fragments import (
-    FragmentMergeError,
-    _missing_fragment_message,
-    merge_fragments,
-)
+from pitloom.assemble.spdx3.fragments import FragmentMergeError, merge_fragments
 from pitloom.core.config import FragmentConfig
 from pitloom.core.creation import CreationMetadata, Creator
 from pitloom.export.spdx3_json import Spdx3JsonExporter
@@ -439,76 +439,3 @@ def test_merge_fragments_empty_fragment_list_skips_dangling_check(
     exporter.add_relationship(rel)
 
     merge_fragments(tmp_path, [], exporter)
-
-
-def test_required_fragment_missing_raises_and_warns(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
-) -> None:
-    """A required=True fragment that's missing on disk must raise
-    FragmentMergeError naming its path, and log a WARNING matching
-    _missing_fragment_message(..., required=True) first -- both the
-    warning and the raise are part of the contract."""
-    exporter = Spdx3JsonExporter()
-    frag = FragmentConfig(path="missing-required.spdx3.json", required=True)
-    expected_warning = _missing_fragment_message(tmp_path / frag.path, required=True)
-
-    with caplog.at_level("WARNING", logger="pitloom.assemble.spdx3.fragments"):
-        with pytest.raises(FragmentMergeError, match="missing-required.spdx3.json"):
-            merge_fragments(tmp_path, [frag], exporter)
-
-    assert any(r.message == expected_warning for r in caplog.records)
-
-
-def test_required_fragment_unparseable_raises(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
-) -> None:
-    """A required=True fragment that exists but fails to parse must also
-    raise FragmentMergeError, via the read-failure path not the
-    missing-file path -- and log a WARNING built from
-    _fragment_read_failure_message(..., required=True)."""
-    frag_path = tmp_path / "broken-required.spdx3.json"
-    frag_path.write_text("not valid json{{{")
-    exporter = Spdx3JsonExporter()
-    frag = FragmentConfig(path="broken-required.spdx3.json", required=True)
-
-    with caplog.at_level("WARNING", logger="pitloom.assemble.spdx3.fragments"):
-        with pytest.raises(FragmentMergeError, match="broken-required.spdx3.json"):
-            merge_fragments(tmp_path, [frag], exporter)
-
-    assert any(
-        r.message.startswith(f"Failed to read SBOM fragment {frag_path}: ")
-        and r.message.endswith("-- merge will fail.")
-        for r in caplog.records
-    )
-
-
-def test_required_fragment_missing_raises_even_when_nothing_merged(
-    tmp_path: Path,
-) -> None:
-    """A required fragment missing when it's the *only* configured fragment
-    (so merged_any stays False) must still raise -- regression test for
-    gating the required-check on merged_any, which would silently swallow
-    exactly this scenario."""
-    exporter = Spdx3JsonExporter()
-    frag = FragmentConfig(path="only-and-missing.spdx3.json", required=True)
-
-    with pytest.raises(FragmentMergeError, match="only-and-missing.spdx3.json"):
-        merge_fragments(tmp_path, [frag], exporter)
-
-
-def test_two_missing_required_fragments_both_named_in_error(tmp_path: Path) -> None:
-    """Two required fragments both missing must both be named in the raised
-    error -- the loop collects every failure before raising once, rather
-    than stopping at the first."""
-    exporter = Spdx3JsonExporter()
-    fragments = [
-        FragmentConfig(path="first-missing.spdx3.json", required=True),
-        FragmentConfig(path="second-missing.spdx3.json", required=True),
-    ]
-
-    with pytest.raises(FragmentMergeError) as exc_info:
-        merge_fragments(tmp_path, fragments, exporter)
-
-    message = str(exc_info.value)
-    assert "first-missing.spdx3.json" in message
-    assert "second-missing.spdx3.json" in message

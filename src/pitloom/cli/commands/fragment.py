@@ -55,41 +55,56 @@ def _run_fragment_validate(args: argparse.Namespace) -> int:
     return exit_code
 
 
-def _fragment_element_count(fragment_path: Path, *, required: bool) -> int | None:
-    """Return the fragment's ``@graph`` element count, or ``None`` if the
-    file couldn't be read/parsed -- logs a WARNING (shared wording with
-    ``merge_fragments()``) in that case."""
+def _fragment_read_status(
+    fragment_path: Path, *, required: bool
+) -> tuple[bytes | None, bool, int | None]:
+    """Read and JSON-parse *fragment_path* once, for both the element
+    count and the SHA-256 check below -- avoids reading the same fragment
+    file twice. Returns ``(raw_bytes, read_ok, element_count)``:
+
+    - ``raw_bytes`` is the file's contents, or ``None`` if it couldn't be
+      read at all.
+    - ``read_ok`` is False on any read or JSON-parse failure -- this is
+      the same condition that also makes ``merge_fragments()`` treat a
+      ``required=True`` fragment as unmet, so callers should key exit-code
+      decisions on this, not on ``element_count``.
+    - ``element_count`` is the fragment's ``@graph`` length, or ``None``
+      if the parsed JSON isn't an object (not itself a read failure).
+
+    Logs a WARNING (shared wording with ``merge_fragments()``) on any read
+    or parse failure.
+    """
     try:
-        data = json.loads(fragment_path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raw = fragment_path.read_bytes()
+    except OSError as exc:
         log.warning(
             _fragment_read_failure_message(fragment_path, exc, required=required)
         )
-        return None
-    return len(data.get("@graph", [])) if isinstance(data, dict) else None
-
-
-def _fragment_sha256(path: Path) -> str:
-    """Chunked-read SHA-256 hex digest of *path* -- never loads the whole
-    file into memory."""
-    digest = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+        return None, False, None
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        log.warning(
+            _fragment_read_failure_message(fragment_path, exc, required=required)
+        )
+        return raw, False, None
+    elements = len(data.get("@graph", [])) if isinstance(data, dict) else None
+    return raw, True, elements
 
 
 def _fragment_sha256_status(
-    fragment_path: Path, expected_sha256: str | None, exists: bool
+    raw: bytes | None, expected_sha256: str | None, fragment_path: Path
 ) -> str:
     """Three-state SHA-256 display: ``-`` (not configured), ``unknown``
-    (configured but can't check), or ``match``/``mismatch``. Logs a
-    WARNING on mismatch."""
+    (configured but the file couldn't be read), or ``match``/``mismatch``.
+    Logs a WARNING on mismatch. *raw* is checked independently of JSON
+    validity -- a fragment with broken JSON can still have its hash
+    verified, matching pre-existing behavior."""
     if expected_sha256 is None:
         return "-"
-    if not exists:
+    if raw is None:
         return "unknown"
-    actual = _fragment_sha256(fragment_path)
+    actual = hashlib.sha256(raw).hexdigest()
     if actual.lower() == expected_sha256.lower():
         return "match"
     log.warning(
@@ -117,8 +132,12 @@ def _print_fragment_list_line(
     modified: str | None,
 ) -> None:
     """Print one `pitloom fragment list` output line for *frag*."""
+    # frag.role is None (not configured) vs "" (explicitly set empty) are
+    # distinct states -- only None prints as "-", matching this project's
+    # own None-vs-empty convention (see CLAUDE.md "Recurring bug patterns").
+    role = frag.role if frag.role is not None else "-"
     print(
-        f"PATH={frag.path} ROLE={frag.role or '-'} "
+        f"PATH={frag.path} ROLE={role} "
         f"REQUIRED={'true' if frag.required else 'false'} "
         f"EXISTS={'true' if exists else 'false'} "
         f"ELEMENTS={elements if elements is not None else '-'} "
@@ -129,25 +148,26 @@ def _print_fragment_list_line(
 
 def _report_fragment(project_dir: Path, frag: FragmentConfig) -> bool:
     """Log/print one configured fragment's status; return True if it's a
-    ``required=True`` fragment that's missing (the exit-code-affecting
-    condition)."""
+    ``required=True`` fragment that's missing OR unreadable -- the same
+    condition that makes ``merge_fragments()`` raise ``FragmentMergeError``,
+    so the exit code stays a reliable predictor of a real build's outcome."""
     fragment_path = project_dir / frag.path
     exists = fragment_path.is_file()
     if not exists:
         log.warning(_missing_fragment_message(fragment_path, required=frag.required))
+        raw, read_ok, elements = None, False, None
+    else:
+        raw, read_ok, elements = _fragment_read_status(
+            fragment_path, required=frag.required
+        )
 
-    elements = (
-        _fragment_element_count(fragment_path, required=frag.required)
-        if exists
-        else None
-    )
-    sha_status = _fragment_sha256_status(fragment_path, frag.sha256, exists)
+    sha_status = _fragment_sha256_status(raw, frag.sha256, fragment_path)
     modified = _fragment_modified(fragment_path) if exists else None
 
     _print_fragment_list_line(
         frag, exists=exists, elements=elements, sha_status=sha_status, modified=modified
     )
-    return frag.required and not exists
+    return frag.required and (not exists or not read_ok)
 
 
 @cli_error_handler("fragment list failed")

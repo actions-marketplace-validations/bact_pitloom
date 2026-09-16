@@ -53,6 +53,7 @@ Pitloom is invoked from several usage surfaces (CLI, the Hatchling build hook, t
 - **The Boy Scout Rule**: Always leave the codebase cleaner than you found it. Refactor proactively during small changes.
 - **Prevent Monoliths**: Never let a single file (like `parser.py` or `__main__.py`) become a dumping ground. Extract cohesive pieces into dedicated modules or subpackages early.
 - **Consolidate Patterns**: Extract duplicated logic into shared utilities, constants files, or decorators immediately. Don't copy-paste code.
+- **Reuse/dedup is a defensiveness strategy, not just an efficiency one**: with this many usage surfaces, backends, and file formats (see "Usage surfaces" below), two independent implementations of the same operation (a hash, a type check, a message string, a cascade rule) don't just cost extra lines -- they're two places that can silently disagree the next time either one is touched. Reuse a shared helper even when the duplicate is small/cheap and the duplication itself wastes nothing measurable; the point is to make drift structurally impossible, not to save a few lines.
 - **Enforce File Size Limits**: Strictly obey the ~400-500 lines soft limit. Split files *before* they become a problem.
 
 ## Recurring bug patterns

@@ -352,12 +352,9 @@ def _read_fragment_entry(entry: dict[str, Any]) -> FragmentConfig:
             "[tool.pitloom.fragment] 'files' entry 'description' must be "
             f"a string, got {type(description).__name__}: {description!r}"
         )
-    required = entry.get("required", False)
-    if not isinstance(required, bool):
-        raise ValueError(
-            "[tool.pitloom.fragment] 'files' entry 'required' must be a "
-            f"boolean, got {type(required).__name__}: {required!r}"
-        )
+    required = _read_bool_setting(
+        entry, "required", False, table_path="[tool.pitloom.fragment] 'files' entry"
+    )
     sha256 = entry.get("sha256")
     if sha256 is not None and not isinstance(sha256, str):
         raise ValueError(

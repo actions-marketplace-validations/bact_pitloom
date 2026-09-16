@@ -19,7 +19,7 @@ from pitloom import __main__
 from pitloom.assemble.spdx3.fragments import (
     _missing_fragment_message,
 )
-from pitloom.cli.commands.fragment import _run_fragment_command
+from pitloom.cli.commands.fragment import _fragment_read_status, _run_fragment_command
 
 FIXTURE_DIR = Path(__file__).parent.parent / "fixtures"
 VALID_FRAGMENT = FIXTURE_DIR / "fragments" / "dataset-fragment.spdx3.json"
@@ -387,6 +387,78 @@ def test_fragment_list_unparseable_file(
         result = __main__.main()
     assert result == 0
     assert "ELEMENTS=-" in capsys.readouterr().out
+    assert any(
+        r.message.startswith(f"Failed to read SBOM fragment {frag_path}: ")
+        for r in caplog.records
+    )
+
+
+def test_fragment_list_required_unparseable_exits_1(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A required=True fragment that exists but fails to parse must also
+    exit non-zero -- the same condition that makes a real merge raise
+    FragmentMergeError, not just the missing-file case."""
+    frag_path = tmp_path / "broken-required.spdx3.json"
+    frag_path.write_text("not valid json{{{")
+    _write_pyproject(
+        tmp_path,
+        '\n[tool.pitloom.fragment]\nfiles = [{ path = "broken-required.spdx3.json", '
+        "required = true }]\n",
+    )
+    monkeypatch.setattr(
+        "sys.argv", ["loom", "fragment", "list", "--project-dir", str(tmp_path)]
+    )
+    result = __main__.main()
+    assert result == 1
+    assert "ELEMENTS=-" in capsys.readouterr().out
+
+
+def test_fragment_list_role_empty_string_distinct_from_unset(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """An explicitly-configured role = "" must print differently from a
+    fragment with no role key at all -- both aren't the placeholder '-'."""
+    _write_pyproject(
+        tmp_path,
+        "\n[tool.pitloom.fragment]\nfiles = ["
+        '{ path = "a.spdx3.json", role = "" }, '
+        '"b.spdx3.json",'
+        "]\n",
+    )
+    monkeypatch.setattr(
+        "sys.argv", ["loom", "fragment", "list", "--project-dir", str(tmp_path)]
+    )
+    __main__.main()
+    lines = capsys.readouterr().out.splitlines()
+    assert "PATH=a.spdx3.json ROLE= " in lines[0]
+    assert "PATH=b.spdx3.json ROLE=-" in lines[1]
+
+
+def test_fragment_read_status_os_error_on_read(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A fragment that exists but can't be read (e.g. a permission error
+    hit after the is_file() check) is a distinct failure mode from a bad
+    parse -- covers _fragment_read_status's read_bytes() except branch."""
+    frag_path = tmp_path / "unreadable.spdx3.json"
+    frag_path.write_text('{"@graph": []}')
+
+    def _raise_os_error(self: Path) -> bytes:
+        raise OSError("permission denied")
+
+    monkeypatch.setattr(Path, "read_bytes", _raise_os_error)
+
+    with caplog.at_level("WARNING"):
+        raw, read_ok, elements = _fragment_read_status(frag_path, required=True)
+
+    assert raw is None
+    assert read_ok is False
+    assert elements is None
     assert any(
         r.message.startswith(f"Failed to read SBOM fragment {frag_path}: ")
         for r in caplog.records

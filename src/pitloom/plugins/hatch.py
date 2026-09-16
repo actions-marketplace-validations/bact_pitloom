@@ -268,6 +268,11 @@ class PitloomBuildHook(BuildHookInterface[BuilderConfig]):
         Raises:
             ValueError: If a hook configuration value has an invalid type
                 or is otherwise invalid.
+            FragmentMergeError: If a ``required = true`` SBOM fragment
+                (``[tool.pitloom.fragment]``) is missing or unreadable --
+                a `ValueError` subclass, propagated uncaught like the
+                other config-validation errors above (see
+                :func:`pitloom.assemble.spdx3.fragments.merge_fragments`).
             FileNotFoundError: If ``pyproject.toml`` is absent from the
                 project root.
             RuntimeError: If the installed Hatchling's version can't be
