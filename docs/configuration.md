@@ -105,10 +105,29 @@ pattern falls through to normal detection.
 
 | Key | Type | Default | CLI flag | Action input | API param | Meaning |
 | :-- | :--- | :------ | :------- | :------------ | :-------- | :------ |
-| `files` | array of strings | `[]` | -- | -- | -- | Paths to pre-generated SPDX 3 JSON-LD fragment files (relative to the project directory) merged into the final SBOM. See [Merge fragments](cli.md#merge-fragments). |
+| `files` | array of strings and/or tables | `[]` | -- | -- | -- | Pre-generated SPDX 3 JSON-LD fragment files merged into the final SBOM. Each entry is either a plain path string (shorthand -- every other field below defaults) or an inline table with `path` plus any of the fields below. See [Merge fragments](cli.md#merge-fragments), [`loom fragment list`](cli.md#list-configured-fragments). |
 
 Kept as its own table (rather than folded into a flat `[tool.pitloom]`
 key) since it's expected to grow more fragment-related settings.
+
+**`files` table-entry fields** (all optional besides `path`):
+
+| Key | Type | Default | Meaning |
+| :-- | :--- | :------ | :------ |
+| `path` | string | *(required)* | Path to the fragment file, relative to the project directory. |
+| `role` | string | `null` | Free-form, unvalidated label for what *part* this fragment plays in a pipeline (e.g. `input_dataset`, `output_dataset`, `ai_model`, `software_package`, `source`, `training_script`, `data_cleaning_script`, `post_processing_script`, `guardrail_safety_function`) -- not enforced, and not read by the merge itself yet; informational only, shown by `loom fragment list`. |
+| `description` | string | `null` | Human-readable description of what the fragment covers. |
+| `required` | boolean | `false` | If `true`, a missing or unreadable fragment fails the build (`FragmentMergeError`) instead of the default warn-and-skip. |
+| `sha256` | string | `null` | Expected SHA-256 hex digest of the fragment file. Currently checked for display only by `loom fragment list` -- not yet enforced before merge (planned: `loom fragment sign`). |
+| `link-to-main` | string | `null` | Reserved for a future SPDX relationship type between the fragment's root element and the project's main package. Stored but not yet acted on. |
+
+```toml
+[tool.pitloom.fragment]
+files = [
+    "fragments/legacy.spdx3.json",
+    { path = "fragments/model.spdx3.json", role = "ai_model", required = true, sha256 = "a3f1..." },
+]
+```
 
 ## `[tool.pitloom.creation]`
 

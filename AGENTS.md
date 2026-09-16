@@ -53,6 +53,7 @@ Pitloom is invoked from several usage surfaces (CLI, the Hatchling build hook, t
 - **The Boy Scout Rule**: Always leave the codebase cleaner than you found it. Refactor proactively during small changes.
 - **Prevent Monoliths**: Never let a single file (like `parser.py` or `__main__.py`) become a dumping ground. Extract cohesive pieces into dedicated modules or subpackages early.
 - **Consolidate Patterns**: Extract duplicated logic into shared utilities, constants files, or decorators immediately. Don't copy-paste code.
+- **Reuse/dedup is a defensiveness strategy, not just an efficiency one**: with this many usage surfaces, backends, and file formats (see "Usage surfaces" below), two independent implementations of the same operation (a hash, a type check, a message string, a cascade rule) don't just cost extra lines -- they're two places that can silently disagree the next time either one is touched. Reuse a shared helper even when the duplicate is small/cheap and the duplication itself wastes nothing measurable; the point is to make drift structurally impossible, not to save a few lines.
 - **Enforce File Size Limits**: Strictly obey the ~400-500 lines soft limit. Split files *before* they become a problem.
 
 ## Recurring bug patterns
@@ -386,8 +387,19 @@ shape described, not just the module where each was first found.
 
 Unix philosophy. Consistent, predictable, parseable.
 
-- Default: line-delimited, one data point per line.
-- Key-value: `KEY=VALUE` -- uppercase KEY, no spaces around `=`.
+- Default: line-delimited, one data point per line. A "data point" is one
+  record/entity, not one field -- a record with several attributes (e.g.
+  one configured fragment's path/role/required/exists/element-count/
+  hash-status/modified-time) is still one data point, and its `KEY=VALUE`
+  pairs belong together on that one line, space-separated (e.g. `PATH=...
+  ROLE=... REQUIRED=... EXISTS=...`), not split one-field-per-line. Only
+  split across lines when there's more than one record to list (one line
+  per record, e.g. one line per configured fragment).
+- Key-value: `KEY=VALUE` -- uppercase KEY, no spaces around `=`. Several
+  `KEY=VALUE` pairs on the same line are fine when they describe the same
+  data point (see above) -- e.g. `FORMAT=%s FILE=%s: ...` for a single
+  per-model-file scanning warning, or `pitloom fragment list`'s one line
+  per configured fragment.
 - Three levels reach stderr, every line starting with exactly one:
   `ERROR: <short description>`, `WARNING: <short description>`,
   `INFO: <short description>`. Nothing else is grep-able output -- a

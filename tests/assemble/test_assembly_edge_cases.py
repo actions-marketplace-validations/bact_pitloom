@@ -43,6 +43,7 @@ from pitloom.assemble.spdx3.fragments import (
     _emit_unification_annotations,
     merge_fragments,
 )
+from pitloom.core.config import FragmentConfig
 from pitloom.export.spdx3_json import Spdx3JsonExporter
 
 
@@ -233,7 +234,7 @@ def test_fragments_imports_unification_and_errors() -> None:
         p = Path(d)
         frag = p / "invalid.json"
         frag.write_bytes(b"not json ld at all")
-        merge_fragments(p, ["invalid.json"], exporter)
+        merge_fragments(p, [FragmentConfig(path="invalid.json")], exporter)
 
 
 def test_enrich_from_pypi_already_filled_and_home_page() -> None:

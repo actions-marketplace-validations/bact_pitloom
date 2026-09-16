@@ -10,6 +10,7 @@ import pytest
 
 from pitloom.core.config import (
     VALID_CONTENT_TYPE_METHODS,
+    FragmentConfig,
     PitloomConfig,
     _read_content_type_settings,
     _read_enrich_settings,
@@ -233,7 +234,124 @@ def test_read_fragments_defaults_empty_when_absent() -> None:
 
 def test_read_fragments_reads_singular_table() -> None:
     pitloom_data = {"fragment": {"files": ["a.json", "b.json"]}}
-    assert _read_fragments(pitloom_data) == ["a.json", "b.json"]
+    assert _read_fragments(pitloom_data) == [
+        FragmentConfig(path="a.json"),
+        FragmentConfig(path="b.json"),
+    ]
+
+
+def test_read_fragments_table_entry_with_all_fields() -> None:
+    """An inline table entry with every field set must land on the
+    FragmentConfig unchanged."""
+    pitloom_data = {
+        "fragment": {
+            "files": [
+                {
+                    "path": "model.spdx3.json",
+                    "role": "ai_model",
+                    "description": "fine-tune training provenance",
+                    "required": True,
+                    "sha256": "a3f1",
+                    "link-to-main": "trainedOn",
+                }
+            ]
+        }
+    }
+    assert _read_fragments(pitloom_data) == [
+        FragmentConfig(
+            path="model.spdx3.json",
+            role="ai_model",
+            description="fine-tune training provenance",
+            required=True,
+            sha256="a3f1",
+            link_to_main="trainedOn",
+        )
+    ]
+
+
+def test_read_fragments_unrecognised_role_value_still_parses() -> None:
+    """role is genuinely unvalidated -- any string is accepted."""
+    pitloom_data = {"fragment": {"files": [{"path": "a.json", "role": "widget"}]}}
+    assert _read_fragments(pitloom_data) == [
+        FragmentConfig(path="a.json", role="widget")
+    ]
+
+
+def test_read_fragments_mixes_plain_string_and_table_entries() -> None:
+    """A files array may mix a plain string and an inline table -- the
+    backward-compatible case the FragmentConfig roadmap item is about."""
+    pitloom_data = {
+        "fragment": {
+            "files": [
+                "plain.spdx3.json",
+                {"path": "table.spdx3.json", "role": "dataset"},
+            ]
+        }
+    }
+    assert _read_fragments(pitloom_data) == [
+        FragmentConfig(path="plain.spdx3.json"),
+        FragmentConfig(path="table.spdx3.json", role="dataset"),
+    ]
+
+
+def test_read_fragments_table_entry_missing_path_raises() -> None:
+    pitloom_data = {"fragment": {"files": [{"role": "ai_model"}]}}
+    with pytest.raises(ValueError, match="valid 'path'"):
+        _read_fragments(pitloom_data)
+
+
+def test_read_fragments_plain_string_empty_path_raises() -> None:
+    """An empty-string plain entry must be rejected the same way an
+    empty/missing 'path' is rejected for the table-entry form -- the same
+    field, validated the same way regardless of which TOML shape it's
+    written in."""
+    pitloom_data = {"fragment": {"files": [""]}}
+    with pytest.raises(ValueError, match="must not be an empty string"):
+        _read_fragments(pitloom_data)
+
+
+def test_read_fragments_table_entry_non_bool_required_raises() -> None:
+    pitloom_data = {"fragment": {"files": [{"path": "a.json", "required": "yes"}]}}
+    with pytest.raises(ValueError, match="'required' must be a boolean"):
+        _read_fragments(pitloom_data)
+
+
+def test_read_fragments_entry_neither_string_nor_table_raises() -> None:
+    pitloom_data = {"fragment": {"files": [42]}}
+    with pytest.raises(ValueError, match="must each be a string or table"):
+        _read_fragments(pitloom_data)
+
+
+def test_read_fragments_files_not_a_list_returns_empty() -> None:
+    """A malformed 'files' (e.g. a table instead of a list) degrades to
+    empty rather than raising -- matches every other _read_* helper's
+    "wrong container shape at the top" behavior in this file."""
+    pitloom_data = {"fragment": {"files": "a.json"}}
+    assert _read_fragments(pitloom_data) == []
+
+
+def test_read_fragments_table_entry_non_str_role_raises() -> None:
+    pitloom_data = {"fragment": {"files": [{"path": "a.json", "role": 1}]}}
+    with pytest.raises(ValueError, match="'role' must be a string"):
+        _read_fragments(pitloom_data)
+
+
+def test_read_fragments_table_entry_non_str_description_raises() -> None:
+    pitloom_data = {"fragment": {"files": [{"path": "a.json", "description": ["x"]}]}}
+    with pytest.raises(ValueError, match="'description' must be a string"):
+        _read_fragments(pitloom_data)
+
+
+def test_read_fragments_table_entry_non_str_sha256_raises() -> None:
+    pitloom_data = {"fragment": {"files": [{"path": "a.json", "sha256": 123}]}}
+    with pytest.raises(ValueError, match="'sha256' must be a string"):
+        _read_fragments(pitloom_data)
+
+
+def test_read_fragments_table_entry_non_str_link_to_main_raises() -> None:
+    pitloom_data = {"fragment": {"files": [{"path": "a.json", "link-to-main": False}]}}
+    with pytest.raises(ValueError, match="'link-to-main' must be a string"):
+        _read_fragments(pitloom_data)
 
 
 # ---------------------------------------------------------------------------
@@ -296,7 +414,7 @@ def test_new_style_config_unaffected_by_moved_keys_guard() -> None:
     }
     config = parse_pitloom_config(data)
     assert config.ids_file == "loom-ids.json"
-    assert config.fragments == ["a.json"]
+    assert config.fragments == [FragmentConfig(path="a.json")]
     assert config.extract_file_header is False
     assert config.enrich_local is True
     assert config.content_type_enabled is True

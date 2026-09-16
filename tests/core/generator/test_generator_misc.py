@@ -22,6 +22,7 @@ from pitloom.assemble.spdx3.document import (
     build_model,
 )
 from pitloom.assemble.spdx3.fragments import merge_fragments
+from pitloom.core.config import FragmentConfig
 from pitloom.core.creation import CreationMetadata
 from pitloom.core.document import DocumentModel
 from pitloom.core.project import ProjectFile, ProjectMetadata
@@ -118,7 +119,7 @@ def test_enrich_then_merge_matches_one_shot_enrich() -> None:
         with base_file_path.open("rb") as f:
             spdx3.JSONLDDeserializer().read(f, exporter.object_set)
 
-        merge_fragments(tmppath, [fragment_path.name], exporter)
+        merge_fragments(tmppath, [FragmentConfig(path=fragment_path.name)], exporter)
         merged = json.loads(exporter.to_json())
 
         merged_ds = {

@@ -15,6 +15,7 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
+from pitloom.core.config import FragmentConfig
 from pitloom.core.content_type_config import ContentTypeOverride
 from pitloom.core.creation import Creator
 from pitloom.extract.project.setuptools import read_setup_cfg
@@ -90,7 +91,7 @@ enabled = true
         (Path(d) / "setup.cfg").write_text(content)
         _, config = read_setup_cfg(Path(d))
 
-    assert config.fragments == ["xyz.json"]
+    assert config.fragments == [FragmentConfig(path="xyz.json")]
     assert config.provenance_format == "both"
     assert config.provenance_detail == "minimal"
     assert config.content_type_enabled is True

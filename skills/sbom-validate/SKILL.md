@@ -61,11 +61,11 @@ See `references/examples.md` for copy-paste recipes.
 
 ```bash
 pip install "pitloom[validate]"  # if not already installed
-pitloom fragment validate <sbom-file>
+loom fragment validate <sbom-file>
 ```
 
 Works on any SPDX 3 JSON document, Pitloom-generated or not -- despite
-the `fragment` grouping (shared with `pitloom merge`), the underlying
+the `fragment` grouping (shared with `loom merge`), the underlying
 `spdx3-validate` check has no dependency on Pitloom's own output.
 
 Exit code `0` means valid; a non-zero exit code means at least one
@@ -78,7 +78,7 @@ that references it via `ExternalMap`) and additionally check the *merged*
 graph, pass more than one path:
 
 ```bash
-pitloom fragment validate base.spdx3.json fragment.spdx3.json
+loom fragment validate base.spdx3.json fragment.spdx3.json
 ```
 
 Add `--no-merge` to skip the merged-graph check and validate each
@@ -87,7 +87,7 @@ document only in isolation.
 (The standalone `spdx3-validate --json <file>` CLI checks the same rules
 and uses the same exit code convention, if `pitloom[validate]` isn't the
 preferred install path in a given context -- but it writes its report to
-*stdout*, not stderr, and doesn't `ERROR:`-tag lines the way `pitloom
+*stdout*, not stderr, and doesn't `ERROR:`-tag lines the way `loom
 fragment validate` does.)
 
 ## Validate a wheel's embedded SBOM
@@ -97,7 +97,7 @@ For "is this wheel's SBOM valid" rather than a standalone document, use
 `.dist-info/sboms/` (PEP 770) and runs the same schema/SHACL check:
 
 ```bash
-pitloom validate-wheel dist/mypackage-1.0.0-py3-none-any.whl
+loom validate-wheel dist/mypackage-1.0.0-py3-none-any.whl
 ```
 
 See the `sbom-generate` skill's "Embed an SBOM into a wheel" section for

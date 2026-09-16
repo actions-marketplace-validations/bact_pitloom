@@ -3,7 +3,11 @@
 # SPDX-FileType: SOURCE
 # SPDX-License-Identifier: Apache-2.0
 
-"""Tests for Pitloom CLI fragment command."""
+"""Tests for Pitloom CLI `fragment validate` command.
+
+See also: test_cli_fragment_list.py (`fragment list` -- split out once
+this file grew past the project's file-size soft limit).
+"""
 
 from __future__ import annotations
 

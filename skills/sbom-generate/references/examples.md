@@ -63,13 +63,13 @@ with zipfile.ZipFile(sys.argv[1]) as zf:
 ## AI model SBOM, local file
 
 ```bash
-uvx --from 'pitloom[ai]' pitloom model model.safetensors -o model.spdx3.json --offline
+uvx --from 'pitloom[ai]' loom model model.safetensors -o model.spdx3.json --offline
 ```
 
 ## AI model SBOM, Hugging Face Hub model
 
 ```bash
-uvx --from 'pitloom[huggingface_hub]' pitloom model mistralai/Mistral-7B-v0.1 \
+uvx --from 'pitloom[huggingface_hub]' loom model mistralai/Mistral-7B-v0.1 \
   -o mistral.spdx3.json --pretty
 ```
 

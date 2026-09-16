@@ -1,4 +1,8 @@
 # ruff: noqa: F403, F405
+"""See also: test_fragments_merge_required.py (merge_fragments()'s
+required=True enforcement -- split out to keep this file under the
+project's file-size soft limit)."""
+
 from __future__ import annotations
 
 import json
@@ -12,6 +16,7 @@ from spdx_python_model.bindings import v3_0_1 as spdx3
 from pitloom import loom
 from pitloom.assemble import generate_project_sbom
 from pitloom.assemble.spdx3.fragments import FragmentMergeError, merge_fragments
+from pitloom.core.config import FragmentConfig
 from pitloom.core.creation import CreationMetadata, Creator
 from pitloom.export.spdx3_json import Spdx3JsonExporter
 from pitloom.ids import IdRegistry
@@ -118,7 +123,11 @@ def test_duplicate_relationships_deduplicated(
             run.add_dataset("data/train.txt")
 
     exporter = Spdx3JsonExporter()
-    merge_fragments(tmp_path, ["f1.spdx3.json", "f2.spdx3.json"], exporter)
+    merge_fragments(
+        tmp_path,
+        [FragmentConfig(path="f1.spdx3.json"), FragmentConfig(path="f2.spdx3.json")],
+        exporter,
+    )
     graph = json.loads(exporter.to_json(pretty=True)).get("@graph", [])
     trained = [r for r in _relationships(graph) if r["relationshipType"] == "trainedOn"]
     assert len(trained) == 1
@@ -261,7 +270,7 @@ def test_unification_annotation_records_sha256_merge() -> None:
         }
         (tmp_path / "frag.spdx3.json").write_text(json.dumps(fragment))
 
-        merge_fragments(tmp_path, ["frag.spdx3.json"], exporter)
+        merge_fragments(tmp_path, [FragmentConfig(path="frag.spdx3.json")], exporter)
         graph = json.loads(exporter.to_json())["@graph"]
 
         unification = [
@@ -335,7 +344,7 @@ def test_merge_fragments_populates_spdx_document_imports(tmp_path: Path) -> None
     exporter = Spdx3JsonExporter()
     exporter.add_document(main_doc)
 
-    merge_fragments(tmp_path, ["frag-import.spdx3.json"], exporter)
+    merge_fragments(tmp_path, [FragmentConfig(path="frag-import.spdx3.json")], exporter)
 
     graph = json.loads(exporter.to_json(pretty=True)).get("@graph", [])
     docs = [e for e in graph if e.get("type") == "SpdxDocument"]
@@ -401,7 +410,9 @@ def test_merge_fragments_raises_on_dangling_reference(tmp_path: Path) -> None:
     exporter.add_document(main_doc)
 
     with pytest.raises(FragmentMergeError, match="dangling reference"):
-        merge_fragments(tmp_path, ["dangling-frag.spdx3.json"], exporter)
+        merge_fragments(
+            tmp_path, [FragmentConfig(path="dangling-frag.spdx3.json")], exporter
+        )
 
 
 def test_merge_fragments_empty_fragment_list_skips_dangling_check(

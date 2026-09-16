@@ -7,6 +7,7 @@ import logging
 import pytest
 
 from pitloom.assemble.spdx3.fragments import merge_fragments
+from pitloom.core.config import FragmentConfig
 from pitloom.export.spdx3_json import Spdx3JsonExporter
 
 from .conftest import (
@@ -20,7 +21,7 @@ def test_missing_fragment_does_not_raise(caplog: pytest.LogCaptureFixture) -> No
     with caplog.at_level(logging.WARNING, logger="pitloom.assemble.spdx3.fragments"):
         merge_fragments(
             _FRAGMENTS_DIR,
-            ["nonexistent-fragment.spdx3.json"],
+            [FragmentConfig(path="nonexistent-fragment.spdx3.json")],
             exporter,
         )
     # Object set must be empty -- nothing merged
