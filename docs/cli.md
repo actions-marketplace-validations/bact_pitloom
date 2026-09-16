@@ -1,6 +1,6 @@
 ---
 Created: 2026-08-11
-Last-Modified: 2026-09-11
+Last-Modified: 2026-09-16
 SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 SPDX-FileType: DOCUMENTATION
 SPDX-License-Identifier: CC0-1.0
@@ -61,7 +61,7 @@ loom project /path/to/project -o sbom.spdx3.json
 > **Limitation:** the per-file inventory (file list and hashes)
 > is backend-aware and accurate for Flit-core, PDM-backend, Poetry,
 > Hatchling, setuptools, and uv_build
-> (uv_build needs [`--allow-build` flag](#building-a-project-to-discover-its-file-list---allow-build)).
+> (uv_build needs [`--allow-build` flag](#building-a-project-to-discover-its-file-list-allow-build)).
 > Other backends (e.g. maturin, scikit-build-core, meson-python)
 > fall back to a heuristic and log a `WARNING:`.
 
