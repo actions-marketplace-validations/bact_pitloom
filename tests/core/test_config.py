@@ -300,6 +300,16 @@ def test_read_fragments_table_entry_missing_path_raises() -> None:
         _read_fragments(pitloom_data)
 
 
+def test_read_fragments_plain_string_empty_path_raises() -> None:
+    """An empty-string plain entry must be rejected the same way an
+    empty/missing 'path' is rejected for the table-entry form -- the same
+    field, validated the same way regardless of which TOML shape it's
+    written in."""
+    pitloom_data = {"fragment": {"files": [""]}}
+    with pytest.raises(ValueError, match="must not be an empty string"):
+        _read_fragments(pitloom_data)
+
+
 def test_read_fragments_table_entry_non_bool_required_raises() -> None:
     pitloom_data = {"fragment": {"files": [{"path": "a.json", "required": "yes"}]}}
     with pytest.raises(ValueError, match="'required' must be a boolean"):

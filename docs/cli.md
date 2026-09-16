@@ -298,10 +298,12 @@ Reads `[tool.pitloom.fragment]` from that directory's `pyproject.toml`
 PATH=fragments/model.spdx3.json ROLE=ai_model REQUIRED=false EXISTS=true ELEMENTS=42 SHA256=match MODIFIED=2026-09-10T12:00:00+00:00
 ```
 
-`ELEMENTS` is the fragment's `@graph` entry count (`-` if the file is
-missing or unparseable); `SHA256` is `-`/`unknown`/`match`/`mismatch`
-depending on whether a `sha256` is configured and, if so, whether the
-file could be checked -- display only, not yet enforced before merge.
+`ELEMENTS` is the fragment's `@graph` entry count -- `0` for valid JSON
+with no `@graph` key (a real, valid empty fragment), `-` if the file is
+missing, unreadable, or not valid JSON at all; `SHA256` is
+`-`/`unknown`/`match`/`mismatch` depending on whether a `sha256` is
+configured and, if so, whether the file could be checked -- display
+only, not yet enforced before merge.
 A missing or broken fragment logs the same `WARNING:` wording a real
 build would log for it. Exits non-zero only when a `required = true`
 fragment is missing, unreadable, or fails to parse as valid SPDX3

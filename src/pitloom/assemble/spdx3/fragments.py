@@ -10,6 +10,7 @@ See also: :mod:`pitloom.assemble.spdx3._fragments_unify` for internal unificatio
 
 from __future__ import annotations
 
+import errno
 import logging
 from pathlib import Path
 from typing import Any
@@ -69,9 +70,11 @@ __all__ = [
     "_find_dangling_references",
     "_find_fragment_document_id",
     "_find_main_document",
+    "_fragment_is_missing",
     "_fragment_read_failure_message",
     "_is_dangling",
     "_is_empty",
+    "_is_missing_errno",
     "_merge_comment",
     "_merge_dictionary_entries",
     "_merge_fragment_set",
@@ -101,6 +104,51 @@ class FragmentMergeError(ValueError):
     neither an object in the merged graph nor a declared external
     reference. Merging must not silently succeed in that case; see
     :func:`_raise_on_dangling_references`."""
+
+
+#: errno values Path.exists()/is_file() themselves treat as "this path
+#: doesn't apply" rather than a real failure (POSIX).
+_STAT_MISSING_ERRNOS = frozenset(
+    {errno.ENOENT, errno.ENOTDIR, errno.EBADF, errno.ELOOP}
+)
+#: Windows counterparts of the same errno set, per CPython's
+#: pathlib._ignore_error().
+_STAT_MISSING_WINERRORS = frozenset({21, 123, 1921})
+
+
+def _is_missing_errno(exc: OSError) -> bool:
+    """True when *exc* (raised by a ``stat()``/``exists()``-style call)
+    represents a genuinely missing path, using the same errno (POSIX) or
+    ``winerror`` (Windows) classification ``Path.exists()`` uses
+    internally -- any other ``OSError`` (e.g. permission denied) means the
+    path is present but inaccessible, not missing.
+
+    Checks both unconditionally (``or``, not "prefer winerror when set"):
+    a real Windows ``FileNotFoundError`` carries *both* ``errno=ENOENT``
+    and a ``winerror`` that ``_STAT_MISSING_WINERRORS`` doesn't cover
+    (winerror 2/3, not 21/123/1921) -- short-circuiting on ``winerror is
+    not None`` would misclassify that as "not missing". Matches CPython's
+    own ``pathlib._ignore_error()``:
+    ``errno in _IGNORED_ERRNOS or winerror in _IGNORED_WINERRORS``.
+    """
+    return (
+        exc.errno in _STAT_MISSING_ERRNOS
+        or getattr(exc, "winerror", None) in _STAT_MISSING_WINERRORS
+    )
+
+
+def _fragment_is_missing(fragment_path: Path) -> bool:
+    """Return True when *fragment_path* is genuinely absent, matching
+    ``Path.exists()``'s own classification -- unlike a bare
+    ``Path.exists()`` call, a permission-denied or other real access
+    failure is reported as *not* missing (the caller's own read attempt
+    then reports that failure accurately) rather than propagating an
+    uncaught ``OSError``."""
+    try:
+        fragment_path.stat()
+    except OSError as exc:
+        return _is_missing_errno(exc)
+    return False
 
 
 def _endpoint_id(value: str | spdx3.Element | None) -> str | None:
@@ -398,7 +446,7 @@ def merge_fragments(
 
     for frag in fragments:
         fragment_path = project_dir / frag.path
-        if not fragment_path.exists():
+        if _fragment_is_missing(fragment_path):
             log.warning(
                 _missing_fragment_message(fragment_path, required=frag.required)
             )

@@ -8,7 +8,6 @@
 from __future__ import annotations
 
 import argparse
-import errno
 import hashlib
 import json
 import logging
@@ -21,6 +20,7 @@ from spdx_python_model.bindings import v3_0_1 as spdx3
 
 from pitloom.assemble.spdx3.fragments import (
     _fragment_read_failure_message,
+    _is_missing_errno,
     _missing_fragment_message,
 )
 from pitloom.cli.commands.utils import (
@@ -29,14 +29,6 @@ from pitloom.cli.commands.utils import (
     cli_error_handler,
 )
 from pitloom.core.config import FragmentConfig, read_pitloom_config
-
-#: errno values Path.exists()/is_file() themselves treat as "this path
-#: doesn't apply" rather than a real failure -- used below so a stat()
-#: failure is classified the same way, instead of collapsing every OSError
-#: (including a permission error) into "missing".
-_STAT_MISSING_ERRNOS = frozenset(
-    {errno.ENOENT, errno.ENOTDIR, errno.EBADF, errno.ELOOP}
-)
 
 log = logging.getLogger(__name__)
 
@@ -100,13 +92,24 @@ def _fragment_read_status(
         )
         return None, False, None
     try:
-        data = json.loads(raw.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        # json.loads(bytes) -- not raw.decode("utf-8") + json.loads(str) --
+        # to match the real merge path (json.load() on a binary handle):
+        # both auto-detect and strip a leading UTF-8 BOM, while
+        # json.loads(str) raises on one. Decoding first would make this
+        # command reject a fragment a real build would merge successfully.
+        data = json.loads(raw)
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        # Broad on purpose, matching the SPDX3-deserialize catch below --
+        # a narrower catch (e.g. just JSONDecodeError) still lets an
+        # unusual failure (e.g. RecursionError on deeply nested JSON)
+        # abort this entire command instead of degrading just this one
+        # fragment, the same hazard the broad catch below already guards.
         log.warning(
             _fragment_read_failure_message(fragment_path, exc, required=required)
         )
         return raw, False, None
-    elements = len(data.get("@graph", [])) if isinstance(data, dict) else None
+    graph = data.get("@graph", []) if isinstance(data, dict) else None
+    elements = len(graph) if isinstance(graph, list) else None
     try:
         # deserialize_data(), not read() -- data is already parsed above,
         # no need to hand the deserializer raw bytes to re-parse as JSON.
@@ -161,7 +164,11 @@ def _print_fragment_list_line(
     sha_status: str,
     modified: str | None,
 ) -> None:
-    """Print one `pitloom fragment list` output line for *frag*."""
+    """Print one `pitloom fragment list` output line for *frag*: every
+    KEY=VALUE pair describes the same one data point (this fragment), so
+    they belong on the same line per CLAUDE.md's CLI-output convention
+    ("Default: line-delimited, one data point per line") -- one line per
+    fragment, not one line per field."""
     # frag.role is None (not configured) vs "" (explicitly set empty) are
     # distinct states -- only None prints as "-", matching this project's
     # own None-vs-empty convention (see CLAUDE.md "Recurring bug patterns").
@@ -191,16 +198,18 @@ def _report_fragment(project_dir: Path, frag: FragmentConfig) -> bool:
     # avoids both a second syscall and a TOCTOU gap where a later
     # separate stat() could raise on a file removed in between (the read
     # below has its own OSError handling, but stat() previously didn't).
-    # `exists` matches merge_fragments()'s own `.exists()` semantics (True
-    # for any path present, regardless of type) -- a stat() failure only
-    # means "missing" for the same errno set Path.exists()/is_file() treat
-    # that way; anything else (e.g. a permission error) is a real,
-    # present-but-inaccessible path, and the read attempt below reports
-    # that accurately instead of this function mislabeling it "not found".
+    # `exists` matches merge_fragments()'s own missing-fragment check
+    # (both now classify a stat()/exists() failure via the shared
+    # _is_missing_errno()) -- True for any path present, regardless of
+    # type; a stat() failure only means "missing" for the same errno/
+    # winerror set Path.exists()/is_file() treat that way; anything else
+    # (e.g. a permission error) is a real, present-but-inaccessible path,
+    # and the read attempt below reports that accurately instead of this
+    # function mislabeling it "not found".
     try:
         stat_result = fragment_path.stat()
     except OSError as exc:
-        exists = exc.errno not in _STAT_MISSING_ERRNOS
+        exists = not _is_missing_errno(exc)
         mtime = None
     else:
         exists = True

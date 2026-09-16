@@ -396,6 +396,36 @@ def test_fragment_read_status_preserves_raw_bytes_on_json_parse_failure(
     assert elements is None
 
 
+def test_fragment_read_status_tolerates_utf8_bom(tmp_path: Path) -> None:
+    """A fragment with a leading UTF-8 BOM must parse successfully, matching
+    the real merge path (json.load() on a binary handle, which auto-strips
+    a BOM) -- json.loads(raw.decode("utf-8")) would instead raise
+    "Unexpected UTF-8 BOM", a false-negative for a fragment a real build
+    would merge fine."""
+    frag_path = tmp_path / "bom.spdx3.json"
+    frag_path.write_bytes(b"\xef\xbb\xbf" + b'{"@graph": []}')
+
+    raw, read_ok, elements = _fragment_read_status(frag_path, required=False)
+
+    assert raw is not None
+    assert elements == 0
+    assert read_ok is True
+
+
+def test_fragment_read_status_non_list_graph_does_not_crash(tmp_path: Path) -> None:
+    """A fragment whose '@graph' value is valid JSON but not a list (e.g.
+    an int) must not crash with an uncaught TypeError from len() -- it's a
+    malformed-but-parseable document, degrading like every other
+    not-really-usable fragment shape, not aborting the whole command."""
+    frag_path = tmp_path / "bad-graph.spdx3.json"
+    frag_path.write_text('{"@graph": 5}')
+
+    raw, _read_ok, elements = _fragment_read_status(frag_path, required=False)
+
+    assert raw is not None
+    assert elements is None
+
+
 def test_fragment_list_valid_json_no_graph_key(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

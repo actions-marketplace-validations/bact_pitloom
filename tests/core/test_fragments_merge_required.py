@@ -12,6 +12,7 @@ soft limit).
 
 from __future__ import annotations
 
+import errno
 from pathlib import Path
 
 import pytest
@@ -78,6 +79,32 @@ def test_required_fragment_missing_raises_even_when_nothing_merged(
 
     with pytest.raises(FragmentMergeError, match="only-and-missing.spdx3.json"):
         merge_fragments(tmp_path, [frag], exporter)
+
+
+def test_permission_denied_fragment_does_not_crash(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A permission-denied fragment path must not crash merge_fragments()
+    with an unhandled PermissionError. Path.exists() only swallows
+    ENOENT/ENOTDIR/EBADF/ELOOP -- any other OSError (e.g. EACCES)
+    propagates uncaught -- so merge_fragments() must classify a fragment's
+    presence via _fragment_is_missing() rather than calling
+    Path.exists() directly."""
+    frag_path = tmp_path / "denied.spdx3.json"
+    frag_path.write_text('{"@graph": []}')
+    exporter = Spdx3JsonExporter()
+    frag = FragmentConfig(path="denied.spdx3.json")
+
+    real_stat = Path.stat
+
+    def fake_stat(self: Path, *args: object, **kwargs: object) -> object:
+        if self == frag_path:
+            raise PermissionError(errno.EACCES, "Permission denied")
+        return real_stat(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", fake_stat)
+
+    merge_fragments(tmp_path, [frag], exporter)
 
 
 def test_two_missing_required_fragments_both_named_in_error(tmp_path: Path) -> None:

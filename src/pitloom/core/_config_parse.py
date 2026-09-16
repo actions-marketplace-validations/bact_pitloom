@@ -314,6 +314,10 @@ def _read_fragments(pitloom_data: dict[str, Any]) -> list[FragmentConfig]:
     fragments: list[FragmentConfig] = []
     for entry in raw:
         if isinstance(entry, str):
+            if not entry:
+                raise ValueError(
+                    "[tool.pitloom.fragment] 'files' entry must not be an empty string"
+                )
             fragments.append(FragmentConfig(path=entry))
         elif isinstance(entry, dict):
             fragments.append(_read_fragment_entry(entry))

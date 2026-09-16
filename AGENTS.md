@@ -387,8 +387,19 @@ shape described, not just the module where each was first found.
 
 Unix philosophy. Consistent, predictable, parseable.
 
-- Default: line-delimited, one data point per line.
-- Key-value: `KEY=VALUE` -- uppercase KEY, no spaces around `=`.
+- Default: line-delimited, one data point per line. A "data point" is one
+  record/entity, not one field -- a record with several attributes (e.g.
+  one configured fragment's path/role/required/exists/element-count/
+  hash-status/modified-time) is still one data point, and its `KEY=VALUE`
+  pairs belong together on that one line, space-separated (e.g. `PATH=...
+  ROLE=... REQUIRED=... EXISTS=...`), not split one-field-per-line. Only
+  split across lines when there's more than one record to list (one line
+  per record, e.g. one line per configured fragment).
+- Key-value: `KEY=VALUE` -- uppercase KEY, no spaces around `=`. Several
+  `KEY=VALUE` pairs on the same line are fine when they describe the same
+  data point (see above) -- e.g. `FORMAT=%s FILE=%s: ...` for a single
+  per-model-file scanning warning, or `pitloom fragment list`'s one line
+  per configured fragment.
 - Three levels reach stderr, every line starting with exactly one:
   `ERROR: <short description>`, `WARNING: <short description>`,
   `INFO: <short description>`. Nothing else is grep-able output -- a
