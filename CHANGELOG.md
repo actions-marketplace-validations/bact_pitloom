@@ -19,6 +19,18 @@ and this project adheres to
 - Full release notes: <https://github.com/bact/pitloom/releases>
 - Commit history: <https://github.com/bact/pitloom/compare/v0.17.0...v0.18.0>
 
+## [Unreleased]
+
+### Added
+
+- `FragmentConfig` dataclass for `[tool.pitloom.fragment]` entries --
+  role/description/required/sha256/link-to-main, backward-compatible
+  with plain path strings ([#217])
+- `loom fragment list` CLI command -- shows each configured
+  fragment's existence, element count, and SHA-256 match status ([#217])
+
+[#217]: https://github.com/bact/pitloom/pull/217
+
 ## [0.18.0] - 2026-09-16
 
 ### Added
@@ -55,11 +67,6 @@ and this project adheres to
   Annotation ([#214])
 - `--allow-build`/`--no-build-isolation`: opt-in build-and-read file
   discovery via a real PEP 517 build ([#215], [#216])
-- `FragmentConfig` dataclass for `[tool.pitloom.fragment]` entries --
-  role/description/required/sha256/link-to-main, backward-compatible
-  with plain path strings ([#217])
-- `loom fragment list` CLI command -- shows each configured
-  fragment's existence, element count, and SHA-256 match status ([#217])
 
 ### Fixed
 
@@ -113,7 +120,6 @@ and this project adheres to
 [#214]: https://github.com/bact/pitloom/pull/214
 [#215]: https://github.com/bact/pitloom/pull/215
 [#216]: https://github.com/bact/pitloom/pull/216
-[#217]: https://github.com/bact/pitloom/pull/217
 
 ## [0.17.0] - 2026-08-30
 
