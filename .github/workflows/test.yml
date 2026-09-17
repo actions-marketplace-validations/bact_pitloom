@@ -59,9 +59,9 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: ~/.local/share/licenseid
-          key: ${{ runner.os }}-licenseid-${{ hashFiles('pyproject.toml') }}
+          key: licenseid-${{ hashFiles('pyproject.toml') }}
           restore-keys: |
-            ${{ runner.os }}-licenseid-
+            licenseid-
 
       - name: Build licenseid database
         run: licenseid update

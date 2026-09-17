@@ -126,7 +126,8 @@ def _extract_fasttext_outputs(
 def read_fasttext(model_path: Path) -> AiModelMetadata:
     """Extract metadata from a fastText binary model file.
 
-    Requires the ``fasttext`` package (``pip install fasttext``).
+    Requires the ``fasttext`` module (``pip install fasttext-community``,
+    or ``fasttext`` on Python 3.14+).
 
     fastText binary models (``.bin``) and quantised models (``.ftz``) store
     their training configuration in an Args struct accessible via the C++

@@ -90,7 +90,7 @@ deliberately narrow; anything not listed below is explicitly **not**
 
 | # | Item | Priority | Impact | Size | Status |
 | :-- | :--- | :--- | :--- | :--- | :--- |
-| 1 | [Real Windows CI run](#testing--ci) | P0 | High | S-M | In progress -- CI added ([PR #220](https://github.com/bact/pitloom/pull/220)), fixing a real path bug it surfaced |
+| 1 | [Real Windows CI run](#testing--ci) | P0 | High | S-M | Done -- CI added ([PR #220](https://github.com/bact/pitloom/pull/220)), fixed test fixtures it exposed |
 | 2 | [Real macOS CI run](#testing--ci) | P0 | High | S | Done -- CI added ([PR #220](https://github.com/bact/pitloom/pull/220)) |
 | 3 | [`--allow-build` timeout](#medium-term) | P0 | High | S | Not started |
 | 4 | [Versioning/compatibility policy decision](#versioning-and-compatibility-policy-new-for-10) | P0 | High | S | Needs a decision |
@@ -574,20 +574,41 @@ be built:
   closing the gap flagged during PR #215's review (`--allow-build`'s
   cross-platform notes -- temp-dir handling, path separators -- were
   verified only by reasoning, not an actual Windows run). Immediately
-  surfaced a real `source`-key path-separator mismatch on Windows/Python
-  3.11, fixed in the same PR ([PR #220](https://github.com/bact/pitloom/pull/220))
+  surfaced 7 real test failures: several tests hardcoded a POSIX-only
+  absolute path literal (e.g. `"/tmp/pitloom-build-and-read-xyz/..."`)
+  to fake `--allow-build`'s tempdir output, but `Path(literal).is_absolute()`
+  is `False` under Windows `pathlib` semantics (no drive letter) --
+  silently skipping the branch under test. No production code changed;
+  fixed by adding a shared `fake_build_and_read_path()` test helper
+  (`tests/conftest.py`) that builds a genuinely-platform-absolute path
+  from the real `tempfile.gettempdir()` ([PR #220](https://github.com/bact/pitloom/pull/220))
   -- exactly the risk this item existed to catch.
 - [x] **Real macOS CI run** -- `test.yml`/`build.yml` now also include a
   `macos-latest` job. ([PR #220](https://github.com/bact/pitloom/pull/220))
+- [ ] **`fasttext` Windows/macOS + Python 3.14 gap untested** -- PR #220
+  split the `fasttext` extra by `python_version` (`fasttext-community`
+  for <3.14, plain `fasttext==0.9.3` for >=3.14, since
+  `fasttext-community` caps its own `requires-python` at <3.14). Plain
+  `fasttext==0.9.3` has no Windows wheel and fails building from source
+  there (the exact bug #220 fixes for <3.14) -- but no CI matrix job
+  combines Windows or macOS with Python 3.14, so this known gap stays
+  silently untested. Revisit once `fasttext-community` adds 3.14
+  wheels, or add a dedicated Windows/macOS + 3.14 job if that's slow to
+  land.
 - [ ] **CI workflow step duplication** -- the checkout / setup-python /
-  pip-install / `licenseid update` boilerplate is hand-copied across
-  ~9 `.github/workflows/*.yml` files with no shared source, so a change
-  to one (e.g. a cache key, a Python setup option) has to be repeated by
-  hand in every file or silently drifts. Candidate fix: a local composite
-  action (`.github/actions/setup-pitloom-ci/action.yml`) that each
-  workflow's steps call instead of repeating the block. Not urgent --
-  flagged during a CI redundancy audit, no drift has caused a bug yet --
+  pip-install boilerplate is hand-copied across 11 of the 17
+  `.github/workflows/*.yml` files with no shared source, so a change to
+  one (e.g. a cache key, a Python setup option) has to be repeated by
+  hand in every file or silently drifts. (`licenseid update` is a
+  narrower sub-case -- only `test.yml` and `action-selftest.yml` run it,
+  not all 11.) Candidate fix: a local composite action
+  (`.github/actions/setup-pitloom-ci/action.yml`) that each workflow's
+  steps call instead of repeating the block. Not urgent -- flagged
+  during a CI redundancy audit, no drift has caused a bug yet --
   but matches the "Consolidate Patterns" principle in CLAUDE.md.
+  Deliberately kept out of PR #220's scope (a repo-wide CI refactor
+  shouldn't land bundled with the first real Windows/macOS CI run) --
+  do as its own follow-up PR once #220 is merged and stable.
 
 ### Diagnostics / logging
 

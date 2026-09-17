@@ -395,23 +395,24 @@ def test_embed_sbom_empty_content_raises(tmp_path: Path) -> None:
         embed_sbom_in_wheel(wheel_path, "   \n\t  ")
 
 
-@pytest.mark.skipif(
-    sys.platform == "win32",
-    reason=(
-        "Windows os.chmod()/os.stat().st_mode don't carry POSIX "
-        "group/other granularity -- NTFS only has a single read-only "
-        "attribute, so setting mode 0o644 (owner-writable) round-trips "
-        "as 0o666 (world-writable) rather than being preserved bit-for-"
-        "bit. Not a Pitloom bug: embed_sbom_in_wheel()'s os.chmod(orig_mode) "
-        "call (src/pitloom/_embed_wheel.py) is a thin OS wrapper."
-    ),
-)
 def test_embed_sbom_preserves_file_permissions(tmp_path: Path) -> None:
-    """Test embed_sbom_in_wheel preserves original filesystem permissions."""
+    """Test embed_sbom_in_wheel preserves original filesystem permissions.
+
+    Windows: NTFS has no POSIX group/other granularity -- os.chmod() only
+    toggles the single read-only attribute, so mode 0o644 (owner-writable)
+    round-trips as 0o666 (world-writable) rather than bit-for-bit. Not a
+    Pitloom bug (embed_sbom_in_wheel()'s os.chmod(orig_mode) call in
+    src/pitloom/_embed_wheel.py is a thin OS wrapper) -- assert the weaker,
+    still-meaningful invariant instead of skipping outright: the restore
+    call ran without raising and didn't leave the file read-only.
+    """
     wheel_path = _make_dummy_wheel(tmp_path, "perm_pkg", "1.0.0")
     target_mode = stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH  # 0o644
     os.chmod(wheel_path, target_mode)
 
     embed_sbom_in_wheel(wheel_path, _SAMPLE_SPDX3_JSON)
     current_mode = stat.S_IMODE(wheel_path.stat().st_mode)
-    assert current_mode == target_mode
+    if sys.platform == "win32":
+        assert current_mode & stat.S_IWRITE
+    else:
+        assert current_mode == target_mode

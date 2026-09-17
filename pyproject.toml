@@ -91,6 +91,7 @@ ai = [
     # which has no Windows wheel and fails building from source on CI.
     # fasttext-community caps its own requires-python at <3.14, so fall back
     # to fasttext==0.9.3 there until it adds 3.14 wheels.
+    # Known gap: No Windows wheel for fasttext==0.9.3 for Python 3.14+
     "fasttext==0.9.3; python_version>='3.14'",
     "fasttext-community>=0.11.7; python_version<'3.14'",
     "fickling>=0.1.12",
