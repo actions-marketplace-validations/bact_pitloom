@@ -1,6 +1,6 @@
 ---
 Created: 2026-04-14
-Last-Modified: 2026-09-15
+Last-Modified: 2026-09-16
 SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 SPDX-FileType: DOCUMENTATION
 SPDX-License-Identifier: CC0-1.0
@@ -73,6 +73,104 @@ is not kept in sync with post-ship changes.
   ([#208](https://github.com/bact/pitloom/pull/208)). See
   [lock-file-cascade.md](../implementation/lock-file-cascade.md).
 
+## 1.0 target (2026-10-15)
+
+Goal: ship 1.0 within one month (by mid-October 2026). GitHub milestone
+`1.0.0` already exists (no issues attached yet, no due date set). This
+is a **stability/quality release, not a feature release** -- the core
+mission (SBOM generation across every major Python build backend, lock
+formats, AI/ML profiles, PEP 770 embedding, provenance tracking) is
+already feature-complete per [Completed](#completed) above. What's
+missing for 1.0 is proof it holds up outside the one environment
+(Linux, one developer) it's been built and tested in, plus closing a
+couple of correctness/consistency gaps found along the way. One
+developer working with an AI pairing agent, ~1 month -- scope is
+deliberately narrow; anything not listed below is explicitly **not**
+1.0 scope (see "Cut from 1.0" at the end).
+
+| # | Item | Priority | Impact | Size | Status |
+| :-- | :--- | :--- | :--- | :--- | :--- |
+| 1 | [Real Windows CI run](#testing--ci) | P0 | High | S-M | Not started |
+| 2 | [Real macOS CI run](#testing--ci) | P0 | High | S | Not started |
+| 3 | [`--allow-build` timeout](#medium-term) | P0 | High | S | Not started |
+| 4 | [Versioning/compatibility policy decision](#versioning-and-compatibility-policy-new-for-10) | P0 | High | S | Needs a decision |
+| 5 | [`loom fragment sign` + hash verification](#sbom-fragments-merge-system) | P1 | Medium | S | Not started |
+| 6 | [Generic multi-candidate field representation](#metadata-quality) | P1 | Medium | S-M | Not started |
+| 7 | [JAX/Orbax model extractor](#extractors) (stretch) | P2 | Medium | M | Not started |
+| 8 | [Merge-policy doc](https://github.com/bact/pitloom/issues/150) (stretch) | P2 | Low | S | Not started |
+
+**Why this order:**
+
+1-2. **CI first, before anything else.** Everything else in this list
+   risks a merge conflict or a re-review if CI turns up a real
+   Windows/macOS bug mid-month; better to know the size of that problem
+   in week 1 than discover it in week 4. Windows before macOS per the
+   existing roadmap note (path-separator/tempdir issues are more likely
+   on Windows; macOS is comparatively low-risk once Windows is clean).
+   CLAUDE.md already commits to "seamlessly across Windows, macOS, and
+   Linux" -- shipping 1.0 having only ever run on `ubuntu-latest` means
+   that claim is untested, not true.
+3. **`--allow-build` timeout**, right after CI is green. `--allow-build`
+   shipped in 0.18.0 (PR #215) with a known hang risk (no escape hatch
+   but Ctrl-C) already flagged in Medium-term below. A 1.0 release is
+   when strangers start depending on default behavior not hanging
+   forever; this is the one open correctness gap in already-shipped
+   1.0-era code, so it goes first among the code fixes.
+4. **Versioning/compatibility policy** needs deciding early, not at
+   release time. CLAUDE.md currently states "no backward compat needed
+   yet" (true for a private alpha); 1.0 conventionally signals a SemVer
+   compatibility commitment starting from that tag. This is a decision
+   for the maintainer, not something to infer -- worth resolving in week
+   1 so it doesn't become a last-minute scramble, and so any breaking
+   cleanup wanted "one last time before the compat clock starts" (e.g.
+   CLI flag renames, if any are pending) has time to land before 1.0
+   rather than after.
+5-6. **Fragment CLI completion and generic multi-candidate fields** --
+   both small, both independent of 1-4, both reduce visible
+   inconsistency: `fragment list`/`fragment validate`/`FragmentConfig`
+   already ship (2026-09-15/16), so `fragment sign` closes out a
+   subcommand family that would otherwise look half-finished in a 1.0
+   release; the multi-candidate refactor removes a duplication pattern
+   before more call sites (a 1.0-era feature freeze makes call sites
+   longer-lived, so cheaper to fix now than after 1.0).
+7-8. **Stretch, cut first if the schedule slips.** JAX/Orbax is a real
+   feature addition (not a stability fix) with a ready design -- include
+   only if 1-6 land with time to spare. The merge-policy doc is small
+   and safe to defer to a 1.0.1/1.1 doc pass without affecting the
+   release itself.
+
+### Versioning and compatibility policy (new for 1.0)
+
+Not yet decided -- flagging as a required 1.0 decision, not proposing
+an answer. Questions to resolve before the 1.0 tag:
+
+- Does 1.0 commit to CLI-flag/output-format/library-API stability under
+  SemVer (breaking changes only at a major version bump), replacing
+  CLAUDE.md's current "no backward compat needed yet"?
+- If so, which surfaces are covered by that commitment -- CLI flags and
+  output shape, the public library API (`generate_project_sbom()` etc.),
+  the Hatchling build hook's `[tool.pitloom]` config schema, the GitHub
+  Action's inputs, the Skills/plugin surfaces -- and are they all
+  covered from 1.0.0, or staggered (e.g. CLI stable at 1.0, library API
+  marked experimental until 1.1)?
+- Any deliberately breaking cleanup that should land *before* 1.0 while
+  compat is still free, rather than waiting for a 2.0? (No specific
+  candidate identified in this pass -- worth a deliberate check, not an
+  assumption that none exists.)
+
+### Cut from 1.0 (explicitly deferred)
+
+Named here so scope doesn't creep back in mid-month: OSV.dev
+vulnerability lookup, CycloneDX assembler and any other output format,
+`pixi.lock`/`conda-lock.yml` support, MLflow/W&B Weave/DVC fragment
+extractors and SBOM-fragments Phases 2-4, SARIF output, SCITT
+integration, PEP 740 attestations, remote source ingestion
+(`loom project <url>`), AI model id stability (auto-harvest), the
+provenance/enrichment vocabulary revision (blocked on its own taxonomy
+decision), internal codename retirement, and the ~25 other open
+`enhancement`-labelled GitHub issues not named in the table above. All
+stay on the roadmap; none block 1.0.
+
 ## Adoption surfaces
 
 Pitloom's other surfaces (library API, CLI, Hatchling build hook, ML
@@ -110,16 +208,11 @@ below is now closed for every backend, including `uv_build` (via the
 generic `--allow-build` build-and-read mechanism, not a dedicated static
 rescan -- see below).
 
-**Suggested sequencing after that** (2026-09-15, not a commitment, just
-the current read of what's ready to pick up vs. what still needs a
-design pass):
+**Suggested sequencing after that** (2026-09-16, not a commitment --
+superseded for the next month by [1.0 target](#10-target-2026-10-15)
+below, which is the actual commitment for what ships before mid-October):
 
-1. [`loom fragment list`](#sbom-fragments-merge-system) -- smallest
-   ready item found in the 2026-09-15 roadmap-linking pass: read-only,
-   no merge-logic risk, immediate dev-visibility payoff. `FragmentConfig`
-   and `fragment sign`/hash verification are the same size of win,
-   independently deliverable, no ordering dependency between the three.
-2. [Generic multi-candidate field representation](#metadata-quality)
+1. [Generic multi-candidate field representation](#metadata-quality)
    -- now concretely motivated: license (`deps_license.py`), dependency
    version (`deps_installed.py`), and project metadata fields
    (`extract/project/installed.py`, landed via
@@ -127,14 +220,16 @@ design pass):
    hand-build their own `ConflictCandidate` list at their own call
    site -- a third, independent instance of the same duplication is
    usually the right time to generalize.
-3. [JAX/Orbax model extractor](#extractors) -- design ready (verified
+2. [JAX/Orbax model extractor](#extractors) -- design ready (verified
    against real `orbax-checkpoint` output, not docs alone), independent
-   of the two items above.
-4. [OSV.dev vulnerability lookup](#metadata-quality) -- **not** ready to
+   of the item above.
+3. [OSV.dev vulnerability lookup](#metadata-quality) -- **not** ready to
    hand to an implementer as-is; needed its own design pass first (SPDX3
    mapping, which dependency pool to query, PEP 440-based range
    matching) -- now resolved, see
    [osv-vulnerability-lookup.md](osv-vulnerability-lookup.md#resolving-the-three-open-design-gaps-2026-09-14).
+   Explicitly **not** in the 1.0 scope below -- too large to design,
+   build, and review in the time remaining alongside everything else.
 
 ### Non-Hatchling file discovery (feature parity)
 
