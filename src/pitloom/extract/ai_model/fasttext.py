@@ -48,8 +48,9 @@ def _load_fasttext_model(model_path: Path) -> Any:
         import fasttext
     except ImportError as exc:
         raise ImportError(
-            "The 'fasttext' package is required to extract fastText model metadata. "
-            "Install it with: pip install fasttext"
+            "The 'fasttext' module is required to extract fastText model "
+            "metadata. Install it with: pip install fasttext-community "
+            "(or fasttext on Python 3.14+)"
         ) from exc
 
     try:

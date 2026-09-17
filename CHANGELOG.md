@@ -29,7 +29,13 @@ and this project adheres to
 - `loom fragment list` CLI command -- shows each configured
   fragment's existence, element count, and SHA-256 match status ([#217])
 
+### Changed
+
+- Switch from `fasttext` to `fasttext-community` on Python < 3.14 to have
+  better Windows support ([#220])
+
 [#217]: https://github.com/bact/pitloom/pull/217
+[#220]: https://github.com/bact/pitloom/pull/220
 
 ## [0.18.0] - 2026-09-16
 
