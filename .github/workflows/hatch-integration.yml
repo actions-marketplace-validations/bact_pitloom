@@ -29,12 +29,19 @@ concurrency:
 
 jobs:
   hatch-integration:
-    name: Hook on Python ${{ matrix.python-version }}
+    name: Hook on Python ${{ matrix.python-version }} / Hatchling ${{ matrix.hatchling-version || 'latest' }}
     runs-on: ubuntu-latest
     strategy:
       matrix:
         # python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
         python-version: ["3.10", "3.14"]
+        # hatchling-version: the floor pinned in pyproject.toml
+        # ("hatchling>=1.32.0", no upper bound) and "" for whatever
+        # latest resolves to -- catches an undocumented break in a new
+        # Hatchling release the way 1.32.3's silent BuildHookInterface
+        # generic-arity change would otherwise have gone unnoticed (see
+        # working-docs/implementation/hatchling-build-hook.md).
+        hatchling-version: ["1.32.0", ""]
       fail-fast: false
 
     steps:
@@ -53,6 +60,10 @@ jobs:
           # Install Pitloom from the current checkout (no isolation needed).
           pip install -e .
           pip install build==1.6.1 spdx3-validate==0.0.7
+          if [ -n "${{ matrix.hatchling-version }}" ]; then
+            pip install "hatchling==${{ matrix.hatchling-version }}"
+          fi
+          python -c "import hatchling; from importlib.metadata import version; print('Hatchling', version('hatchling'))"
 
       - name: Build sampleproject with --no-isolation
         # --no-isolation picks up the locally installed Pitloom instead of
@@ -216,7 +227,7 @@ jobs:
         if: always()
         run: |
           cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
-          ## Hatch integration -- Python ${{ matrix.python-version }}
+          ## Hatch integration -- Python ${{ matrix.python-version }} / Hatchling ${{ matrix.hatchling-version || 'latest' }}
 
           | Step | Result |
           | :--- | :--- |
@@ -229,7 +240,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
-          name: hatch-integration-py${{ matrix.python-version }}
+          name: hatch-integration-py${{ matrix.python-version }}-hatchling${{ matrix.hatchling-version || 'latest' }}
           path: |
             tests/fixtures/projects/sampleproject-hatchling/dist/*.whl
             tests/fixtures/projects/sampleproject-hatchling/dist/sbom.spdx3.json

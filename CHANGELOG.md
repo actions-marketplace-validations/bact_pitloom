@@ -1,5 +1,5 @@
 ---
-Last-Modified: 2026-09-15
+Last-Modified: 2026-09-17
 SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 SPDX-FileType: DOCUMENTATION
 SPDX-License-Identifier: CC0-1.0
@@ -34,8 +34,14 @@ and this project adheres to
 - Switch from `fasttext` to `fasttext-community` on Python < 3.14 to have
   better Windows support ([#220])
 
+### Fixed
+
+- Fix Hatchling build hook to work with both Hatchling <=1.32.0 and >=1.32.3
+  ([#222])
+
 [#217]: https://github.com/bact/pitloom/pull/217
 [#220]: https://github.com/bact/pitloom/pull/220
+[#222]: https://github.com/bact/pitloom/pull/222
 
 ## [0.18.0] - 2026-09-16
 

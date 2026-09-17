@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from hatchling.builders.config import BuilderConfig
 from hatchling.builders.hooks.plugin.interface import BuildHookInterface
@@ -211,7 +211,59 @@ def _stage_sbom_file(
     return staging_dir, staging_path
 
 
-class PitloomBuildHook(BuildHookInterface[BuilderConfig]):
+if TYPE_CHECKING:
+    # Hatchling 1.32.3 changed BuildHookInterface's generic arity (see
+    # _resolve_build_hook_base() below) without an upper bound on
+    # Pitloom's own hatchling>=1.32.0 floor to protect against it. Type
+    # checkers only ever see this branch, so this must match whatever
+    # Hatchling version resolves in the typecheck environment (the newer,
+    # two-parameter shape, since there is no upper bound).
+    from hatchling.plugin.manager import PluginManager
+
+    class _PitloomBuildHookBase(
+        BuildHookInterface[BuilderConfig[PluginManager], PluginManager]
+    ):
+        """Static shape for type checkers -- see :func:`_resolve_build_hook_base`
+        for the actual Hatchling-version-agnostic base class used at runtime."""
+
+else:
+    from hatchling.plugin.manager import PluginManager
+
+    def _resolve_build_hook_base() -> type:
+        """Pick the Hatchling ``BuildHookInterface`` base matching whatever
+        Hatchling version is installed.
+
+        Hatchling 1.32.3 silently changed ``BuildHookInterface`` from
+        ``Generic[BuilderConfigBound]`` to
+        ``Generic[BuilderConfigBound, PluginManagerBound]`` (undocumented;
+        hatchling-v1.32.3 commit 84023e0), which makes
+        ``BuildHookInterface[BuilderConfig]`` raise ``TypeError`` at class-
+        definition time. Detect the actual arity via ``__parameters__``
+        (a plain, side-effect-free tuple of TypeVars -- reading it cannot
+        itself trigger the subscription error) rather than a hardcoded
+        version check, so this keeps working if Hatchling changes arity
+        again.
+
+        Raises:
+            RuntimeError: If the installed Hatchling's ``BuildHookInterface``
+                has neither one nor two type parameters.
+        """
+        param_count = len(BuildHookInterface.__parameters__)
+        if param_count == 1:
+            return BuildHookInterface[BuilderConfig]
+        if param_count == 2:
+            return BuildHookInterface[BuilderConfig, PluginManager]
+        raise RuntimeError(
+            f"{_HATCHLING_ERROR_PREFIX} BuildHookInterface has an "
+            f"unexpected number of type parameters ({param_count}); "
+            "Pitloom's Hatchling build hook may need updating for this "
+            "Hatchling version."
+        )
+
+    _PitloomBuildHookBase = _resolve_build_hook_base()
+
+
+class PitloomBuildHook(_PitloomBuildHookBase):
     """Hatchling build hook that embeds an SPDX 3 SBOM in the wheel.
 
     Activated by adding ``[tool.hatch.build.hooks.pitloom]`` to the project's
