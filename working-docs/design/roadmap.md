@@ -574,20 +574,14 @@ be built:
   to do on Pitloom's side but wait. Revisit the Python-version marker
   split once that lands, or add a dedicated Windows/macOS + 3.14 CI job
   if it stalls.
-- [ ] **CI workflow step duplication** -- the checkout / setup-python /
-  pip-install boilerplate is hand-copied across 11 of the 17
-  `.github/workflows/*.yml` files with no shared source, so a change to
-  one (e.g. a cache key, a Python setup option) has to be repeated by
-  hand in every file or silently drifts. (`licenseid update` is a
-  narrower sub-case -- only `test.yml` and `action-selftest.yml` run it,
-  not all 11.) Candidate fix: a local composite action
-  (`.github/actions/setup-pitloom-ci/action.yml`) that each workflow's
-  steps call instead of repeating the block. Not urgent -- flagged
-  during a CI redundancy audit, no drift has caused a bug yet --
-  but matches the "Consolidate Patterns" principle in CLAUDE.md.
-  Deliberately kept out of PR #220's scope (a repo-wide CI refactor
-  shouldn't land bundled with the first real Windows/macOS CI run) --
-  do as its own follow-up PR once #220 is merged and stable.
+- [x] **CI workflow step duplication** -- 10 of the 17
+  `.github/workflows/*.yml` files now call a local composite action
+  (`.github/actions/setup-pitloom-ci/action.yml`) for
+  setup-python/pip-upgrade instead of hand-copying it. `checkout` stays
+  inline in each file (a local composite action can't check itself out).
+  `version-consistency.yml` (no cache/pip-install step) and the two
+  intentionally-different `licenseid update` steps were left untouched.
+  ([PR #221](https://github.com/bact/pitloom/pull/221))
 
 ### Diagnostics / logging
 

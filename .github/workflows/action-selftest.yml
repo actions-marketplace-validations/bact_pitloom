@@ -39,19 +39,15 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      - uses: ./.github/actions/setup-pitloom-ci
         with:
           python-version: ${{ matrix.python-version }}
-          cache: pip
-          cache-dependency-path: pyproject.toml
 
       - name: Install Pitloom from checkout
         # Self-test runs project mode, embed-wheel mode, and --allow-build
         # (needs the "build" extra: PyPA build powers the build-and-read
         # mechanism -- see pitloom.core._models_wheel_build_and_read).
         run: |
-          python -m pip install --upgrade pip
           pip install -e ".[validate,build]"
           pip install build==1.6.1 check-wheel-contents==0.6.3 \
             installer==1.0.1

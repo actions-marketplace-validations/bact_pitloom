@@ -33,9 +33,13 @@ and this project adheres to
 
 - Switch from `fasttext` to `fasttext-community` on Python < 3.14 to have
   better Windows support ([#220])
+- CI workflows share Python setup/pip-upgrade via a local composite action
+  (`.github/actions/setup-pitloom-ci`) instead of hand-copying it 10 times
+  ([#221])
 
 [#217]: https://github.com/bact/pitloom/pull/217
 [#220]: https://github.com/bact/pitloom/pull/220
+[#221]: https://github.com/bact/pitloom/pull/221
 
 ## [0.18.0] - 2026-09-16
 
