@@ -1,6 +1,9 @@
 # SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 # SPDX-License-Identifier: Apache-2.0
 
+# Check if version fields are consistent across
+# pyproject.toml, __about__.py, codemeta.json, plugin.json
+
 name: Version consistency
 
 on:

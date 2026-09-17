@@ -69,8 +69,8 @@ sentimentdemo-aibom/
 ```bash
 # From the pitloom checkout
 pip install -e .                  # install pitloom in dev mode
-pip install fasttext stav build   # runtime dependencies of this example
 cd examples/sentimentdemo-aibom
+pip install -e . build
 ```
 
 Or, in one go:

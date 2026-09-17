@@ -19,6 +19,8 @@ from pitloom.core.ai_metadata import AiModelFormatInfo, AiModelMetadata
 from pitloom.core.enrich_config import EnrichConfig
 from pitloom.enrich import _resolve_model_search_dir, run_enrichers_for_models
 
+from ..conftest import fake_build_and_read_path
+
 
 def test_resolve_model_search_dir_relative_physical_path(tmp_path: Path) -> None:
     """The normal case: physical_path is project-relative, so the
@@ -38,7 +40,7 @@ def test_resolve_model_search_dir_falls_back_when_physical_path_absolute(
     Path("/tmp/y")`, never touching "/x"). Falls back to
     file_path_relative (the wheel-distribution path, always
     project-relative) instead, staying inside project_dir."""
-    fake_tempdir = "/tmp/pitloom-build-and-read-xyz/pkg/models/foo.gguf"
+    fake_tempdir = fake_build_and_read_path("pkg", "models", "foo.gguf")
     format_info = AiModelFormatInfo(
         physical_path=fake_tempdir,
         file_path_relative="models/foo.gguf",
@@ -56,7 +58,9 @@ def test_resolve_model_search_dir_absolute_with_no_relative_fallback(
     project_dir itself (empty relative path) rather than leaking the
     tempdir -- still wrong information is preferable to a directory
     outside project_dir entirely, but never silently escapes it."""
-    format_info = AiModelFormatInfo(physical_path="/tmp/some/tempdir/foo.gguf")
+    format_info = AiModelFormatInfo(
+        physical_path=fake_build_and_read_path("some", "tempdir", "foo.gguf")
+    )
     result = _resolve_model_search_dir(tmp_path, format_info)
     assert result == tmp_path
     assert "tempdir" not in str(result)
@@ -68,7 +72,7 @@ def test_run_enrichers_for_models_uses_resolved_dir(tmp_path: Path) -> None:
     directly -- proven here by an absolute physical_path (as
     build-and-read would produce) that must not leak into the directory
     passed to run_enrichers."""
-    fake_tempdir = "/tmp/pitloom-build-and-read-abc/pkg/models/foo.gguf"
+    fake_tempdir = fake_build_and_read_path("pkg", "models", "foo.gguf")
     model = AiModelMetadata(
         format_info=AiModelFormatInfo(
             physical_path=fake_tempdir,

@@ -20,6 +20,8 @@ from pitloom.assemble.spdx3.ai import (
 from pitloom.core.ai_metadata import AiModelFormat, AiModelFormatInfo, AiModelMetadata
 from pitloom.ids import EntityEntry, IdRegistry
 
+from ..conftest import fake_build_and_read_path
+
 
 def test_should_preserve_metadata_always() -> None:
     model = AiModelMetadata()
@@ -145,7 +147,7 @@ def test_lookup_ai_model_entity_falls_back_when_physical_path_absolute() -> None
     )
     model = AiModelMetadata(
         format_info=AiModelFormatInfo(
-            physical_path="/tmp/pitloom-build-and-read-xyz/src/model.gguf",
+            physical_path=fake_build_and_read_path("src", "model.gguf"),
             file_path_relative="src/model.gguf",
         )
     )
@@ -164,7 +166,7 @@ def test_lookup_ai_model_entity_absolute_path_no_fallback_skips_candidate() -> N
     )
     model = AiModelMetadata(
         format_info=AiModelFormatInfo(
-            physical_path="/tmp/pitloom-build-and-read-xyz/model.gguf",
+            physical_path=fake_build_and_read_path("model.gguf"),
             file_name="model.gguf",
         )
     )

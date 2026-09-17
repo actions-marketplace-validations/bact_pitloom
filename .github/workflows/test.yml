@@ -25,12 +25,24 @@ concurrency:
 
 jobs:
   test:
-    name: Test on Python ${{ matrix.python-version }}
-    runs-on: ubuntu-latest
+    name: Test on Python ${{ matrix.python-version }} (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        # python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
-        python-version: ["3.10", "3.14"]
+        include:
+          - os: ubuntu-latest
+            python-version: "3.10"
+          - os: windows-latest
+            python-version: "3.11"
+          - os: macos-latest
+            python-version: "3.13"
+          - os: ubuntu-latest
+            python-version: "3.14"
+            # Single source of truth for "which combo collects coverage" --
+            # consumed by both the "Run tests" step's bash conditional and
+            # the "Upload coverage reports to Codecov" step's `if:`, so the
+            # two never drift out of sync.
+            coverage: true
       fail-fast: true
 
     steps:
@@ -52,16 +64,17 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: ~/.local/share/licenseid
-          key: ${{ runner.os }}-licenseid-${{ hashFiles('pyproject.toml') }}
+          key: licenseid-${{ hashFiles('pyproject.toml') }}
           restore-keys: |
-            ${{ runner.os }}-licenseid-
+            licenseid-
 
       - name: Build licenseid database
         run: licenseid update
 
       - name: Run tests
+        shell: bash
         run: |
-          if [ "${{ matrix.python-version }}" == "3.14" ]; then
+          if [ "${{ matrix.coverage }}" == "true" ]; then
             pytest tests/ -v --tb=short \
               --cov=pitloom \
               --cov-report=xml \
@@ -71,7 +84,7 @@ jobs:
           fi
 
       - name: Upload coverage reports to Codecov
-        if: matrix.python-version == '3.14'
+        if: matrix.coverage
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f  # v7.0.0
         with:
           token: ${{ secrets.CODECOV_TOKEN }}

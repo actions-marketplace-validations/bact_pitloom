@@ -10,6 +10,7 @@ from pitloom.core.document import DocumentModel
 from pitloom.core.project import ProjectFile, ProjectMetadata
 from pitloom.ids import FileEntry, IdRegistry
 
+from ...conftest import fake_build_and_read_path
 from ..conftest import (
     _annotation_fields_for,
     _build_graph_for_files,
@@ -70,7 +71,7 @@ def test_build_file_absolute_physical_path_uses_distribution_path_in_provenance(
     ``physical_path`` whenever the latter is absolute."""
     files = [
         ProjectFile(
-            physical_path="/tmp/pitloom-build-and-read-abc123/pkg/tagged.py",
+            physical_path=fake_build_and_read_path("abc123", "pkg", "tagged.py"),
             distribution_path="pkg/tagged.py",
             digest_sha256="a" * 64,
             copyright_text="2026 Test Author",
@@ -117,7 +118,7 @@ def test_build_file_absolute_physical_path_is_deterministic_across_runs() -> Non
     graph_run_1 = _build_graph_for_files(
         [
             ProjectFile(
-                physical_path="/tmp/pitloom-build-and-read-run1xyz/pkg/tagged.py",
+                physical_path=fake_build_and_read_path("run1xyz", "pkg", "tagged.py"),
                 **common_kwargs,  # type: ignore[arg-type]
             )
         ]
@@ -125,7 +126,9 @@ def test_build_file_absolute_physical_path_is_deterministic_across_runs() -> Non
     graph_run_2 = _build_graph_for_files(
         [
             ProjectFile(
-                physical_path="/tmp/pitloom-build-and-read-run2different/pkg/tagged.py",
+                physical_path=fake_build_and_read_path(
+                    "run2different", "pkg", "tagged.py"
+                ),
                 **common_kwargs,  # type: ignore[arg-type]
             )
         ]

@@ -22,6 +22,7 @@ import sys
 import tempfile
 import zipfile
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 from installer.sources import WheelFile
@@ -395,12 +396,36 @@ def test_embed_sbom_empty_content_raises(tmp_path: Path) -> None:
         embed_sbom_in_wheel(wheel_path, "   \n\t  ")
 
 
-def test_embed_sbom_preserves_file_permissions(tmp_path: Path) -> None:
-    """Test embed_sbom_in_wheel preserves original filesystem permissions."""
+def test_embed_sbom_preserves_file_permissions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test embed_sbom_in_wheel preserves original filesystem permissions.
+
+    Windows: NTFS has no POSIX group/other granularity -- os.chmod() only
+    toggles the single read-only attribute, so mode 0o644 (owner-writable)
+    round-trips as 0o666 (world-writable) rather than bit-for-bit. Worse,
+    a fresh 0o644 target is writable by default anyway (the replacement
+    file embed_sbom_in_wheel() builds via tempfile.NamedTemporaryFile is
+    already writable before any chmod runs), so a stat()-based assertion
+    would pass even if the restore call in
+    src/pitloom/_embed_wheel.py's os.chmod(wheel_obj, orig_mode) were
+    deleted entirely. No black-box (stat-based) check can distinguish
+    "restored" from "never touched" on this platform, so spy on the
+    os.chmod call's own arguments instead -- a deliberate mechanism-level
+    check forced by the platform, not a preference for testing internals.
+    """
     wheel_path = _make_dummy_wheel(tmp_path, "perm_pkg", "1.0.0")
     target_mode = stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH  # 0o644
     os.chmod(wheel_path, target_mode)
 
+    if sys.platform == "win32":
+        expected_orig_mode = wheel_path.resolve().stat().st_mode
+        chmod_spy = Mock(wraps=os.chmod)
+        monkeypatch.setattr("pitloom._embed_wheel.os.chmod", chmod_spy)
+
     embed_sbom_in_wheel(wheel_path, _SAMPLE_SPDX3_JSON)
     current_mode = stat.S_IMODE(wheel_path.stat().st_mode)
-    assert current_mode == target_mode
+    if sys.platform == "win32":
+        chmod_spy.assert_called_once_with(wheel_path.resolve(), expected_orig_mode)
+    else:
+        assert current_mode == target_mode

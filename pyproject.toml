@@ -86,7 +86,14 @@ pitloom = "pitloom.plugins.hatch"
 
 [project.optional-dependencies]
 ai = [
-    "fasttext==0.9.3",                          # or fasttext-community>=0.11.7
+    # fasttext-community is a drop-in replacement (still `import fasttext`)
+    # with prebuilt wheels for Windows/macOS/Linux, unlike fasttext==0.9.3
+    # which has no Windows wheel and fails building from source on CI.
+    # fasttext-community caps its own requires-python at <3.14, so fall back
+    # to fasttext==0.9.3 there until it adds 3.14 wheels.
+    # Known gap: No Windows wheel for fasttext==0.9.3 for Python 3.14+
+    "fasttext==0.9.3; python_version>='3.14'",
+    "fasttext-community>=0.11.7; python_version<'3.14'",
     "fickling>=0.1.12",
     "gguf>=0.19.0",
     "h5py>=3.16.0",
@@ -105,7 +112,12 @@ ai = [
 build = ["build>=1.2.2"]
 content-type = ["magika>=1.0.3"]
 
-fasttext = ["fasttext==0.9.3"] # or fasttext-community>=0.11.7
+fasttext = [
+    # Same split and rationale as the "ai" extra's fasttext lines above --
+    # keep both in sync.
+    "fasttext==0.9.3; python_version>='3.14'",
+    "fasttext-community>=0.11.7; python_version<'3.14'",
+]
 gguf = ["gguf>=0.19.0"]
 hdf5 = ["h5py>=3.16.0"]
 huggingface_hub = ["huggingface_hub>=1.29.0"]
