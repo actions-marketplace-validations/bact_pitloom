@@ -260,13 +260,14 @@ def test_resolve_pinned_dependencies_abort_policy(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     triples = [("foo", "==", "1.0"), ("foo", "==", "2.0"), ("bar", "==", "3.0")]
+    lock_file = Path("/path/to/requirements.txt")
     with caplog.at_level(logging.WARNING):
-        deps = resolve_pinned_dependencies(
-            triples, Path("/path/to/requirements.txt"), on_conflict="abort"
-        )
+        deps = resolve_pinned_dependencies(triples, lock_file, on_conflict="abort")
     assert deps is None
+    # str(lock_file), not a hardcoded POSIX literal: the warning logs the
+    # Path object's native str() form, which renders with "\" on Windows.
     assert (
-        "/path/to/requirements.txt: 'foo' pinned to conflicting versions (1.0, 2.0)"
+        f"{lock_file}: 'foo' pinned to conflicting versions (1.0, 2.0)"
         " -- ignoring requirements.txt" in caplog.text
     )
 

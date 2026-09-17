@@ -395,6 +395,17 @@ def test_embed_sbom_empty_content_raises(tmp_path: Path) -> None:
         embed_sbom_in_wheel(wheel_path, "   \n\t  ")
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason=(
+        "Windows os.chmod()/os.stat().st_mode don't carry POSIX "
+        "group/other granularity -- NTFS only has a single read-only "
+        "attribute, so setting mode 0o644 (owner-writable) round-trips "
+        "as 0o666 (world-writable) rather than being preserved bit-for-"
+        "bit. Not a Pitloom bug: embed_sbom_in_wheel()'s os.chmod(orig_mode) "
+        "call (src/pitloom/_embed_wheel.py) is a thin OS wrapper."
+    ),
+)
 def test_embed_sbom_preserves_file_permissions(tmp_path: Path) -> None:
     """Test embed_sbom_in_wheel preserves original filesystem permissions."""
     wheel_path = _make_dummy_wheel(tmp_path, "perm_pkg", "1.0.0")
