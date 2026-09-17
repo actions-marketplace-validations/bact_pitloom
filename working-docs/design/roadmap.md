@@ -35,14 +35,8 @@ is not kept in sync with post-ship changes.
 - [x] Poetry support -- initial implementation
   (`src/pitloom/extract/project/poetry.py`; `read_pyproject()` falls back to
   `[tool.poetry]` when `[project]` is absent, merges both when present)
-- [x] **PDM-backend and Flit-core support** -- metadata extraction
-  (`src/pitloom/extract/project/pdm.py`, `flit.py`: dynamic `version`/
-  `description` resolved via each backend's own logic --
-  `[tool.pdm.version]`'s `file`/`scm` sources, Flit's module
-  `__version__`/docstring convention) and wheel file discovery
-  (`src/pitloom/core/_models_wheel_pdm.py`, `_models_wheel_flit.py`),
-  wired into `read_pyproject()` and `_models_wheel_dispatch.py`'s
-  `backend_discoverers` registry. See
+- [x] **PDM-backend and Flit-core support** -- metadata extraction and
+  wheel file discovery for both backends. See
   [backend-file-discovery-validation.md](../implementation/backend-file-discovery-validation.md)'s
   Flit-core/PDM-backend round.
 - [x] **Multiple creators / tools per `CreationInfo` record** -- `Creator`/
@@ -53,20 +47,14 @@ is not kept in sync with post-ship changes.
   See [multi-source-conflict.md](../implementation/provenance/multi-source-conflict.md)
   ([PR #121](https://github.com/bact/pitloom/pull/121)).
 - [x] **`[project.license-files]` support** -- PEP 639's glob-list field
-  for bundling multiple license files. `ProjectMetadata.license_files`
-  (resolved by `pyproject_metadata`/Hatchling, not re-globbed by Pitloom);
-  each entry gets a `software_File` element at the real wheel's
-  `<name>-<version>.dist-info/licenses/<path>` and a `hasDeclaredLicense`
-  relationship, deduped against the package-level license element. See
+  for bundling multiple license files, each getting its own
+  `software_File` element and `hasDeclaredLicense` relationship. See
   [license-pipeline.md](../implementation/license-pipeline.md#license-files-bundling-pep-639).
 - [x] **Auto-sync the Loom ID registry after SBOM generation** -- `loom
   project`/`wheel`/`env` harvest newly-minted ids back into the resolved
-  registry after each run. `ai_AIPackage`/`dataset_DatasetPackage`
-  deliberately excluded -- see
-  [Loom IDs across fragments](../../README.md#loom-ids-across-fragments-pitloom-ids).
-  Open follow-ups: [AI model id stability](#ai-model-id-stability-follow-up-to-178),
-  [Sort-order canonicalization](#sort-order-canonicalization-follow-up-to-178)
-  below. ([PR #178](https://github.com/bact/pitloom/pull/178))
+  registry after each run. See
+  [id-registry-autosync.md](../implementation/id-registry-autosync.md)
+  ([PR #178](https://github.com/bact/pitloom/pull/178)).
 - [x] **Lock/pin formats as a resolved-dependency source** -- `poetry.lock`,
   `pylock.toml` (PEP 751), `uv.lock`, `pdm.lock`, `Pipfile.lock`, and pinned
   `requirements.txt` feed `locked_dependencies` via one shared cascade
@@ -76,68 +64,83 @@ is not kept in sync with post-ship changes.
 ## 1.0 target (2026-10-15)
 
 Goal: ship 1.0 within one month (by mid-October 2026). GitHub milestone
-`1.0.0` already exists (no issues attached yet, no due date set). This
-is a **stability/quality release, not a feature release** -- the core
-mission (SBOM generation across every major Python build backend, lock
-formats, AI/ML profiles, PEP 770 embedding, provenance tracking) is
-already feature-complete per [Completed](#completed) above. What's
-missing for 1.0 is proof it holds up outside the one environment
-(Linux, one developer) it's been built and tested in, plus closing a
-couple of correctness/consistency gaps found along the way. One
-developer working with an AI pairing agent, ~1 month -- scope is
-deliberately narrow; anything not listed below is explicitly **not**
-1.0 scope (see "Cut from 1.0" at the end).
+`1.0.0` already exists (no issues attached yet, no due date set).
+**Redefined 2026-09-17**: 1.0's headline is **G7 SBOM for AI field
+coverage**, not just stability -- see
+[G7 SBOM for AI field coverage](#g7-sbom-for-ai-field-coverage-10-headline)
+below. Cross-platform CI is already closed
+([PR #220](https://github.com/bact/pitloom/pull/220)); the remaining
+stability items (`--allow-build` timeout, versioning policy) stay in
+scope but no longer fill the list on their own.
+
+**Scope split, decided 2026-09-17**: deterministic field population
+(anything a file format, a structured API response, or explicit
+`loom`-decorator/SDK input can supply) belongs in core CLI/API, since it
+must stay reproducible per "SBOM output" in CLAUDE.md. Fuzzy mapping
+that core can't do deterministically -- e.g. turning a free-text
+"producer" string into a properly-disambiguated SPDX `Person`/
+`Organization` -- stays the agent/Skill's job (`sbom-enrich`), not
+core's. Every G7 item below is scoped to fit the core/deterministic
+side of that split; anything that would need heuristic disambiguation
+is explicitly left to the Skill and not listed as a core 1.0 item.
 
 | # | Item | Priority | Impact | Size | Status |
 | :-- | :--- | :--- | :--- | :--- | :--- |
 | 1 | [Real Windows CI run](#testing--ci) | P0 | High | S-M | Done -- CI added ([PR #220](https://github.com/bact/pitloom/pull/220)), fixed test fixtures it exposed |
 | 2 | [Real macOS CI run](#testing--ci) | P0 | High | S | Done -- CI added ([PR #220](https://github.com/bact/pitloom/pull/220)) |
-| 3 | [`--allow-build` timeout](#medium-term) | P0 | High | S | Not started |
-| 4 | [Versioning/compatibility policy decision](#versioning-and-compatibility-policy-new-for-10) | P0 | High | S | Needs a decision |
-| 5 | [`loom fragment sign` + hash verification](#sbom-fragments-merge-system) | P1 | Medium | S | Not started |
-| 6 | [Generic multi-candidate field representation](#metadata-quality) | P1 | Medium | S-M | Not started |
-| 7 | [JAX/Orbax model extractor](#extractors) (stretch) | P2 | Medium | M | Not started |
-| 8 | [Merge-policy doc](https://github.com/bact/pitloom/issues/150) (stretch) | P2 | Low | S | Not started |
+| 3 | [Mechanical G7 wiring: dataset license + `ai_AIPackage.verifiedUsing`](#g7-sbom-for-ai-field-coverage-10-headline) | P0 | High | S | Not started |
+| 4 | [Fix stale gap claims in `minimum-elements.md`](#g7-sbom-for-ai-field-coverage-10-headline) | P0 | Medium | S | Not started |
+| 5 | [`--allow-build` timeout](#medium-term) | P0 | High | S | Not started |
+| 6 | [Model producer + parameter count (structured sources only)](#g7-sbom-for-ai-field-coverage-10-headline) | P1 | High | M | Not started |
+| 7 | [`loom` SDK: dataset provenance + model training-properties capture](#g7-sbom-for-ai-field-coverage-10-headline) | P1 | High | M-L | Not started |
+| 8 | [Versioning/compatibility policy decision](#versioning-and-compatibility-policy-new-for-10) | P0 | High | S | Needs a decision |
+
+Bumped out of 1.0 by the G7 redefinition (not dropped -- moved back to
+their normal roadmap sections, unstarred): `loom fragment sign` + hash
+verification, generic multi-candidate field representation, JAX/Orbax
+extractor, the merge-policy doc. None are stability- or G7-blocking;
+revisit for 1.1.
 
 **Why this order:**
 
-1-2. **CI first, before anything else.** Everything else in this list
-   risks a merge conflict or a re-review if CI turns up a real
-   Windows/macOS bug mid-month; better to know the size of that problem
-   in week 1 than discover it in week 4. Windows before macOS per the
-   existing roadmap note (path-separator/tempdir issues are more likely
-   on Windows; macOS is comparatively low-risk once Windows is clean).
-   CLAUDE.md already commits to "seamlessly across Windows, macOS, and
-   Linux" -- shipping 1.0 having only ever run on `ubuntu-latest` means
-   that claim is untested, not true.
-3. **`--allow-build` timeout**, right after CI is green. `--allow-build`
-   shipped in 0.18.0 (PR #215) with a known hang risk (no escape hatch
-   but Ctrl-C) already flagged in Medium-term below. A 1.0 release is
-   when strangers start depending on default behavior not hanging
-   forever; this is the one open correctness gap in already-shipped
-   1.0-era code, so it goes first among the code fixes.
-4. **Versioning/compatibility policy** needs deciding early, not at
-   release time. CLAUDE.md currently states "no backward compat needed
-   yet" (true for a private alpha); 1.0 conventionally signals a SemVer
-   compatibility commitment starting from that tag. This is a decision
-   for the maintainer, not something to infer -- worth resolving in week
-   1 so it doesn't become a last-minute scramble, and so any breaking
-   cleanup wanted "one last time before the compat clock starts" (e.g.
-   CLI flag renames, if any are pending) has time to land before 1.0
-   rather than after.
-5-6. **Fragment CLI completion and generic multi-candidate fields** --
-   both small, both independent of 1-4, both reduce visible
-   inconsistency: `fragment list`/`fragment validate`/`FragmentConfig`
-   already ship (2026-09-15/16), so `fragment sign` closes out a
-   subcommand family that would otherwise look half-finished in a 1.0
-   release; the multi-candidate refactor removes a duplication pattern
-   before more call sites (a 1.0-era feature freeze makes call sites
-   longer-lived, so cheaper to fix now than after 1.0).
-7-8. **Stretch, cut first if the schedule slips.** JAX/Orbax is a real
-   feature addition (not a stability fix) with a ready design -- include
-   only if 1-6 land with time to spare. The merge-policy doc is small
-   and safe to defer to a 1.0.1/1.1 doc pass without affecting the
-   release itself.
+1-2. **CI first, before anything else** -- unchanged rationale, already
+   done. See git history for detail if needed.
+3-4. **Mechanical G7 wiring, first among the new work** -- both are
+   small, code-verified (not doc-guessed), zero design risk: a
+   dataclass field already extracted and sitting unused, and a hash
+   already computed elsewhere in the same pipeline. Highest
+   impact-per-hour of anything on this list. Fixing the stale skill-doc
+   claims right after prevents the agent/Skill from re-asking users
+   about fields core already covers -- cheap, and directly protects the
+   value of the wiring fix above it.
+5. **`--allow-build` timeout** stays in its original slot -- still the
+   one open correctness gap in shipped 1.0-era code, unrelated to G7 but
+   cheap and independent.
+6-7. **Real extraction work, ordered by size.** Model producer (via
+   structured API data, e.g. Hugging Face Hub's own author/org field --
+   not free-text parsing) and parameter count (per-format, several
+   formats already expose it in their own metadata) are both
+   medium-sized and self-contained. The `loom` SDK expansion is larger
+   (new decorator/builder surface, see
+   [loom-sdk-and-notebooks.md](sbom-fragments/loom-sdk-and-notebooks.md))
+   and goes last among the code items so 3-6 aren't blocked waiting on
+   its design to settle.
+8. **Versioning/compatibility policy** moved last in sequence (not in
+   priority) -- still needs deciding before the tag, but is a decision,
+   not code, so it doesn't compete with the above for implementation
+   time; can happen in parallel any time in the month.
+
+### G7 SBOM for AI field coverage (1.0 headline)
+
+Re-verified against current assembly code (2026-09-17): the skill's own
+[G7 checklist](../../skills/sbom-enrich/references/minimum-elements.md#g7-sbom-for-ai-2026-additive----apply-only-when-an-ai_aipackage-is-present)
+is stale in 4 places (claims "gap" for fields already wired), and most
+of the real gaps are pure wiring (a dataclass field already extracted
+but never read by the assembler) rather than new extraction work. Only
+dataset/model provenance and training-properties need genuinely new
+capture, via an expanded `loom` decorator/SDK. Full breakdown, the
+core-vs-Skill scope split, and implementation order: see
+[g7-ai-sbom-coverage.md](g7-ai-sbom-coverage.md).
 
 ### Versioning and compatibility policy (new for 1.0)
 
@@ -269,10 +272,9 @@ below, which is the actual commitment for what ships before mid-October):
   backend in a subprocess to resolve dynamic metadata (Git-tag versions,
   computed deps) that static parsing cannot handle.
   See [metadata-sources.md](metadata-sources.md).
-- [x] **Setuptools wheel file discovery** -- setuptools' own official
-  config-resolution API (`setuptools.config.pyprojecttoml`/`setupcfg`)
-  and `build_py` introspection now resolve a setuptools project's file
-  set from static config, instead of Hatchling's `WheelBuilder`. See
+- [x] **Setuptools wheel file discovery** -- resolves a setuptools
+  project's file set from static config instead of Hatchling's
+  `WheelBuilder`. See
   [setuptools-support.md](../implementation/setuptools-support.md) and
   [sbom-lifecycle-stages.md](../implementation/sbom-lifecycle-stages.md).
 - [x] **`get_wheel_files()` option to skip Merkle root computation** --
@@ -285,9 +287,8 @@ below, which is the actual commitment for what ships before mid-October):
   See [installed-dist-info-source.md](installed-dist-info-source.md).
 - [x] **Unify `extract/project/installed.py`'s RFC 822 Core-Metadata
   parser with `extract/wheel.py`'s** -- closed (2026-09-15, PR #215):
-  widened to all four sites found with the same duplicated
-  `Project-URL`-splitting shape (`wheel.py`, `installed.py`, `sdist.py`,
-  `deps_originator.py`), consolidated into one parametrized
+  widened to all four sites with the same duplicated `Project-URL`
+  -splitting shape, consolidated into one parametrized
   `extract/_core_metadata.py::parse_project_urls()`. See
   [installed-dist-info-source.md](installed-dist-info-source.md#relationship-to-extractwheelpys-parser).
 - [ ] **Real installed `.dist-info` (site-packages) as a metadata
@@ -385,14 +386,10 @@ below, which is the actual commitment for what ships before mid-October):
   extractors are the same shape of gap; tracked together with this one
   under [SBOM fragments](#sbom-fragments-merge-system) below since all
   three feed the fragment-merge pipeline.
-- [x] **Dataset-to-model relationship linking** -- `AiModelMetadata` carries
-  dataset references (`DatasetReference`, `pitloom.core.dataset_metadata`);
-  `add_datasets_for_model()` (`src/pitloom/assemble/spdx3/dataset.py`)
-  emits `trainedOn`/`testedOn` `Relationship`s natively, falling back to
-  `RelationshipType.other` + an explanatory comment for the three SPDX
-  3.0.1 lacks (`finetunedOn`, `validatedOn`, `pretrainedOn`). Wired in from
-  `assemble/spdx3/ai.py` and `_document_model.py`. See
-  [sbom-enrichment.md](sbom-enrichment.md).
+- [x] **Dataset-to-model relationship linking** -- `trainedOn`/`testedOn`
+  `Relationship`s emitted natively, falling back to `RelationshipType.other`
+  for the three relationship types SPDX 3.0.1 itself lacks. See
+  [ai-dataset-linking.md](../implementation/ai-dataset-linking.md).
 - [x] **Croissant dataset size calculation** -- `dataset_DatasetSize`
   extracted dynamically by summing `cr:totalItems` across `cr:recordSet`
   entries (or top-level `cr:totalItems`), with graceful `None` fallback.
@@ -405,17 +402,10 @@ roadmap until 2026-09-15 -- re-verified against current code before
 listing below, since parts of its Phase 1/4 plan turned out to already
 be built:
 
-- [x] **Core merge mechanism** -- `merge_fragments()`
-  (`assemble/spdx3/fragments.py`) already does dedup, dangling-reference
-  detection, unification annotations, and fragment-import tracking; the
-  design cluster's "Phase 1 item 2" (`merge_fragments` rewrite) is
-  substantially superseded by this. See
-  [fragment-merge-design.md](sbom-fragments/fragment-merge-design.md)
-  for the mechanism this implements, but read the module itself for
-  current behaviour.
-- [x] **`loom fragment validate`** -- already ships, already calls
-  `spdx3_validate.validate()`'s library API directly as Phase 4 item 2
-  specified (`cli/commands/fragment.py`).
+- [x] **Core merge mechanism and `loom fragment validate`** -- both
+  already ship, substantially superseding the original design cluster's
+  Phase 1/4 plan. See
+  [fragment-merge-mechanism.md](../implementation/fragment-merge-mechanism.md).
 - [x] **`FragmentConfig` dataclass** -- `PitloomConfig.fragments` is
   `list[FragmentConfig]` (`role`/`description`/`required`/`sha256`/
   `link-to-main`), backward-compatible with a plain-string loader
@@ -508,10 +498,8 @@ be built:
   one canonical source. See
   [provenance-enrichment-vocabulary.md](provenance-enrichment-vocabulary.md).
 - [x] **Generalize multi-source conflict detection beyond license** --
-  `build_conflict_annotation`/`ConflictCandidate` (already field-agnostic)
-  now also fires for dependency version (declared specifier vs.
-  lock-file-resolved version), each field's candidates still hand-built
-  at its own assembly call site. See
+  `build_conflict_annotation`/`ConflictCandidate` now also fires for
+  dependency version, not just license. See
   [multi-source-conflict.md](../implementation/provenance/multi-source-conflict.md).
 - [ ] **Generic multi-candidate field representation** -- today each
   multi-source field (license, dependency version) hand-builds its own
@@ -547,11 +535,9 @@ be built:
   declared."
 - [x] **SBOM enrichment from external sources** (the `enrich/` subpackage)
   -- MVP shipped: local README/model-card YAML frontmatter parsing,
-  gated by `[tool.pitloom] enrich` (default off). Code-level and
+  gated by `[tool.pitloom] enrich` (default off), code-level and
   deterministic -- distinct from the agent-facing `sbom-enrich` Skill
-  above. Exposed across every generation surface (`loom enrich` CLI,
-  `--enrich`/`--no-enrich` flags, Hatchling build hook, GitHub Action
-  input). Still not started: OpenSSF Scorecard, Hugging Face Hub and
+  above. Still not started: OpenSSF Scorecard, Hugging Face Hub and
   PyPI metadata sources, per-source enable/disable config.
   See [sbom-enrichment.md](sbom-enrichment.md).
 - [ ] **OSV.dev vulnerability lookup** (`--enrich-cve` or similar) -- static
@@ -605,24 +591,10 @@ be built:
 
 ### Diagnostics / logging
 
-- [x] **Surface `DEBUG:`-level output on request** -- shipped both
-  triggers rather than choosing one: a new top-level `--debug` flag
-  (parsed before the subcommand, like `-V`; `cli/verbose.py`'s existing
-  `--verbose` was left alone since it does something unrelated) and the
-  `PITLOOM_DEBUG` environment variable, which also covers entry points
-  that don't parse CLI flags themselves (the Hatchling build hook, every
-  public library-API generator). `configure_logging(debug=...)`
-  resolves `None` (every existing no-argument call site) against the
-  env var; an explicit `True`/`False` (the CLI's `--debug`) wins outright.
-  See `pitloom.logging_config`. ([PR #201](https://github.com/bact/pitloom/pull/201))
-- [x] **Promote silent-data-loss `DEBUG:` messages to `WARNING:`** --
-  18 messages across the HF Hub, PyTorch/PT2, fastText, README
-  enrichment, and sdist extractors, plus `pitloom.loom` caller-provenance
-  detection, now surface by default (not just under `--debug`) when a
-  failure drops or degrades an SBOM/AIBOM field. Each names the affected
-  field(s) via one shared, grep-able helper, `field_loss_suffix()`
-  (`pitloom.logging_config`), instead of hand-duplicated suffix text per
-  call site. ([PR #201](https://github.com/bact/pitloom/pull/201))
+- [x] **`--debug` flag / `PITLOOM_DEBUG` env var, and promoting
+  silent-data-loss `DEBUG:` messages to `WARNING:`** -- both shipped
+  together. See [debug-logging.md](../implementation/debug-logging.md)
+  ([PR #201](https://github.com/bact/pitloom/pull/201)).
 
 ### Internal codenames
 
