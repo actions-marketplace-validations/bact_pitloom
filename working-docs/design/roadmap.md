@@ -582,9 +582,12 @@ be built:
   `fasttext==0.9.3` has no Windows wheel and fails building from source
   there (the exact bug #220 fixes for <3.14) -- but no CI matrix job
   combines Windows or macOS with Python 3.14, so this known gap stays
-  silently untested. Revisit once `fasttext-community` adds 3.14
-  wheels, or add a dedicated Windows/macOS + 3.14 job if that's slow to
-  land.
+  silently untested. Upstream 3.14 support is in progress:
+  [fasttext-community#13](https://github.com/munlicode/fasttext-community/pull/13)
+  (open, awaiting the project owner's review as of 2026-09-17) -- nothing
+  to do on Pitloom's side but wait. Revisit the Python-version marker
+  split once that lands, or add a dedicated Windows/macOS + 3.14 CI job
+  if it stalls.
 - [ ] **CI workflow step duplication** -- the checkout / setup-python /
   pip-install boilerplate is hand-copied across 11 of the 17
   `.github/workflows/*.yml` files with no shared source, so a change to
