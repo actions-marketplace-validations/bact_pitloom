@@ -569,22 +569,12 @@ be built:
 
 ### Testing / CI
 
-- [x] **Real Windows CI run** -- `.github/workflows/test.yml` and
-  `build.yml` now include a `windows-latest` job (Python 3.11),
-  closing the gap flagged during PR #215's review (`--allow-build`'s
-  cross-platform notes -- temp-dir handling, path separators -- were
-  verified only by reasoning, not an actual Windows run). Immediately
-  surfaced 7 real test failures: several tests hardcoded a POSIX-only
-  absolute path literal (e.g. `"/tmp/pitloom-build-and-read-xyz/..."`)
-  to fake `--allow-build`'s tempdir output, but `Path(literal).is_absolute()`
-  is `False` under Windows `pathlib` semantics (no drive letter) --
-  silently skipping the branch under test. No production code changed;
-  fixed by adding a shared `fake_build_and_read_path()` test helper
-  (`tests/conftest.py`) that builds a genuinely-platform-absolute path
-  from the real `tempfile.gettempdir()` ([PR #220](https://github.com/bact/pitloom/pull/220))
-  -- exactly the risk this item existed to catch.
-- [x] **Real macOS CI run** -- `test.yml`/`build.yml` now also include a
-  `macos-latest` job. ([PR #220](https://github.com/bact/pitloom/pull/220))
+- [x] **Real Windows and macOS CI runs** -- `test.yml`/`build.yml` now
+  cover `windows-latest`/`macos-latest`, not just `ubuntu-latest`. The
+  first Windows run immediately surfaced 7 real test failures (all
+  test-fixture bugs, no production code changed). See
+  [windows-macos-ci.md](../implementation/windows-macos-ci.md).
+  ([PR #220](https://github.com/bact/pitloom/pull/220))
 - [ ] **`fasttext` Windows/macOS + Python 3.14 gap untested** -- PR #220
   split the `fasttext` extra by `python_version` (`fasttext-community`
   for <3.14, plain `fasttext==0.9.3` for >=3.14, since

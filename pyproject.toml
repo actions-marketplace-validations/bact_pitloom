@@ -113,6 +113,8 @@ build = ["build>=1.2.2"]
 content-type = ["magika>=1.0.3"]
 
 fasttext = [
+    # Same split and rationale as the "ai" extra's fasttext lines above --
+    # keep both in sync.
     "fasttext==0.9.3; python_version>='3.14'",
     "fasttext-community>=0.11.7; python_version<'3.14'",
 ]

@@ -22,6 +22,7 @@ import sys
 import tempfile
 import zipfile
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 from installer.sources import WheelFile
@@ -408,27 +409,23 @@ def test_embed_sbom_preserves_file_permissions(
     already writable before any chmod runs), so a stat()-based assertion
     would pass even if the restore call in
     src/pitloom/_embed_wheel.py's os.chmod(wheel_obj, orig_mode) were
-    deleted entirely. Spy on os.chmod instead, to prove the restore call
-    itself actually executes rather than relying on an effect that's
-    already true by default.
+    deleted entirely. No black-box (stat-based) check can distinguish
+    "restored" from "never touched" on this platform, so spy on the
+    os.chmod call's own arguments instead -- a deliberate mechanism-level
+    check forced by the platform, not a preference for testing internals.
     """
     wheel_path = _make_dummy_wheel(tmp_path, "perm_pkg", "1.0.0")
     target_mode = stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH  # 0o644
     os.chmod(wheel_path, target_mode)
 
     if sys.platform == "win32":
-        chmod_calls = {"count": 0}
-        real_chmod = os.chmod
-
-        def _counting_chmod(path: str | os.PathLike[str], mode: int) -> None:
-            chmod_calls["count"] += 1
-            real_chmod(path, mode)
-
-        monkeypatch.setattr("pitloom._embed_wheel.os.chmod", _counting_chmod)
+        expected_orig_mode = wheel_path.resolve().stat().st_mode
+        chmod_spy = Mock(wraps=os.chmod)
+        monkeypatch.setattr("pitloom._embed_wheel.os.chmod", chmod_spy)
 
     embed_sbom_in_wheel(wheel_path, _SAMPLE_SPDX3_JSON)
     current_mode = stat.S_IMODE(wheel_path.stat().st_mode)
     if sys.platform == "win32":
-        assert chmod_calls["count"] == 1
+        chmod_spy.assert_called_once_with(wheel_path.resolve(), expected_orig_mode)
     else:
         assert current_mode == target_mode
