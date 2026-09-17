@@ -395,24 +395,40 @@ def test_embed_sbom_empty_content_raises(tmp_path: Path) -> None:
         embed_sbom_in_wheel(wheel_path, "   \n\t  ")
 
 
-def test_embed_sbom_preserves_file_permissions(tmp_path: Path) -> None:
+def test_embed_sbom_preserves_file_permissions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Test embed_sbom_in_wheel preserves original filesystem permissions.
 
     Windows: NTFS has no POSIX group/other granularity -- os.chmod() only
     toggles the single read-only attribute, so mode 0o644 (owner-writable)
-    round-trips as 0o666 (world-writable) rather than bit-for-bit. Not a
-    Pitloom bug (embed_sbom_in_wheel()'s os.chmod(orig_mode) call in
-    src/pitloom/_embed_wheel.py is a thin OS wrapper) -- assert the weaker,
-    still-meaningful invariant instead of skipping outright: the restore
-    call ran without raising and didn't leave the file read-only.
+    round-trips as 0o666 (world-writable) rather than bit-for-bit. Worse,
+    a fresh 0o644 target is writable by default anyway (the replacement
+    file embed_sbom_in_wheel() builds via tempfile.NamedTemporaryFile is
+    already writable before any chmod runs), so a stat()-based assertion
+    would pass even if the restore call in
+    src/pitloom/_embed_wheel.py's os.chmod(wheel_obj, orig_mode) were
+    deleted entirely. Spy on os.chmod instead, to prove the restore call
+    itself actually executes rather than relying on an effect that's
+    already true by default.
     """
     wheel_path = _make_dummy_wheel(tmp_path, "perm_pkg", "1.0.0")
     target_mode = stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH  # 0o644
     os.chmod(wheel_path, target_mode)
 
+    if sys.platform == "win32":
+        chmod_calls = {"count": 0}
+        real_chmod = os.chmod
+
+        def _counting_chmod(path: str | os.PathLike[str], mode: int) -> None:
+            chmod_calls["count"] += 1
+            real_chmod(path, mode)
+
+        monkeypatch.setattr("pitloom._embed_wheel.os.chmod", _counting_chmod)
+
     embed_sbom_in_wheel(wheel_path, _SAMPLE_SPDX3_JSON)
     current_mode = stat.S_IMODE(wheel_path.stat().st_mode)
     if sys.platform == "win32":
-        assert current_mode & stat.S_IWRITE
+        assert chmod_calls["count"] == 1
     else:
         assert current_mode == target_mode

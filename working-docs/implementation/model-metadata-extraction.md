@@ -1,6 +1,6 @@
 ---
 Created: 2026-03-05
-Last-Modified: 2026-08-14
+Last-Modified: 2026-09-17
 SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 SPDX-FileType: DOCUMENTATION
 SPDX-License-Identifier: CC0-1.0
@@ -29,7 +29,7 @@ Format detection is handled by
 
 | Format | Extension(s) | Module | Optional dependency | Extraction method |
 | :----- | :----------- | :----- | :------------------ | :----------------- |
-| fastText | `.ftz`, `.bin` | `fasttext.py` | `pip install fasttext` | `model.f.getArgs()` via C++ binding; `model.get_labels()` for supervised class list |
+| fastText | `.ftz`, `.bin` | `fasttext.py` | `pip install fasttext-community` (or `fasttext` on Python 3.14+) | `model.f.getArgs()` via C++ binding; `model.get_labels()` for supervised class list |
 | GGUF | `.gguf` | `gguf.py` | `pip install gguf` | `GGUFReader` to extract typed key-value pairs from the binary header |
 | HDF5 / Keras v1-v2 | `.h5`, `.hdf5` | `hdf5.py` | `pip install h5py` | `h5py.File.attrs` for root attributes; JSON-encoded `model_config` and `training_config` |
 | Keras v3 | `.keras` | `keras.py` | (stdlib only) | Inspect `config.json` inside the `.keras` ZIP archive; no model execution required |
