@@ -152,7 +152,8 @@ is normalised to forward slashes. `check_version_consistency.py` reads
 `__about__.py` as `utf-8-sig` and the JSON files as bytes (BOM-safe).
 `.gitattributes` forces LF on `*.sh` and `action.yml`; a test checks those files
 for BOM, CR and non-ASCII. The `args` split uses a read loop, not `readarray`,
-which macOS's bash 3.2 lacks.
+which macOS's bash 3.2 lacks. The Generate step's `tee /dev/stderr` failed on Git Bash (no such
+path on Windows runners, PR #224); stdout is now teed to a temp file instead.
 
 **Paths considered and rejected**
 

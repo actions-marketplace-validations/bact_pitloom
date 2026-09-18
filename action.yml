@@ -337,7 +337,8 @@ runs:
           )
         fi
 
-        # Capture stdout (while still echoing it to the log) so a
+        # Capture stdout to a file (while still echoing it to the log; Git
+        # Bash on Windows has no /dev/stderr for tee) so a
         # loom-picked default filename can be recovered below when
         # "output" was left empty. Capture stderr too (while still
         # streaming it live) so its INFO:/WARNING:/ERROR: lines --
@@ -349,14 +350,15 @@ runs:
         # the script before its ERROR: line gets annotated; the exit code
         # is re-checked and propagated explicitly afterward.
         loom_stderr_file=$(mktemp)
+        loom_stdout_file=$(mktemp)
         set +e
-        loom_stdout=$(
-          loom "${loom_args[@]}" 2> >(tee "${loom_stderr_file}" >&2) \
-            | tee /dev/stderr
-        )
+        loom "${loom_args[@]}" 2> >(tee "${loom_stderr_file}" >&2) \
+          | tee "${loom_stdout_file}" >&2
         loom_exit=$?
         wait
         set -e
+        loom_stdout=$(cat "${loom_stdout_file}")
+        rm -f "${loom_stdout_file}"
         # Windows Python ends every line with CR; drop it before parsing.
         loom_stdout=${loom_stdout//$'\r'/}
 
