@@ -73,7 +73,7 @@ runs:
         # space-separated list of independent pip arguments, and this
         # still only word-splits the already-substituted value; it can't
         # reintroduce shell-metacharacter injection the way a direct
-        # ${{ }} splice into the script text can.
+        # GitHub expression splice into the script text can.
         pip install setuptools $EXTRA_PACKAGES
         if [ -n "$GROUPS" ]; then
           pip install $GROUPS
