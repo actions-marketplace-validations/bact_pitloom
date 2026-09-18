@@ -38,6 +38,12 @@ and this project adheres to
   ([#221])
 - Use `fasttext-community` on all supported Python versions, including
   3.14, now that upstream ships 3.14 wheels ([#222])
+- Lower the Hatchling build-hook floor from `>=1.32.0` to the real
+  technical minimum `>=1.29.0` (native PEP 770 `sbom_files` support)
+  ([#223])
+- Broaden `skills/*/SKILL.md` trigger coverage (CISA/NTIA/G7 combined
+  requests, wheel-embedded SBOM presence vs. validity checks) and
+  document the Loom ID registry's id-stability mechanism ([#223])
 
 ### Fixed
 
@@ -48,6 +54,7 @@ and this project adheres to
 [#220]: https://github.com/bact/pitloom/pull/220
 [#221]: https://github.com/bact/pitloom/pull/221
 [#222]: https://github.com/bact/pitloom/pull/222
+[#223]: https://github.com/bact/pitloom/pull/223
 
 ## [0.18.0] - 2026-09-16
 
