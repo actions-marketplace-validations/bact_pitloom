@@ -19,6 +19,19 @@ and this project adheres to
 - Full release notes: <https://github.com/bact/pitloom/releases>
 - Commit history: <https://github.com/bact/pitloom/compare/v0.18.0...v0.18.1>
 
+## [Unreleased]
+
+### Changed
+
+- GitHub Action installs the Pitloom version of its pinned ref (tag or SHA) instead of the latest release; `pitloom-version` still overrides ([#224])
+- GitHub Action uses the workflow's Python unless `python-version` is set; falls back to `setup-python` 3.x with a warning if unusable; no longer runs `pip --upgrade pip` ([#224])
+
+### Fixed
+
+- GitHub Action failed on Windows runners and on `args` under macOS's bash 3.2; unbalanced `args` quoting is now an error ([#224])
+
+[#224]: https://github.com/bact/pitloom/pull/224
+
 ## [0.18.1] - 2026-09-18
 
 ### Added

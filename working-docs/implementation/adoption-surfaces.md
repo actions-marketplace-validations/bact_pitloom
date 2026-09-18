@@ -49,7 +49,7 @@ true on its own.
 | CLI (`loom` / `pitloom`) | You want a one-off SBOM from a terminal, a Makefile target, or any shell script. | [README.md](../../README.md#command-line) |
 | Hatchling build hook | You build wheels with Hatchling and want an SBOM embedded automatically, with no extra command. | [hatchling-build-hook.md](hatchling-build-hook.md) |
 | ML tracking SDK (`pitloom.loom`) | You are training or fine-tuning a model and want to capture dataset/hyperparameter/metric provenance as you go, as an SPDX fragment. | [README.md](../../README.md#python-tracking-decorator), [sbom-fragments/loom-sdk-and-notebooks.md](../design/sbom-fragments/loom-sdk-and-notebooks.md) |
-| GitHub Action | Your project is *not* Hatchling-based (or you just want CI to produce an SBOM artefact with one `uses:` line), regardless of build backend. | [github-action.md](github-action.md) |
+| GitHub Action | Your project is *not* Hatchling-based (or you just want CI to produce an SBOM artefact), regardless of build backend. | [github-action.md](github-action.md) |
 | AI-agent Skills (`sbom-generate`, `sbom-enrich`, `sbom-validate`) | You want an AI coding agent (Claude Code, the Agent SDK, or similar) to generate -- and optionally enrich and validate -- an SBOM on request, as a first-class capability rather than an ad hoc shell command. | [agent-skill.md](agent-skill.md) |
 | Claude Code plugin | You use Claude Code and want all three Skills installable with one command (`/plugin install`), plus namespaced explicit invocation (`/pitloom:sbom-generate`, `/pitloom:sbom-enrich`, `/pitloom:sbom-validate`). | [claude-code-plugin.md](claude-code-plugin.md) |
 
@@ -61,7 +61,7 @@ backend they control. Two adoption paths were still missing:
 
 1. **Any repository, any build backend.** Not every Python project uses
    Hatchling. A composite **GitHub Action** lets *any* repository add SBOM
-   generation to CI with a single `uses:` step, independent of build
+   generation to CI with one step, independent of build
    backend, publishing the SBOM as a workflow artefact (and, optionally,
    feeding a release pipeline).
 2. **Agent-native operation.** As AI coding agents become a normal part of

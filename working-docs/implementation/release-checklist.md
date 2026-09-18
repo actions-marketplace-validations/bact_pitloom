@@ -38,7 +38,9 @@ the Hatchling floor and latest = `Hook on Python X / Hatchling Y`
 - [ ] Version string consistent across every file that carries one:
       `pyproject.toml`, `src/pitloom/__about__.py`,
       `.claude-plugin/plugin.json`, `CITATION.cff`, `codemeta.json`,
-      `README.md`, `action.yml`, `docs/index.md`. Check with
+      `README.md`, `action.yml`, `docs/index.md`, `docs/github-action.md`
+      (also `pip install pitloom==<version>` in its registry recipe),
+      `working-docs/implementation/github-action.md`. Check with
       `grep -rn "<old-version>"` across those files -- anything left
       over is a missed bump. Dependency floors (e.g. `hatchling>=`) are
       *not* covered by `scripts/check_version_consistency.py`: grep them by
@@ -62,7 +64,10 @@ the Hatchling floor and latest = `Hook on Python X / Hatchling Y`
 ## 2. Tag and publish
 
 - [ ] Tag the release, push the tag, publish to PyPI (however this
-      project's release automation does it -- not scripted here).
+      project's release automation does it -- not scripted here). The
+      GitHub Action installs the version its pinned ref carries, so
+      `uses: bact/pitloom@<new-tag>` fails until PyPI serves that
+      version; don't announce the tag before the publish completes.
 
 ## 3. Post-publish verification (the actual published artifact)
 
@@ -87,6 +92,12 @@ wheel directly:
       its existing entries' format -- this is what makes each release's
       verification durable evidence instead of a one-off chat answer
       that disappears with the session that produced it.
+
+- [ ] Run a throwaway workflow with `uses: bact/pitloom@<new-tag>`
+      (and, for the SHA-pin path, `@<tag's commit SHA>`) against a small
+      project: it must install exactly `<version>` and emit no
+      warning annotation beyond the expected Python-selection one. See
+      [github-action.md](github-action.md).
 
 ## 4. GitHub Release
 
