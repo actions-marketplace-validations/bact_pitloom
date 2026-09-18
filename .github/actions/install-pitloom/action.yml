@@ -1,0 +1,62 @@
+# SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
+# SPDX-FileType: SOURCE
+# SPDX-License-Identifier: Apache-2.0
+
+name: "Install Pitloom from checkout"
+description: >-
+  Installs Pitloom from the local checkout, working around its
+  self-referential pyproject.toml build dependency (see
+  working-docs/implementation/hatchling-build-hook.md). Shared by every
+  CI workflow that needs a working local install instead of copy-pasting
+  the same bootstrap sequence.
+
+inputs:
+  hatchling-version:
+    description: >-
+      Exact Hatchling version to pin before installing Pitloom (e.g.
+      "1.32.0"). Empty installs whatever "hatchling" currently resolves
+      to. Must be pinned before Pitloom, since an isolated install would
+      otherwise resolve its own Hatchling version and ignore this pin.
+    required: false
+    default: ""
+  extra-packages:
+    description: >-
+      Extra space-separated packages/specs to pre-install alongside
+      hatchling/setuptools (e.g. "editables pybind11" or
+      "editables build==1.6.1 spdx3-validate==0.0.7").
+    required: false
+    default: ""
+  groups:
+    description: >-
+      Dependency-group flags to install before the local package (e.g.
+      "--group test --group lint"). Empty skips this step.
+    required: false
+    default: ""
+  install-target:
+    description: >-
+      pip install target for the local package, exactly as it would
+      appear on a shell command line, including any quoting (e.g.
+      '".[ai,content-type]"' or '-e .').
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install Pitloom from checkout
+      shell: bash
+      run: |
+        python -m pip install --upgrade pip
+        if [ -n "${{ inputs.hatchling-version }}" ]; then
+          pip install "hatchling==${{ inputs.hatchling-version }}"
+        else
+          pip install hatchling
+        fi
+        pip install setuptools ${{ inputs.extra-packages }}
+        if [ -n "${{ inputs.groups }}" ]; then
+          pip install ${{ inputs.groups }}
+        fi
+        # pyproject.toml lists "pitloom" as its own build dependency
+        # (self-embeds its SBOM); isolated builds can fetch a stale,
+        # crashing PyPI copy. --no-build-isolation skips that fetch;
+        # HATCH_BUILD_NO_HOOKS skips the hook (nothing provides it yet).
+        HATCH_BUILD_NO_HOOKS=1 pip install ${{ inputs.install-target }} --no-build-isolation

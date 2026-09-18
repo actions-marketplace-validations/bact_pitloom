@@ -50,17 +50,12 @@ jobs:
         # Self-test runs project mode, embed-wheel mode, and --allow-build
         # (needs the "build" extra: PyPA build powers the build-and-read
         # mechanism -- see pitloom.core._models_wheel_build_and_read).
-        run: |
-          python -m pip install --upgrade pip
-          pip install hatchling editables setuptools
-          pip install build==1.6.1 check-wheel-contents==0.6.3 \
+        uses: ./.github/actions/install-pitloom
+        with:
+          extra-packages: >-
+            editables build==1.6.1 check-wheel-contents==0.6.3
             installer==1.0.1
-          # pyproject.toml lists "pitloom" as its own build dependency
-          # (self-embeds its SBOM); isolated builds can fetch a stale,
-          # crashing PyPI copy. --no-build-isolation skips that fetch;
-          # HATCH_BUILD_NO_HOOKS skips the hook (nothing provides it
-          # yet); setuptools covers any dependency built from source.
-          HATCH_BUILD_NO_HOOKS=1 pip install -e ".[validate,build]" --no-build-isolation
+          install-target: '-e ".[validate,build]"'
 
       - name: Build licenseid database
         run: licenseid update

@@ -81,22 +81,13 @@ jobs:
           cache: pip
           cache-dependency-path: pyproject.toml
 
-      - name: Install build dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install build==1.6.1
-
       - name: Install Pitloom from checkout
-        run: |
-          pip install hatchling editables setuptools
-          # pyproject.toml lists "pitloom" as its own build dependency
-          # (self-embeds its SBOM); isolated builds can fetch a stale,
-          # crashing PyPI copy. --no-build-isolation skips that fetch;
-          # HATCH_BUILD_NO_HOOKS skips the hook (nothing provides it
-          # yet); setuptools covers any dependency built from source.
-          # "Build wheel" below runs without HATCH_BUILD_NO_HOOKS, so the
-          # hook still runs there.
-          HATCH_BUILD_NO_HOOKS=1 pip install -e . --no-build-isolation
+        # "Build wheel" below runs without HATCH_BUILD_NO_HOOKS, so the
+        # hook still runs there.
+        uses: ./.github/actions/install-pitloom
+        with:
+          extra-packages: editables build==1.6.1
+          install-target: "-e ."
 
       - name: Build wheel
         id: build

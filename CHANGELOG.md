@@ -36,8 +36,8 @@ and this project adheres to
 
 ### Fixed
 
-- Fix Hatchling build hook to work with both Hatchling <=1.32.0 and >=1.32.3
-  ([#222])
+- Fix Hatchling build hook to work with Hatchling >=1.32.0, including the
+  undocumented `BuildHookInterface` arity change in 1.32.3+ ([#222])
 
 [#217]: https://github.com/bact/pitloom/pull/217
 [#220]: https://github.com/bact/pitloom/pull/220

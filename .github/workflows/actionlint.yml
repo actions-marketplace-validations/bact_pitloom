@@ -8,11 +8,13 @@ on:
     branches: [main, develop]
     paths:
       - "action.yml"
+      - ".github/actions/**"
       - ".github/workflows/**"
   pull_request:
     branches: [main, develop]
     paths:
       - "action.yml"
+      - ".github/actions/**"
       - ".github/workflows/**"
 
 permissions: read-all
@@ -45,4 +47,4 @@ jobs:
         uses: mpalmer/action-validator@c994f427b7c42cd5ecb1bc9315cb91c3d7d72e3d  #v0.9.0
         with:
           version: "0.9.0"
-          patterns: "action.yml"
+          patterns: "action.yml,.github/actions/**/action.yml"
