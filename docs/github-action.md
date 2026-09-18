@@ -20,13 +20,13 @@ generated SBOM directly into built `.whl` files via `embed-wheel: "dist/*.whl"`.
 Standalone SBOM artifact:
 
 ```yaml
-- uses: bact/pitloom@v0.18.0
+- uses: bact/pitloom@v0.18.1
 ```
 
 Generate and embed PEP 770 SBOM into built wheels:
 
 ```yaml
-- uses: bact/pitloom@v0.18.0
+- uses: bact/pitloom@v0.18.1
   with:
     embed-wheel: "dist/*.whl"
 ```
@@ -41,10 +41,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: bact/pitloom@v0.18.0
+      - uses: bact/pitloom@v0.18.1
 ```
 
-Pin to a specific release tag (`@v0.18.0`) rather than a branch, the same
+Pin to a specific release tag (`@v0.18.1`) rather than a branch, the same
 as any third-party action.
 
 ## Usage details
@@ -57,7 +57,7 @@ logic `loom project` uses directly). Point it at an AI model instead of a
 project directory with `model:`:
 
 ```yaml
-- uses: bact/pitloom@v0.18.0
+- uses: bact/pitloom@v0.18.1
   with:
     model: path/to/model.safetensors
 ```
@@ -66,7 +66,7 @@ Embed the SBOM into built wheels (PEP 770) for any build backend
 (`flit`, `setuptools`, `poetry-core`, `maturin`, etc.):
 
 ```yaml
-- uses: bact/pitloom@v0.18.0
+- uses: bact/pitloom@v0.18.1
   with:
     embed-wheel: "dist/*.whl"
 ```
@@ -75,7 +75,7 @@ Pass extra raw CLI flags through with `args:` (shell-quoted, e.g. for
 [creator/creation metadata](creation-metadata.md)):
 
 ```yaml
-- uses: bact/pitloom@v0.18.0
+- uses: bact/pitloom@v0.18.1
   with:
     args: '--creator-name "CI Bot" --creator-type software-agent'
 ```
@@ -144,7 +144,7 @@ jobs:
       - name: Seed/refresh AI model registry entries
         run: loom ids generate
 
-      - uses: bact/pitloom@v0.18.0
+      - uses: bact/pitloom@v0.18.1
         with:
           project-path: .
           # Optional: richer ai_AIPackage metadata (architecture,
@@ -204,7 +204,7 @@ Inputs (all optional):
 | `allow-build` | `false` | **SECURITY:** `"true"` lets Pitloom invoke the scanned project's own PEP 517 build backend (subprocess; may install build-requires from the network) to discover a wheel's real file list. Executes third-party build-time code from the project being scanned -- only enable for a project whose build script you trust. No `[tool.pitloom]` equivalent; defaults to `"false"`, not empty, since there's no config layer to defer to. Applies in project/embed-wheel mode, not model mode. See [`--allow-build`](cli.md#building-a-project-to-discover-its-file-list---allow-build). |
 | `no-build-isolation` | `false` | With `allow-build: "true"`, skip creating an isolated build environment and use the runner's already-installed build backend instead. No effect without `allow-build`. |
 | `args` | *(empty)* | Extra raw flags passed through to the `loom` command, e.g. `--verify --validate` when `embed-wheel` is set. |
-| `pitloom-version` | *(empty)* | Pitloom version/specifier to install, e.g. `0.18.0` or `>=0.18,<1.0`. Empty installs the latest release. |
+| `pitloom-version` | *(empty)* | Pitloom version/specifier to install, e.g. `0.18.1` or `>=0.18,<1.0`. Empty installs the latest release. |
 | `python-version` | `3.x` | Python version passed to `actions/setup-python`. |
 | `install` | `true` | Set `false` to skip installing Python/Pitloom and assume `loom` is already on `PATH`. |
 | `upload-artifact` | `true` | Upload the generated SBOM via `actions/upload-artifact`. |
@@ -233,7 +233,7 @@ jobs:
 
       # 2. Generate and embed PEP 770 SBOM into built wheels
       - name: Embed PEP 770 SBOM
-        uses: bact/pitloom@v0.18.0
+        uses: bact/pitloom@v0.18.1
         with:
           embed-wheel: "dist/*.whl"
 

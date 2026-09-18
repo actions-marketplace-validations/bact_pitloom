@@ -51,7 +51,7 @@ license = "CC0-1.0"
 keywords = ["sbom", "spdx", "ai", "nlp"]
 authors = [{ name = "Test Author", email = "test@example.com" }]
 dependencies = [
-    "fasttext==0.9.3",
+    "fasttext-community==0.11.8",
     "newmm-tokenizer==0.2.2",
     "numpy==1.26.4",
 ]
@@ -86,7 +86,7 @@ Source = "https://github.com/bact/sentimentdemo"
 
         # Check dependencies
         dep_names = {p["name"] for p in packages if p["name"] != "sentimentdemo"}
-        assert "fasttext" in dep_names
+        assert "fasttext-community" in dep_names
         assert "newmm-tokenizer" in dep_names
         assert "numpy" in dep_names
 

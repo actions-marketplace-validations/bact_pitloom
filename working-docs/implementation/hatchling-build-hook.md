@@ -101,7 +101,7 @@ The user adds `pitloom` to their build dependencies and enables the hook:
 
 ```toml
 [build-system]
-requires = ["hatchling>=1.32.0", "pitloom>=0.18.0"]
+requires = ["hatchling>=1.32.3", "pitloom>=0.18.1"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.hooks.pitloom]
@@ -240,7 +240,7 @@ parameter in 1.32.3, hence `BuilderConfig[PluginManager]` in the
 `TYPE_CHECKING` branch.
 
 `.github/workflows/hatch-integration.yml`'s matrix now includes a
-`hatchling-version: ["1.32.0", ""]` axis (floor + latest/unpinned)
+`hatchling-version: ["1.29.0", ""]` axis (floor + latest/unpinned)
 specifically so a future undocumented Hatchling break is caught by CI
 instead of a user report -- the gap that let this one ship silently.
 
@@ -275,8 +275,8 @@ Hatchling 1.29.0 introduced native PEP 770 support -- the release where
 Hatchling started reading `build_data["sbom_files"]` at all; older
 Hatchling accepts the mutated `build_data` silently and never embeds the
 file (see `_MIN_HATCHLING_SBOM_VERSION` in `src/pitloom/plugins/hatch.py`).
-Pitloom itself pins `hatchling>=1.32.0`, a stricter floor than this
-feature alone needs -- see below. The wheel builder
+Pitloom itself pins `hatchling>=1.29.0`, matching this feature's own
+floor exactly -- see below. The wheel builder
 initialises `build_data["sbom_files"]` as an empty list and, after all hook
 `initialize()` calls complete, copies every path in the list into
 `.dist-info/sboms/<basename>` inside the wheel.
@@ -357,12 +357,12 @@ Register the plugin via pluggy entry point:
 pitloom = "pitloom.plugins.hatch"
 ```
 
-Require Hatchling 1.32.0+ (native `sbom_files`/PEP 770 support itself only
-needs 1.29.0+; the higher floor is Pitloom's own pin -- see `pyproject.toml`):
+Require Hatchling 1.29.0+ -- matches native `sbom_files`/PEP 770 support's
+own floor exactly (see `pyproject.toml`):
 
 ```toml
 dependencies = [
-    "hatchling>=1.32.0",
+    "hatchling>=1.29.0",
     ...
 ]
 ```
