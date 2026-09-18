@@ -133,13 +133,17 @@ inputs:
   pitloom-version:
     description: >-
       Pitloom version or version specifier to install, e.g. "0.18.1" or
-      ">=0.18,<1.0". Empty installs the latest release from PyPI.
+      ">=0.18,<1.0". Empty (default) installs the version of the ref this
+      action is pinned to; fails if that version is not on PyPI.
     required: false
     default: ""
   python-version:
-    description: "Python version passed to actions/setup-python."
+    description: >-
+      Python version passed to actions/setup-python. Empty (default) uses
+      the Python on PATH, falling back to setup-python "3.x" with a warning
+      if it is missing, older than 3.10, or cannot install packages.
     required: false
-    default: "3.x"
+    default: ""
   install:
     description: >-
       When "false", skip installing Python and Pitloom, and assume Pitloom
@@ -164,11 +168,34 @@ outputs:
 runs:
   using: "composite"
   steps:
+    - name: Check workflow Python
+      id: python
+      if: inputs.install == 'true' && inputs.python-version == ''
+      shell: bash
+      run: |
+        # Forward slashes: safe for bash and native Python on Windows.
+        action_path="${GITHUB_ACTION_PATH//\\//}"
+        . "${action_path}/scripts/action/python-resolve.sh"
+        usable=false
+        reason="no working python found on PATH"
+        if [ -n "${python_bin}" ]; then
+          # A probe crash leaves reason empty; either way, "not usable".
+          if reason=$(python_text "${action_path}/scripts/action/python_probe.py"); then
+            usable=true
+          fi
+        fi
+        if [ "${usable}" = false ]; then
+          echo "::warning::Python on PATH is not usable (${reason:-probe failed}); installing Python 3.x with actions/setup-python, which changes PATH for later steps. Set python-version to choose"
+        fi
+        echo "usable=${usable}" >> "${GITHUB_OUTPUT}"
+
     - name: Set up Python
-      if: inputs.install == 'true'
+      if: >-
+        inputs.install == 'true' &&
+        (inputs.python-version != '' || steps.python.outputs.usable == 'false')
       uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 #v7.0.0
       with:
-        python-version: ${{ inputs.python-version }}
+        python-version: ${{ inputs.python-version || '3.x' }}
 
     - name: Install Pitloom
       if: inputs.install == 'true'
@@ -176,26 +203,7 @@ runs:
       env:
         PL_EXTRAS: ${{ inputs.extras }}
         PL_VERSION: ${{ inputs.pitloom-version }}
-      run: |
-        set -euo pipefail
-
-        spec="pitloom"
-        if [ -n "${PL_EXTRAS}" ]; then
-          spec="${spec}[${PL_EXTRAS}]"
-        fi
-        if [ -n "${PL_VERSION}" ]; then
-          # pitloom-version accepts either a bare version ("0.18.1") or a
-          # full specifier (">=0.18,<1.0"). A leading comparison operator
-          # means it is already a specifier; only bare versions need "=="
-          # inserted, otherwise "pitloom==>=0.18,<1.0" is invalid.
-          case "${PL_VERSION}" in
-            [\<\>=!~]*) spec="${spec}${PL_VERSION}" ;;
-            *) spec="${spec}==${PL_VERSION}" ;;
-          esac
-        fi
-
-        python -m pip install --upgrade pip
-        pip install "${spec}"
+      run: bash "${GITHUB_ACTION_PATH//\\//}/scripts/action/pitloom-install.sh"
 
     - name: Generate SBOM
       id: generate
@@ -219,12 +227,9 @@ runs:
       run: |
         set -euo pipefail
 
-        # Resolve a python binary up front -- used both for the embed-wheel
-        # match count below and for the PL_ARGS shlex split further down.
-        # When install=false, "Set up Python" is skipped, so don't assume
-        # python3 specifically is on PATH.
-        python_bin=python3
-        command -v "${python_bin}" >/dev/null 2>&1 || python_bin=python
+        # python_bin/python_text: used by the embed-wheel steps below and
+        # the PL_ARGS shlex split; only those paths require a python.
+        . "${GITHUB_ACTION_PATH//\\//}/scripts/action/python-resolve.sh"
 
         declare -a loom_args
         is_embed=false
@@ -246,8 +251,9 @@ runs:
         # report sbom-path) when the pattern resolves to exactly one wheel.
         skip_output=false
         if [ "${is_embed}" = true ]; then
+          require_python
           wheel_count=$(
-            "${python_bin}" -c 'import glob, sys; print(len(glob.glob(sys.argv[1])))' \
+            python_text -c 'import glob, sys; print(len(glob.glob(sys.argv[1])))' \
               "${PL_EMBED_WHEEL}"
           )
           if [ "${wheel_count}" -ne 1 ]; then
@@ -320,13 +326,15 @@ runs:
           # (e.g. '--creator-name "CI Bot"'), not a single token. Plain bash
           # word-splitting (extra_args=(${PL_ARGS})) has no quote-awareness
           # and would break a quoted multi-word value into separate tokens,
-          # so split it with Python's shlex instead. (python_bin was
-          # resolved above.)
-          readarray -t extra_args < <(
-            "${python_bin}" -c 'import shlex, sys; print(*shlex.split(sys.argv[1]), sep="\n")' \
+          # so split it with Python's shlex instead. A read loop, not
+          # readarray, which macOS's bash 3.2 lacks.
+          require_python
+          while IFS= read -r extra_arg; do
+            loom_args+=("${extra_arg}")
+          done < <(
+            python_text -c 'import shlex, sys; print(*shlex.split(sys.argv[1]), sep="\n")' \
               "${PL_ARGS}"
           )
-          loom_args+=("${extra_args[@]}")
         fi
 
         # Capture stdout (while still echoing it to the log) so a
@@ -349,9 +357,12 @@ runs:
         loom_exit=$?
         wait
         set -e
+        # Windows Python ends every line with CR; drop it before parsing.
+        loom_stdout=${loom_stdout//$'\r'/}
 
         last_annotation_level=""
         while IFS= read -r line; do
+          line=${line%$'\r'}
           case "${line}" in
             "ERROR: "*)
               last_annotation_level="error"
@@ -393,7 +404,7 @@ runs:
             # _derive_wheel_sbom_filename); extract that copy to disk so the
             # action can still surface a sbom-path and upload it.
             embed_wheel_path=$(
-              "${python_bin}" -c 'import glob, sys; print(glob.glob(sys.argv[1])[0])' \
+              python_text -c 'import glob, sys; print(glob.glob(sys.argv[1])[0])' \
                 "${PL_EMBED_WHEEL}"
             )
             arcname=$(

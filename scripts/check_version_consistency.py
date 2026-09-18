@@ -4,6 +4,10 @@
 
 """Check that structured version fields agree with ``__about__.py``.
 
+``--print-version`` instead prints ``__about__.py``'s version and exits; the
+GitHub Action (``action/pitloom-install.sh``) runs it at runtime to learn which
+Pitloom version its pinned checkout carries.
+
 Covers the version *fields* that must always exactly equal the released
 version: ``codemeta.json``, ``.claude-plugin/plugin.json``, and
 ``pyproject.toml`` (indirectly, via its ``[tool.hatch.version]`` source).
@@ -21,6 +25,7 @@ still-manual check.
 
 from __future__ import annotations
 
+import argparse
 import json
 import re
 import sys
@@ -29,11 +34,12 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
-def read_about_version() -> str:
+def read_about_version(about_path: Path | None = None) -> str:
     """Read ``__version__`` from ``src/pitloom/__about__.py`` -- the
     single source of truth ``[tool.hatch.version]`` resolves from."""
-    about_path = REPO_ROOT / "src" / "pitloom" / "__about__.py"
-    text = about_path.read_text(encoding="utf-8")
+    if about_path is None:
+        about_path = REPO_ROOT / "src" / "pitloom" / "__about__.py"
+    text = about_path.read_text(encoding="utf-8-sig")
     match = re.search(r'^__version__\s*=\s*"([^"]+)"', text, re.MULTILINE)
     if match is None:
         raise ValueError(f"Could not find __version__ in {about_path}")
@@ -42,17 +48,30 @@ def read_about_version() -> str:
 
 def read_codemeta_version() -> str:
     path = REPO_ROOT / "codemeta.json"
-    data = json.loads(path.read_text(encoding="utf-8"))
+    data = json.loads(path.read_bytes())
     return str(data["version"])
 
 
 def read_plugin_json_version() -> str:
     path = REPO_ROOT / ".claude-plugin" / "plugin.json"
-    data = json.loads(path.read_text(encoding="utf-8"))
+    data = json.loads(path.read_bytes())
     return str(data["version"])
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="Check that structured version fields agree with __about__.py."
+    )
+    parser.add_argument(
+        "--print-version",
+        action="store_true",
+        help="print the __about__.py version and exit",
+    )
+    args = parser.parse_args(argv)
+    if args.print_version:
+        print(read_about_version())
+        return 0
+
     expected = read_about_version()
     checks = {
         "codemeta.json": read_codemeta_version(),

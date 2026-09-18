@@ -1,0 +1,153 @@
+# SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
+# SPDX-License-Identifier: Apache-2.0
+
+# Exercises the composite action's install path: which Pitloom version it
+# installs and which Python it runs on. See also action-selftest.yml, which
+# runs the action against this repository with install: "false".
+#
+# Every leg runs a copy of the action (.selftest-action/) whose
+# src/pitloom/__about__.py carries a fixed version, so the tests do not depend
+# on this commit's own version being on PyPI, and the derived version (0.18.0)
+# differs from PyPI's latest, so an action that ignored its pin would fail.
+
+name: Action self-test (install)
+
+on:
+  push:
+    branches: [main, develop]
+    paths: &action-paths
+      - "action.yml"
+      - "scripts/**"
+      - "src/pitloom/__about__.py"
+      - ".gitattributes"
+      - ".github/workflows/action-selftest-install.yml"
+  pull_request:
+    branches: [main, develop]
+    paths: *action-paths
+
+permissions: read-all
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  install:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Pinned version derived from the checkout; the workflow's own
+          # Python is kept.
+          - {name: "derived / ubuntu", os: ubuntu-latest, preinstalled_python: "3.11", copy_version: "0.18.0", expect_version: "0.18.0", expect_python: "3.11"}
+          - {name: "derived / macos", os: macos-latest, preinstalled_python: "3.11", copy_version: "0.18.0", expect_version: "0.18.0", expect_python: "3.11"}
+          - {name: "derived / windows", os: windows-latest, preinstalled_python: "3.11", copy_version: "0.18.0", expect_version: "0.18.0", expect_python: "3.11"}
+          # A PEP 668 Python is unusable, so the action installs 3.x instead.
+          - {name: "fallback / ubuntu", os: ubuntu-latest, preinstalled_python: "3.11", mark_externally_managed: true, copy_version: "0.18.0", expect_version: "0.18.0", forbid_python: "3.11"}
+          - {name: "fallback / macos", os: macos-latest, preinstalled_python: "3.11", mark_externally_managed: true, copy_version: "0.18.0", expect_version: "0.18.0", forbid_python: "3.11"}
+          - {name: "fallback / windows", os: windows-latest, preinstalled_python: "3.11", mark_externally_managed: true, copy_version: "0.18.0", expect_version: "0.18.0", forbid_python: "3.11"}
+          # An explicit pitloom-version beats the derived one.
+          - {name: "override", os: ubuntu-latest, preinstalled_python: "3.11", copy_version: "0.18.0", pitloom_version: "0.18.1", expect_version: "0.18.1", expect_python: "3.11"}
+          # An explicit python-version is honoured.
+          - {name: "explicit python", os: ubuntu-latest, preinstalled_python: "3.11", copy_version: "0.18.0", action_python: "3.12", expect_version: "0.18.0", expect_python: "3.12"}
+          # A pinned ref whose version is not on PyPI fails, and the install
+          # script says why. The red annotation in this leg is expected.
+          - {name: "unreleased fails", os: ubuntu-latest, preinstalled_python: "3.11", copy_version: "999.0.0", expect_failure: true}
+          # Whatever Python the runner image ships: usable or fallback, the
+          # action must succeed.
+          - {name: "bare runner", os: ubuntu-latest, copy_version: "0.18.0", expect_version: "0.18.0"}
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Set up the workflow's own Python
+        if: matrix.preinstalled_python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: ${{ matrix.preinstalled_python }}
+
+      - name: Mark that Python as externally managed (PEP 668)
+        if: matrix.mark_externally_managed
+        shell: bash
+        run: |
+          python -c 'import pathlib, sysconfig; pathlib.Path(sysconfig.get_path("stdlib"), "EXTERNALLY-MANAGED").write_text("[externally-managed]\n")'
+
+      - name: Copy the action with a fixed Pitloom version
+        shell: bash
+        env:
+          COPY_VERSION: ${{ matrix.copy_version }}
+        run: |
+          set -euo pipefail
+          mkdir -p .selftest-action/src/pitloom
+          cp action.yml .selftest-action/
+          cp -R scripts .selftest-action/scripts
+          printf '__version__ = "%s"\n' "${COPY_VERSION}" \
+            > .selftest-action/src/pitloom/__about__.py
+
+      - name: Run the action
+        id: action
+        continue-on-error: ${{ matrix.expect_failure == true }}
+        uses: ./.selftest-action
+        with:
+          project-path: tests/fixtures/projects/sampleproject-flit
+          output: selftest-sbom.spdx3.json
+          pitloom-version: ${{ matrix.pitloom_version }}
+          python-version: ${{ matrix.action_python }}
+          upload-artifact: "false"
+
+      - name: Assert the action failed as expected
+        if: matrix.expect_failure && steps.action.outcome != 'failure'
+        shell: bash
+        run: |
+          echo "::error::the action should have failed"
+          exit 1
+
+      - name: Assert the failure is the unreleased-version error
+        if: matrix.expect_failure
+        shell: bash
+        env:
+          COPY_VERSION: ${{ matrix.copy_version }}
+        run: |
+          rc=0
+          out=$(bash .selftest-action/scripts/action/pitloom-install.sh 2>&1) || rc=$?
+          echo "${out}"
+          [ "${rc}" -ne 0 ]
+          printf '%s\n' "${out}" | grep -F "Cannot install pitloom==${COPY_VERSION}" > /dev/null
+
+      - name: Assert the installed Pitloom version
+        if: matrix.expect_version
+        shell: bash
+        env:
+          EXPECT_VERSION: ${{ matrix.expect_version }}
+        run: |
+          set -euo pipefail
+          actual=$(python -c 'import importlib.metadata as m; print(m.version("pitloom"))' | tr -d '\r')
+          echo "pitloom ${actual}, expected ${EXPECT_VERSION}"
+          [ "${actual}" = "${EXPECT_VERSION}" ]
+
+      - name: Assert which Python the job is left with
+        if: matrix.expect_python || matrix.forbid_python
+        shell: bash
+        env:
+          EXPECT_PYTHON: ${{ matrix.expect_python }}
+          FORBID_PYTHON: ${{ matrix.forbid_python }}
+        run: |
+          set -euo pipefail
+          actual=$(python -c 'import sys; print("%d.%d" % sys.version_info[:2])' | tr -d '\r')
+          echo "python ${actual}, expected '${EXPECT_PYTHON}', forbidden '${FORBID_PYTHON}'"
+          if [ -n "${EXPECT_PYTHON}" ]; then
+            [ "${actual}" = "${EXPECT_PYTHON}" ]
+          fi
+          if [ -n "${FORBID_PYTHON}" ]; then
+            [ "${actual}" != "${FORBID_PYTHON}" ]
+          fi
+
+      - name: Assert an SBOM was written and loom runs
+        if: ${{ !matrix.expect_failure }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s selftest-sbom.spdx3.json
+          loom --help > /dev/null

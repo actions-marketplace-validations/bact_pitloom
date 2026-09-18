@@ -19,6 +19,13 @@ and this project adheres to
 - Full release notes: <https://github.com/bact/pitloom/releases>
 - Commit history: <https://github.com/bact/pitloom/compare/v0.18.0...v0.18.1>
 
+## [Unreleased]
+
+### Changed
+
+- GitHub Action installs the Pitloom version of its pinned ref (tag or SHA) instead of the latest release; `pitloom-version` still overrides
+- GitHub Action uses the workflow's Python unless `python-version` is set; falls back to `setup-python` 3.x with a warning if unusable
+
 ## [0.18.1] - 2026-09-18
 
 ### Added

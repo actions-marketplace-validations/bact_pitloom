@@ -115,6 +115,71 @@ brackets the `loom` invocation so a failing run still gets its `ERROR:`
 line annotated before the step's exit code is re-checked and propagated
 explicitly.
 
+## Version pinning and Python selection
+
+`uses: bact/pitloom@<ref>` used to pin only the action's YAML/shell: the
+Install step ran a bare `pip install pitloom` (latest) unless `pitloom-version`
+was set, and `python-version` defaulted to `3.x`, so `actions/setup-python`
+always ran and switched the user's `PATH`. Both now follow the user's choices.
+
+**Pitloom version.** With `pitloom-version` empty, `scripts/action/pitloom-install.sh`
+reads `__version__` from the pinned checkout
+(`scripts/check_version_consistency.py --print-version`, the reader the CI
+version check also uses) and installs `pitloom==<that>` from PyPI. Tag, SHA and
+branch all work, since `GITHUB_ACTION_PATH` is the checkout of the pinned ref.
+A version not on PyPI fails with a pin hint: no source-install fallback, so
+"the pin means this release" always holds.
+
+**Python.** With `python-version` empty, `scripts/action/python_probe.py`
+checks the `python` on `PATH` (>= 3.10, pip present, not PEP 668 externally
+managed unless in a venv or `PIP_BREAK_SYSTEM_PACKAGES`, purelib/platlib/scripts
+writable, scripts dir on `PATH`). If not usable, the action warns and runs
+`setup-python` `3.x`. `pip install --upgrade pip` is gone: redundant on a fresh
+interpreter, and it mutates the user's own. The scripts-dir-on-`PATH` check is
+a prediction of where `loom` lands; it can reject a usable pyenv/Homebrew Python
+(the safe direction: a warning and a fallback), and it ignores `pip.conf`.
+
+`scripts/action/python-resolve.sh` is sourced by the probe step, the install
+script and the Generate step: one definition of "which python" (first of
+`python`, `python3` that runs; skips a Windows Store stub), plus `python_text`
+and `require_python`. Only the Generate paths that call Python (embed-wheel,
+`args`) require one, so `install: "false"` with `loom` from pipx still works.
+
+**Windows and encoding.** Native Windows Python ends every line with CR, which
+Git Bash `$(...)` keeps. `python_text` strips it and forces UTF-8 stdio; the
+Generate step also strips CR from `loom`'s stdout/stderr, and `GITHUB_ACTION_PATH`
+is normalised to forward slashes. `check_version_consistency.py` reads
+`__about__.py` as `utf-8-sig` and the JSON files as bytes (BOM-safe).
+`.gitattributes` forces LF on `*.sh` and `action.yml`; a test checks those files
+for BOM, CR and non-ASCII. The `args` split uses a read loop, not `readarray`,
+which macOS's bash 3.2 lacks.
+
+**Paths considered and rejected**
+
+- `github.action_ref`: unreliable in composite steps and cannot map a SHA to a
+  version. Parsing the ref out of `GITHUB_ACTION_PATH` has the same SHA problem.
+- Installing from `GITHUB_ACTION_PATH` for an unreleased version: needs the
+  self-referential `pitloom` build-requires bootstrap
+  (`.github/actions/install-pitloom`), is slower, and differs from the PyPI
+  wheel. Deferred.
+- A fresh venv: hides the runner's build backend from
+  `--allow-build --no-build-isolation`, which means to use it.
+- `python -m pitloom` instead of `loom`: would change the `install: "false"`
+  surface, which the self-test relies on.
+- Try-the-install-then-fall-back instead of a probe: would half-mutate the
+  user's environment on a partial failure.
+
+**Self-tests.** `.github/workflows/action-selftest-install.yml` runs copies of
+the action whose `__about__.py` carries a fixed published version (`0.18.0`,
+older than latest, so ignoring the pin cannot pass): derived and PEP 668
+fallback on ubuntu/macOS/Windows, plus override, explicit `python-version`,
+unreleased-fails (asserts the install script's own error) and a bare-runner
+smoke leg. The fallback legs are attributed by their sibling derived legs, which
+keep Python 3.11 with the same setup minus the marker. `tests/scripts/` covers
+the probe, version reader, resolver and install script (stub `python`, no
+network, POSIX only). Git Bash with a backslash `GITHUB_ACTION_PATH`, and
+macOS's `PATH` vs `sysconfig` scripts dir, were not yet run on real runners.
+
 ## Design notes
 
 - The Action is **composite** (`runs.using: "composite"`), not a Docker

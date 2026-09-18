@@ -4,6 +4,9 @@
 # Dogfood test: exercise Pitloom's own composite action ("uses: ./") against
 # the Pitloom repository itself, so the Action is validated the same way any
 # downstream consumer would use it.
+#
+# See also: action-selftest-install.yml, which covers the action's own
+# install path (Pitloom version and Python selection).
 
 name: Action self-test
 

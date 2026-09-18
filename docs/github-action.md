@@ -1,6 +1,6 @@
 ---
 Created: 2026-08-11
-Last-Modified: 2026-09-11
+Last-Modified: 2026-09-18
 SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 SPDX-FileType: DOCUMENTATION
 SPDX-License-Identifier: CC0-1.0
@@ -20,8 +20,12 @@ generated SBOM directly into built `.whl` files via `embed-wheel: "dist/*.whl"`.
 Standalone SBOM artifact:
 
 ```yaml
+- uses: actions/setup-python@v6
 - uses: bact/pitloom@v0.18.1
 ```
+
+Put your own `actions/setup-python` step first: the action uses the Python
+on `PATH`. See [Python selection](#python-selection).
 
 Generate and embed PEP 770 SBOM into built wheels:
 
@@ -41,11 +45,42 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
       - uses: bact/pitloom@v0.18.1
 ```
 
-Pin to a specific release tag (`@v0.18.1`) rather than a branch, the same
-as any third-party action.
+Pin a release tag (`@v0.18.1`) or a full commit SHA (`@<sha> # v0.18.1`),
+not a branch. The pin also selects the Pitloom version: see
+[What the pin covers](#what-the-pin-covers).
+
+## What the pin covers
+
+The ref after `@` fixes the action's code and the Pitloom release it installs:
+
+- `pitloom-version` empty (default): installs the Pitloom version carried by
+  the pinned ref, from PyPI. `@v0.18.1` and that tag's commit SHA both give
+  0.18.1.
+- A ref whose version is not on PyPI fails with an `ERROR:`. This covers an
+  unreleased commit, a branch (`@main`) between a version bump and its release,
+  and a tag pushed before the PyPI upload finishes. Pin a release, or set
+  `pitloom-version`.
+- `pitloom-version` overrides it: a version (`0.18.1`) or specifier
+  (`>=0.18,<1.0`).
+- Pitloom's own dependencies are resolved by pip at run time, not pinned.
+
+## Python selection
+
+`python-version` empty (default): the action uses the `python` already on
+`PATH`, so your own `actions/setup-python` step is honoured. It installs Pitloom
+into that environment; to keep it apart from your project's packages, run the
+action in its own job.
+
+If that Python is missing, older than 3.10, without pip, externally managed
+(PEP 668), unwritable, or its scripts directory is not on `PATH` (pyenv shims,
+for example), the action warns and installs Python 3.x with `setup-python`,
+which changes `PATH` for later steps.
+
+Set `python-version` to always run `setup-python` with that version.
 
 ## Usage details
 
@@ -135,7 +170,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v6
-      - run: pip install pitloom
+      # Same release as the action below, which installs its own pinned version.
+      - run: pip install pitloom==0.18.1
 
       # Extras-free, stem-keyed -- the only path that keeps ai_AIPackage
       # spdxIds stable regardless of whether "ai" extras are installed
@@ -204,8 +240,8 @@ Inputs (all optional):
 | `allow-build` | `false` | **SECURITY:** `"true"` lets Pitloom invoke the scanned project's own PEP 517 build backend (subprocess; may install build-requires from the network) to discover a wheel's real file list. Executes third-party build-time code from the project being scanned -- only enable for a project whose build script you trust. No `[tool.pitloom]` equivalent; defaults to `"false"`, not empty, since there's no config layer to defer to. Applies in project/embed-wheel mode, not model mode. See [`--allow-build`](cli.md#building-a-project-to-discover-its-file-list---allow-build). |
 | `no-build-isolation` | `false` | With `allow-build: "true"`, skip creating an isolated build environment and use the runner's already-installed build backend instead. No effect without `allow-build`. |
 | `args` | *(empty)* | Extra raw flags passed through to the `loom` command, e.g. `--verify --validate` when `embed-wheel` is set. |
-| `pitloom-version` | *(empty)* | Pitloom version/specifier to install, e.g. `0.18.1` or `>=0.18,<1.0`. Empty installs the latest release. |
-| `python-version` | `3.x` | Python version passed to `actions/setup-python`. |
+| `pitloom-version` | *(empty)* | Pitloom version or specifier, e.g. `0.18.1` or `>=0.18,<1.0`. Empty installs the version of the pinned ref; see [What the pin covers](#what-the-pin-covers). |
+| `python-version` | *(empty)* | Passed to `actions/setup-python`. Empty uses the Python on `PATH`, falling back to `3.x` with a warning; see [Python selection](#python-selection). |
 | `install` | `true` | Set `false` to skip installing Python/Pitloom and assume `loom` is already on `PATH`. |
 | `upload-artifact` | `true` | Upload the generated SBOM via `actions/upload-artifact`. |
 | `artifact-name` | `sbom` | Artifact name used when `upload-artifact` is `true`. |

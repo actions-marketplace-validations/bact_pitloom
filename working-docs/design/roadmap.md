@@ -197,6 +197,10 @@ full picture.
 - [ ] **Docker container action** (future) -- a `Dockerfile` +
   `action.yml` `using: docker` variant of the GitHub Action for hermetic
   or self-hosted-runner use.
+- [ ] **GitHub Action hardening** (future) -- pip constraints/hash-pinning
+  for Pitloom's transitive dependencies (only Pitloom itself is pinned);
+  an isolated venv option; lint `scripts/` in CI (only `examples/ src/
+  tests/` are). See [github-action.md](../implementation/github-action.md).
 - [ ] **SARIF output** -- emit a SARIF file as a build artifact for CI
   findings (inline PR annotations, Security-tab view), fed by
   `WARNING:`/`ERROR:` output, OSV.dev results (once built), and license

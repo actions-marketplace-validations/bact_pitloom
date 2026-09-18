@@ -259,10 +259,11 @@ below for more details.
 
 ### Use Pitloom as a GitHub Action
 
-Add SBOM generation to any repository's CI with a single step, for any
-Python build backend, not just Hatchling:
+Add SBOM generation to any repository's CI, for any Python build backend,
+not just Hatchling:
 
 ```yaml
+- uses: actions/setup-python@v6
 - uses: bact/pitloom@v0.18.1
 ```
 
