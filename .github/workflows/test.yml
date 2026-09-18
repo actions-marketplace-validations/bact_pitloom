@@ -45,6 +45,10 @@ jobs:
             coverage: true
       fail-fast: true
 
+    defaults:
+      run:
+        shell: bash
+
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
@@ -80,7 +84,6 @@ jobs:
         run: licenseid update
 
       - name: Run tests
-        shell: bash
         run: |
           if [ "${{ matrix.coverage }}" == "true" ]; then
             pytest tests/ -v --tb=short \
