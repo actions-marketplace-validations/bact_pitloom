@@ -180,7 +180,7 @@ register the hook:
 
 ```toml
 [build-system]
-requires = ["hatchling>=1.32.3", "pitloom>=0.18.1"]
+requires = ["hatchling>=1.29.0", "pitloom>=0.18.1"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.hooks.pitloom]
