@@ -21,12 +21,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
-      - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      - uses: ./.github/actions/setup-python
         with:
           python-version: "3.14"
-          cache: pip
-          cache-dependency-path: pyproject.toml
 
       - name: Install Pitloom from checkout
         uses: ./.github/actions/install-pitloom
@@ -64,11 +61,10 @@ jobs:
           echo "path=${wheels[0]}" >> "$GITHUB_OUTPUT"
 
       - name: Verify build hook embedded an SBOM
-        # hatch-integration.yml and build.yml both exercise the Hatchling
-        # hook already, but only against a fixture project / an editable
-        # install -- neither builds the real release package. This
-        # confirms the hook still works against the actual release wheel
-        # before "Regenerate and embed SBOM" below overwrites its output.
+        # hatch-integration.yml/build.yml already test the hook, but only
+        # against a fixture/editable install, not the real release
+        # package -- confirms it works here too before "Regenerate and
+        # embed SBOM" below overwrites its output.
         env:
           WHEEL_PATH: ${{ steps.wheel.outputs.path }}
         run: |

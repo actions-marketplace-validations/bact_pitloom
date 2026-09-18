@@ -78,14 +78,11 @@ runs:
         # GitHub expression splice into the script text can.
         pip install setuptools $EXTRA_PACKAGES
         if [ -n "$GROUPS" ]; then
-          # No --no-build-isolation here: that flag exists only to stop
-          # PACKAGE_SPEC's own build (below) from fetching "pitloom" off
-          # PyPI as its self-referential build dependency (see the "if
-          # EDITABLE" block's comment). GROUPS packages have no such
-          # self-reference and get a normal isolated build if one of them
-          # ever needs to build from sdist (e.g. fuzz.yml's "fuzz" group
-          # includes atheris, which has no wheel below Python 3.12 and
-          # needs its own build-time deps, not just this env's setuptools).
+          # No --no-build-isolation here -- that flag exists only to stop
+          # PACKAGE_SPEC's self-referential Pitloom build below (see that
+          # comment). GROUPS packages aren't self-referential and may
+          # need their own isolated build from sdist (e.g. fuzz.yml's
+          # atheris, no wheel below Python 3.12).
           pip install $GROUPS
         fi
         # pyproject.toml lists "pitloom" as its own build dependency

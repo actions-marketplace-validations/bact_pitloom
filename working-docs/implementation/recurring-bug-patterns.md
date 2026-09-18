@@ -360,3 +360,71 @@ shape described, not just the module where each was first found.
   later review round, not by the person writing the fix. See
   [windows-macos-ci.md](windows-macos-ci.md) and
   `tests/assemble/test_embed_core.py::test_embed_sbom_preserves_file_permissions`.
+- **`Path.exists()`/`.is_file()` do NOT swallow every `OSError` -- only a
+  specific errno set.** CPython's `pathlib._ignore_error()` returns
+  `False` for genuinely any other failure, e.g. `PermissionError`
+  (`EACCES`), which propagates straight out of a bare `.exists()` call
+  instead of the caller getting a clean "not found"/"can't tell" signal.
+  `merge_fragments()` (PR #217, `assemble/spdx3/fragments.py`) crashed
+  the whole build with an unhandled `PermissionError` on a
+  permission-denied fragment path before this was caught. Fix: classify
+  the failure explicitly (`_is_missing_errno()`/`_fragment_is_missing()`)
+  instead of trusting a bare `.exists()`/`.is_file()` call to degrade
+  gracefully on its own.
+- **The POSIX/Windows split in that same classification must `OR` both
+  checks unconditionally, never short-circuit on "winerror is set".** A
+  real Windows `FileNotFoundError` carries *both* `errno=ENOENT` *and* a
+  `winerror` (typically 2/3, `ERROR_FILE_NOT_FOUND`/`ERROR_PATH_NOT_FOUND`)
+  -- neither of which is in the *extra* winerror set (21/123/1921) that
+  exists specifically to catch cases `errno` alone doesn't cover.
+  CPython's actual `_ignore_error()` is
+  `errno in _IGNORED_ERRNOS or winerror in _IGNORED_WINERRORS` (checks
+  both, every time). PR #217's own first fix for the item above got this
+  wrong -- `if winerror is not None: return winerror in
+  _STAT_MISSING_WINERRORS` -- which silently misclassified the single
+  most common not-found case on Windows as "not missing," and wasn't
+  caught until the *next* review round (a live interpreter check against
+  `inspect.getsource(pathlib)` is what settled it, not reasoning from the
+  docstring). Lesson underneath the bug: a fix from an earlier review
+  round is not exempt from the next round's scrutiny -- verify it with
+  the same rigor as new code, especially any platform-conditional logic
+  that can't be exercised on the CI runner actually reviewing it.
+- **`json.loads(bytes)` and `json.loads(str)` disagree on a leading
+  UTF-8 BOM -- bytes auto-detects and strips it, `str` (after an explicit
+  `.decode("utf-8")`) raises `JSONDecodeError: Unexpected UTF-8 BOM`.**
+  The real SPDX3 merge path (`spdx3.JSONLDDeserializer().read()` on a
+  binary file handle) is BOM-tolerant; any sibling code that does
+  `path.read_bytes().decode("utf-8")` then `json.loads(str)` is not, and
+  silently rejects a BOM-prefixed fragment a real build would merge
+  fine. This exact bug shipped twice, independently, in one PR (#217):
+  once in `cli/commands/fragment.py`'s `_fragment_read_status()`, and
+  again in a *different* file added in the same PR,
+  `extract/_json_io.py`'s `load_json_bytes()` -- fixed once, then found
+  again by the next review round in the sibling file nobody thought to
+  re-check. Prefer `json.loads(raw_bytes)` directly over decode-then-parse
+  for any JSON read meant to match a binary-file-handle parse elsewhere.
+- **`dict.get(key, default)` only guards the key's *absence*, not the
+  key being present with the wrong type.** `data.get("@graph", [])`
+  looks like it always yields something `len()`-able, but if `@graph`
+  is present with a non-list value (e.g. a hand-edited or malformed
+  fragment file with `{"@graph": 5}`), the default never applies and
+  `len(5)` raises an uncaught `TypeError` (PR #217,
+  `_fragment_read_status()` in `cli/commands/fragment.py`) -- crashing
+  an entire multi-item CLI listing command instead of degrading just the
+  one malformed record. Add an explicit `isinstance` check on the
+  *value*, not just a default for the *key*, whenever "valid JSON, wrong
+  shape" is a real possibility (any external/user-editable file, as
+  opposed to output this codebase generated itself).
+- **A monkeypatched stdlib method's fake must match the real method's
+  actual signature, or mypy --strict silently accepts a runtime-only
+  contract violation.** `pathlib.Path.stat()` is
+  `stat(self, *, follow_symlinks: bool = True)` -- keyword-only, no
+  positional `*args`. A test fake written as
+  `def fake_stat(self, *args: object, **kwargs: object)` runs fine under
+  pytest (nothing calls it with conflicting args in practice) but fails
+  `mypy --strict` the moment the real call site passes
+  `follow_symlinks=...` as a keyword, since `**kwargs: object` can't
+  satisfy a `bool` parameter (PR #217,
+  `test_fragments_merge_required.py`). Write the fake against the real
+  method's actual signature (check it, don't guess), not a generic
+  passthrough shim.

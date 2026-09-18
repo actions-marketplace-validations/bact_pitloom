@@ -565,14 +565,18 @@ be built:
   ([fasttext-community#13](https://github.com/munlicode/fasttext-community/pull/13)).
   See [windows-macos-ci.md](../implementation/windows-macos-ci.md).
   ([PR #222](https://github.com/bact/pitloom/pull/222))
-- [x] **CI workflow step duplication (pip-install portion)** -- the
-  Hatchling-pin/dependency-group/editable-install bootstrap is now a
-  shared composite action, `install-pitloom`, used by 10 of the 16
-  `.github/workflows/*.yml` files. See
+- [x] **CI workflow step duplication** -- two shared composite actions
+  replace hand-copied boilerplate across 10 of the 17
+  `.github/workflows/*.yml` files: `setup-python` for the
+  actions/setup-python version/cache config
+  ([PR #221](https://github.com/bact/pitloom/pull/221)) and
+  `install-pitloom` for the Hatchling-pin/dependency-group/
+  editable-install bootstrap. See
   [ci-install-composite-action.md](../implementation/ci-install-composite-action.md)
-  ([PR #222](https://github.com/bact/pitloom/pull/222)). Checkout/
-  setup-python steps are still hand-copied per workflow -- smaller,
-  lower-drift-risk boilerplate not folded into this action.
+  ([PR #222](https://github.com/bact/pitloom/pull/222)). `checkout` stays
+  inline in each file (a local composite action can't check itself out).
+  `version-consistency.yml` (no cache/pip-install step) and the two
+  intentionally-different `licenseid update` steps were left untouched.
 
 ### Diagnostics / logging
 

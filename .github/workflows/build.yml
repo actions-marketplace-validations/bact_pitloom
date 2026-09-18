@@ -74,16 +74,13 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      - uses: ./.github/actions/setup-python
         with:
           python-version: ${{ matrix.python-version }}
-          cache: pip
-          cache-dependency-path: pyproject.toml
 
       - name: Install Pitloom from checkout
-        # "Build wheel" below runs without HATCH_BUILD_NO_HOOKS, so the
-        # hook still runs there.
+        # HATCH_BUILD_NO_HOOKS only scopes to this step -- "Build wheel"
+        # below still runs the hook.
         uses: ./.github/actions/install-pitloom
         with:
           extra-packages: editables build==1.6.1 spdx3-validate==0.0.7
@@ -126,12 +123,10 @@ jobs:
           echo "::error title=Embedded SBOM Verification Failed::loom verify-wheel rejected the wheel's embedded SBOM (missing, ambiguous, misplaced, or a name/version mismatch against the wheel's own METADATA). See the 'Verify SBOM embedded in wheel' step's log for the exact reason."
 
       - name: Validate embedded wheel SBOM
-        # Schema/SHACL content check on the SBOM actually embedded in the
-        # wheel by the build hook (distinct from "Generate SBOM"/"Validate
-        # SBOM with spdx3-validate" below, which exercise a separately
-        # generated standalone SBOM via the CLI's read_project() path, not
-        # the hook's metadata_from_hatchling() path -- see CLAUDE.md's
-        # "Usage surfaces" section on why the two can diverge).
+        # Schema/SHACL check on the SBOM the build hook actually embedded
+        # -- distinct from "Validate SBOM with spdx3-validate" below,
+        # which checks a separately generated standalone SBOM from a
+        # different code path (see CLAUDE.md's "Usage surfaces").
         id: validate_wheel_sbom
         if: steps.verify_wheel_sbom.outcome == 'success'
         run: |
@@ -220,11 +215,9 @@ jobs:
 
       - name: Extract SBOM metadata for summary
         id: metadata
-        # Also requires the embedded-wheel checks, not just the standalone
-        # spdx3-validate one -- otherwise this (and "Create Job Summary"
-        # below) can report success while "Create failure summary" also
-        # fires for a failed embedded-SBOM check, producing a
-        # self-contradictory step summary.
+        # Gates on the embedded-wheel checks too, not just spdx3-validate
+        # -- otherwise this and "Create failure summary" could both fire,
+        # producing a self-contradictory step summary.
         if: |
           steps.validate.outcome == 'success' &&
           steps.verify_wheel_sbom.outcome == 'success' &&

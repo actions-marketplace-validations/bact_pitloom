@@ -165,6 +165,26 @@ read it before extending or citing any of these one-liners.
   off for all of them, a real risk for any of those packages that needs
   to build from source (PR #222,
   [ci-install-composite-action.md](working-docs/implementation/ci-install-composite-action.md)).
+- **`Path.exists()`/`.is_file()` only swallow a specific errno set
+  (ENOENT/ENOTDIR/EBADF/ELOOP on POSIX) -- any other `OSError`, e.g.
+  `PermissionError`, propagates uncaught.** A bare `.exists()` call
+  crashed a real build on a permission-denied fragment before this was
+  classified explicitly (PR #217). The POSIX/Windows split in that
+  classification must `OR` both errno and winerror checks
+  unconditionally -- a real Windows `FileNotFoundError` carries both --
+  never short-circuit on "winerror is set" (PR #217's own first fix got
+  this wrong and wasn't caught until the next review round).
+- **`json.loads(bytes)` auto-strips a leading UTF-8 BOM; `json.loads(str)`
+  after `.decode("utf-8")` raises on one instead.** Recurred twice,
+  independently, in the same PR (#217) -- once fixed, then found again
+  in a different file nobody thought to re-check. Prefer
+  `json.loads(raw_bytes)` directly for any JSON read meant to match a
+  binary-file-handle parse elsewhere.
+- **`dict.get(key, default)` only guards the key's absence, not the key
+  being present with the wrong type** -- `data.get("@graph", [])` still
+  yields a non-list and crashes `len()` if `@graph` is present but not a
+  list (PR #217). Add an explicit `isinstance` check on the value for
+  any external/user-editable file.
 
 ## CLI output
 
