@@ -35,10 +35,14 @@ jobs:
 
       - name: Install Pitloom from checkout
         run: |
-          # See action-selftest.yml's install step. "Build sdist and
-          # wheel" below runs without HATCH_BUILD_NO_HOOKS, so the real
-          # release SBOM still gets embedded.
-          pip install hatchling editables
+          pip install hatchling editables setuptools
+          # pyproject.toml lists "pitloom" as its own build dependency
+          # (self-embeds its SBOM); isolated builds can fetch a stale,
+          # crashing PyPI copy. --no-build-isolation skips that fetch;
+          # HATCH_BUILD_NO_HOOKS skips the hook (nothing provides it
+          # yet); setuptools covers any dependency built from source.
+          # "Build sdist and wheel" below runs without HATCH_BUILD_NO_HOOKS,
+          # so the real release SBOM still gets embedded.
           HATCH_BUILD_NO_HOOKS=1 pip install -e ".[content-type]" --no-build-isolation
 
       - name: Build sdist and wheel

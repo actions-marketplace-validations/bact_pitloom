@@ -59,19 +59,22 @@ jobs:
           python -m pip install --upgrade pip
           # Pin Hatchling *before* installing Pitloom -- an isolated
           # install would resolve its own Hatchling version instead,
-          # ignoring this pin (see action-selftest.yml's install step for
-          # why --no-build-isolation / HATCH_BUILD_NO_HOOKS are needed).
-          # "Build sampleproject" below runs without HATCH_BUILD_NO_HOOKS,
-          # so the hook under test still runs normally.
+          # ignoring this pin.
           if [ -n "${{ matrix.hatchling-version }}" ]; then
             pip install "hatchling==${{ matrix.hatchling-version }}"
           else
             pip install hatchling
           fi
-          pip install editables
-          # Install Pitloom from the current checkout (no isolation needed).
-          HATCH_BUILD_NO_HOOKS=1 pip install -e . --no-build-isolation
+          pip install editables setuptools
           pip install build==1.6.1 spdx3-validate==0.0.7
+          # pyproject.toml lists "pitloom" as its own build dependency
+          # (self-embeds its SBOM); isolated builds can fetch a stale,
+          # crashing PyPI copy. --no-build-isolation skips that fetch;
+          # HATCH_BUILD_NO_HOOKS skips the hook (nothing provides it
+          # yet); setuptools covers any dependency built from source.
+          # "Build sampleproject" below runs without HATCH_BUILD_NO_HOOKS,
+          # so the hook under test still runs normally.
+          HATCH_BUILD_NO_HOOKS=1 pip install -e . --no-build-isolation
           python -c "import hatchling; from importlib.metadata import version; print('Hatchling', version('hatchling'))"
 
       - name: Build sampleproject with --no-isolation
