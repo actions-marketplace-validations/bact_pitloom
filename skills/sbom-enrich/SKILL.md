@@ -1,6 +1,6 @@
 ---
 # Created: 2026-07-05
-# Last-Modified: 2026-09-11
+# Last-Modified: 2026-09-18
 # SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 # SPDX-FileType: SOURCE
 # SPDX-License-Identifier: Apache-2.0
@@ -29,9 +29,10 @@ description: >-
   surface words, different question). Requires a Pitloom-generated SBOM
   to already exist -- generate one first with the `sbom-generate` skill
   if it does not (a request that asks for both in one breath, e.g.
-  "generate SBOM and enrich it" or "give me a complete SBOM", is
-  `sbom-generate`'s to trigger on -- see that skill's "Combine with
-  enrichment" section).
+  "generate SBOM and enrich it", "give me a complete SBOM", or "give me
+  SBOM with CISA 2026 minimum elements", is `sbom-generate`'s to trigger
+  on -- see that skill's "Combine with enrichment" and "Combine with a
+  named standard" sections).
 license: Apache-2.0
 argument-hint: "[sbom-file]"
 ---
@@ -119,6 +120,15 @@ Steps:
    fails the merge outright (raises, so the CLI exits non-zero with an
    `ERROR:` line) rather than silently producing a broken SBOM --
    regenerate the base SBOM and re-run enrichment before merging again.
+
+   **Dangling references can also come from a registry mismatch, not
+   just a Pitloom upgrade:** `project`/`wheel`/`env` auto-harvest ids
+   into a Loom ID registry file so ids normally stay stable across
+   reruns without any action needed (see `sbom-generate`'s "Why element
+   ids stay stable across reruns" section) -- but if a different
+   `--registry` file was used (or none) between the base-SBOM run and
+   this enrichment/regeneration, ids can drift even with nothing else
+   changed. Check this before assuming an upgrade is the cause.
 2. **Run the deterministic pass first:** `loom enrich <model-file>` for
    each local AI model file in scope. This parses only YAML frontmatter
    (no prose, no reasoning) and writes a standalone fragment -- fast,

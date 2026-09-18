@@ -14,7 +14,7 @@ inputs:
   hatchling-version:
     description: >-
       Exact Hatchling version to pin before installing Pitloom (e.g.
-      "1.32.0"). Empty installs whatever "hatchling" currently resolves
+      "1.29.0"). Empty installs whatever "hatchling" currently resolves
       to. Must be pinned before Pitloom, since an isolated install would
       otherwise resolve its own Hatchling version and ignore this pin.
     required: false
