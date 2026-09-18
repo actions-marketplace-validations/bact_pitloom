@@ -52,7 +52,14 @@ jobs:
         # mechanism -- see pitloom.core._models_wheel_build_and_read).
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[validate,build]"
+          # pyproject.toml self-depends on "pitloom" to embed its own
+          # SBOM; an isolated build would fetch that from PyPI and can
+          # crash on a stale release under a newer Hatchling.
+          # --no-build-isolation avoids the fetch; HATCH_BUILD_NO_HOOKS
+          # skips the hook here, since no "pitloom" entry point exists
+          # yet to satisfy it.
+          pip install hatchling editables
+          HATCH_BUILD_NO_HOOKS=1 pip install -e ".[validate,build]" --no-build-isolation
           pip install build==1.6.1 check-wheel-contents==0.6.3 \
             installer==1.0.1
 

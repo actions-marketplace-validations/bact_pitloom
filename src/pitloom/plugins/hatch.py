@@ -212,41 +212,30 @@ def _stage_sbom_file(
 
 
 if TYPE_CHECKING:
-    # Hatchling 1.32.3 changed BuildHookInterface's generic arity (see
-    # _resolve_build_hook_base() below) without an upper bound on
-    # Pitloom's own hatchling>=1.32.0 floor to protect against it. Type
-    # checkers only ever see this branch, so this must match whatever
-    # Hatchling version resolves in the typecheck environment (the newer,
-    # two-parameter shape, since there is no upper bound).
+    # Static shape for type checkers only -- must match the installed
+    # Hatchling's actual BuildHookInterface arity. See
+    # _resolve_build_hook_base() below for the real, version-agnostic
+    # base used at runtime.
     from hatchling.plugin.manager import PluginManager
 
     class _PitloomBuildHookBase(
         BuildHookInterface[BuilderConfig[PluginManager], PluginManager]
     ):
-        """Static shape for type checkers -- see :func:`_resolve_build_hook_base`
-        for the actual Hatchling-version-agnostic base class used at runtime."""
+        """Static shape for type checkers -- see :func:`_resolve_build_hook_base`."""
 
 else:
     from hatchling.plugin.manager import PluginManager
 
     def _resolve_build_hook_base() -> type:
-        """Pick the Hatchling ``BuildHookInterface`` base matching whatever
-        Hatchling version is installed.
-
-        Hatchling 1.32.3 silently changed ``BuildHookInterface`` from
-        ``Generic[BuilderConfigBound]`` to
-        ``Generic[BuilderConfigBound, PluginManagerBound]`` (undocumented;
-        hatchling-v1.32.3 commit 84023e0), which makes
-        ``BuildHookInterface[BuilderConfig]`` raise ``TypeError`` at class-
-        definition time. Detect the actual arity via ``__parameters__``
-        (a plain, side-effect-free tuple of TypeVars -- reading it cannot
-        itself trigger the subscription error) rather than a hardcoded
-        version check, so this keeps working if Hatchling changes arity
-        again.
+        """Pick the Hatchling ``BuildHookInterface`` base matching the
+        installed Hatchling's actual generic arity (see
+        working-docs/implementation/hatchling-build-hook.md for why this
+        varies by version). ``__parameters__`` is a side-effect-free
+        tuple read, so detecting the arity this way can't itself trigger
+        the subscription ``TypeError`` it works around.
 
         Raises:
-            RuntimeError: If the installed Hatchling's ``BuildHookInterface``
-                has neither one nor two type parameters.
+            RuntimeError: If the arity is neither 1 nor 2.
         """
         param_count = len(BuildHookInterface.__parameters__)
         if param_count == 1:

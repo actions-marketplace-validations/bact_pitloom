@@ -34,7 +34,12 @@ jobs:
           pip install build==1.6.1 spdx3-validate==0.0.7
 
       - name: Install Pitloom from checkout
-        run: pip install -e ".[content-type]"
+        run: |
+          # See action-selftest.yml's install step. "Build sdist and
+          # wheel" below runs without HATCH_BUILD_NO_HOOKS, so the real
+          # release SBOM still gets embedded.
+          pip install hatchling editables
+          HATCH_BUILD_NO_HOOKS=1 pip install -e ".[content-type]" --no-build-isolation
 
       - name: Build sdist and wheel
         run: |
