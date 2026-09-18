@@ -20,3 +20,8 @@ def test_plain_ascii_with_lf_endings(path: Path) -> None:
     data = path.read_bytes()
     assert b"\r" not in data
     assert data.isascii()
+
+
+def test_the_shell_scripts_are_found() -> None:
+    names = {path.name for path in _bash_read_files()}
+    assert {"pitloom-install.sh", "python-resolve.sh", "action.yml"} <= names

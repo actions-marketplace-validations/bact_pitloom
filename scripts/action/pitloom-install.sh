@@ -26,13 +26,16 @@ if [ -n "${PL_EXTRAS:-}" ]; then
   spec="${spec}[${PL_EXTRAS}]"
 fi
 
+# Whitespace is never significant in a version or specifier.
+requested_version=$(printf '%s' "${PL_VERSION:-}" | tr -d '[:space:]')
+
 derived_version=""
-if [ -n "${PL_VERSION:-}" ]; then
+if [ -n "${requested_version}" ]; then
   # A leading comparison operator means a full specifier; only a bare
   # version needs "==" inserted ("pitloom==>=0.18,<1.0" is invalid).
-  case "${PL_VERSION}" in
-    [\<\>=!~]*) spec="${spec}${PL_VERSION}" ;;
-    *) spec="${spec}==${PL_VERSION}" ;;
+  case "${requested_version}" in
+    [\<\>=!~]*) spec="${spec}${requested_version}" ;;
+    *) spec="${spec}==${requested_version}" ;;
   esac
 else
   # Hand the native (drive-letter) form to a native python.exe on Windows.

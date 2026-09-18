@@ -182,9 +182,8 @@ wired into a build backend. These two extend reach beyond that. See
 [adoption-surfaces.md](../implementation/adoption-surfaces.md) for the
 full picture.
 
-- [x] **GitHub Action** (composite `action.yml`) -- generate an SBOM in CI
-  with a single `uses:` line, for any Python project regardless of build
-  backend. See [github-action.md](../implementation/github-action.md).
+- [x] **GitHub Action** (composite `action.yml`) -- generate an SBOM in CI,
+  for any Python project regardless of build backend. See [github-action.md](../implementation/github-action.md).
 - [x] **AI-agent Skills** (`skills/sbom-generate/`, `skills/sbom-enrich/`,
   `skills/sbom-validate/`) -- generate/enrich/validate an SBOM on
   request from Claude Code, the Claude Agent SDK, or similar runtimes.
@@ -200,7 +199,10 @@ full picture.
 - [ ] **GitHub Action hardening** (future) -- pip constraints/hash-pinning
   for Pitloom's transitive dependencies (only Pitloom itself is pinned);
   an isolated venv option; lint `scripts/` in CI (only `examples/ src/
-  tests/` are). See [github-action.md](../implementation/github-action.md).
+  tests/` are); known edge cases: `args` containing a literal ASCII RS or a CR
+  inside quotes, quadratic `${PL_ARGS//[[:space:]]/}` on bash 3.2, loom
+  stderr lines starting `::` echoed raw to the log. See
+  [github-action.md](../implementation/github-action.md).
 - [ ] **SARIF output** -- emit a SARIF file as a build artifact for CI
   findings (inline PR annotations, Security-tab view), fed by
   `WARNING:`/`ERROR:` output, OSV.dev results (once built), and license

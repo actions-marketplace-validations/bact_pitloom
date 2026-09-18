@@ -264,6 +264,8 @@ not just Hatchling:
 
 ```yaml
 - uses: actions/setup-python@v7
+  with:
+    python-version: "3.x"
 - uses: bact/pitloom@v0.18.1
 ```
 

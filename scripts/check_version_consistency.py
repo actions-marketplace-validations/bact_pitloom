@@ -5,7 +5,7 @@
 """Check that structured version fields agree with ``__about__.py``.
 
 ``--print-version`` instead prints ``__about__.py``'s version and exits; the
-GitHub Action (``action/pitloom-install.sh``) runs it at runtime to learn which
+GitHub Action (``scripts/action/pitloom-install.sh``) runs it at runtime to learn which
 Pitloom version its pinned checkout carries.
 
 Covers the version *fields* that must always exactly equal the released
@@ -18,9 +18,8 @@ regenerates and validates it from ``codemeta.json`` on every push.
 Also deliberately does not check prose version *mentions*
 (README.md, action.yml examples, docs/index.md, ...) -- those are free-text
 and change shape per file, unlike these structured fields;
-see AGENTS.md's "Project metadata consistency" section and the manual grep
-step in working-docs/implementation/release-checklist.md for that broader,
-still-manual check.
+see the manual grep step in working-docs/implementation/release-checklist.md
+for that broader, still-manual check.
 """
 
 from __future__ import annotations

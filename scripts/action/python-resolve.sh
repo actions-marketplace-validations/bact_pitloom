@@ -6,8 +6,9 @@
 
 # Sourced by action.yml and pitloom-install.sh; not run directly.
 #
-# Sets python_bin to the first of python, python3 that exists and runs (a
-# Windows Store stub exists on PATH but fails to run), or to "" if none.
+# Sets python_bin to the first of python, python3 that exists and is Python 3
+# (a Windows Store stub exists on PATH but fails to run; "python" may be 2.x),
+# or to "" if none.
 # "python" goes first: it is the name a setup-python step or a venv provides
 # on every OS, and the only one on Windows.
 #
@@ -22,7 +23,7 @@
 python_bin=""
 for candidate in python python3; do
   if command -v "${candidate}" >/dev/null 2>&1 \
-    && "${candidate}" -c 'pass' >/dev/null 2>&1; then
+    && "${candidate}" -c 'import sys; sys.exit(sys.version_info < (3,))' >/dev/null 2>&1; then
     python_bin="${candidate}"
     break
   fi
@@ -43,8 +44,9 @@ python_text() {
   local text status=0
   # Not a pipe into tr: that would hide python's exit status without pipefail.
   text=$(PYTHONIOENCODING=utf-8 "${python_bin}" "$@") || status=$?
+  text=${text//$'\r'/}
   if [ -n "${text}" ]; then
-    printf '%s\n' "${text//$'\r'/}"
+    printf '%s\n' "${text}"
   fi
   return "${status}"
 }

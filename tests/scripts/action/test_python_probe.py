@@ -12,10 +12,9 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from types import ModuleType
 from typing import Any
+from unittest.mock import create_autospec
 
 import pytest
-
-SCRIPT_NAME = "python_probe.py"
 
 
 @pytest.fixture(name="probe")
@@ -55,11 +54,12 @@ def setup_fixture(probe: ModuleType, tmp_path: Path) -> _Setup:
     return _Setup(probe, tmp_path)
 
 
-def _reason(probe: ModuleType, setup: _Setup, **changes: Any) -> Any:
+def _reason(probe: ModuleType, setup: _Setup, **changes: Any) -> str | None:
     path_env = changes.pop("path_env", setup.path_env)
     environ = changes.pop("environ", setup.environ)
     interpreter = setup.interpreter._replace(**changes)
-    return probe.unusable_reason(interpreter, path_env, environ)
+    reason: str | None = probe.unusable_reason(interpreter, path_env, environ)
+    return reason
 
 
 def test_usable_baseline(probe: ModuleType, setup: _Setup) -> None:
@@ -125,10 +125,12 @@ def test_unwritable_directory_is_rejected(
     # NTFS has no POSIX permission bits, so fake the access check instead.
     blocked = str(setup.site if which == "install" else setup.bin)
     assert _reason(probe, setup) is None
+
+    def fake_access(path: str, mode: int, **_kwargs: Any) -> bool:
+        return not (mode == os.W_OK and os.fspath(path) == blocked)
+
     monkeypatch.setattr(
-        probe.os,
-        "access",
-        lambda path, mode: not (mode == os.W_OK and os.fspath(path) == blocked),
+        probe.os, "access", create_autospec(os.access, side_effect=fake_access)
     )
     reason = _reason(probe, setup)
     assert reason is not None
@@ -161,9 +163,10 @@ def test_min_python_matches_requires_python(
 
 def test_script_runs_under_the_current_interpreter(scripts_dir: Path) -> None:
     """Exercises the real ``Interpreter.current()`` gathering end to end."""
-    script = scripts_dir / "action" / SCRIPT_NAME
+    script = scripts_dir / "action" / "python_probe.py"
     result = subprocess.run(
         [sys.executable, str(script)], capture_output=True, text=True, check=False
     )
     assert result.returncode in (0, 1)
     assert (result.returncode == 0) == (result.stdout == "")
+    assert result.stderr == ""

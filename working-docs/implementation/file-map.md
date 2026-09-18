@@ -1,6 +1,6 @@
 ---
 Created: 2026-08-17
-Last-Modified: 2026-08-31
+Last-Modified: 2026-09-18
 SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 SPDX-FileType: DOCUMENTATION
 SPDX-License-Identifier: CC0-1.0
@@ -181,8 +181,14 @@ pitloom/
 │   │   └── huggingface/            # 20 files -- split by metadata category
 │   │       └── hf_patches/         # 13 files -- shared mock patches for HF tests
 │   ├── fixtures/                   # Per-format model/project fixtures (see fixtures/README.md)
+│   ├── scripts/                    # Mirrors scripts/: probe, resolver, install and Generate-step tests
 │   ├── conftest.py                 # Cross-cutting fixtures (each subfolder has its own too)
 │   └── ids_shared.py               # Shared helpers for ids-registry tests
+├── scripts/
+│   ├── action/                     # GitHub Action helpers (install, Python probe/resolver)
+│   ├── check_version_consistency.py  # CI version check; --print-version also used by the action
+│   └── compare_allow_build.py      # Manual --allow-build parity check
+├── .gitattributes                  # LF for *.sh and action.yml
 ├── AGENTS.md                       # CLAUDE.md is a symlink to this
 ├── CHANGELOG.md
 ├── CITATION.cff

@@ -141,7 +141,7 @@ inputs:
     description: >-
       Python version passed to actions/setup-python. Empty (default) uses
       the Python on PATH, falling back to setup-python "3.x" with a warning
-      if it is missing, older than 3.10, or cannot install packages.
+      if it is unusable.
     required: false
     default: ""
   install:
@@ -260,6 +260,9 @@ runs:
           )
           if [ "${wheel_count}" -ne 1 ]; then
             skip_output=true
+            if [ -n "${PL_OUTPUT}" ]; then
+              echo "::warning::embed-wheel matches ${wheel_count} wheels; ignoring output and not reporting sbom-path"
+            fi
           fi
         fi
         # An explicit "output" input always wins. Otherwise leave -o off and
@@ -332,17 +335,17 @@ runs:
           # readarray, which macOS's bash 3.2 lacks.
           require_python
           if ! extra_args_text=$(
-            python_text -c 'import shlex, sys; print(*shlex.split(sys.argv[1]), sep="\n")' \
+            python_text -c 'import shlex, sys; print("".join(a + "\x1e" for a in shlex.split(sys.argv[1])))' \
               "${PL_ARGS}"
           ); then
             echo "::error::Cannot parse args; check its quoting"
             exit 1
           fi
-          if [ -n "${extra_args_text}" ]; then
-            while IFS= read -r extra_arg; do
-              loom_args+=("${extra_arg}")
-            done <<< "${extra_args_text}"
-          fi
+          # Each argument ends with an ASCII record separator, so empty
+          # arguments and embedded newlines survive the $(...) capture.
+          while IFS= read -r -d $'\x1e' extra_arg; do
+            loom_args+=("${extra_arg}")
+          done <<< "${extra_args_text}"
         fi
 
         # Capture stdout and stderr in files (each still echoed to the log)
@@ -373,12 +376,14 @@ runs:
         loom_exit=$(<"${loom_exit_file}")
         loom_exit=${loom_exit:-1}
         # Windows Python ends every line with CR; drop it before parsing.
-        loom_stdout=$(<"${loom_stdout_file}")
-        loom_stdout=${loom_stdout//$'\r'/}
+        loom_stdout=$(tr -d '\r' < "${loom_stdout_file}")
 
         last_annotation_level=""
-        while IFS= read -r line; do
+        # "|| [ -n ]" keeps a final line that has no trailing newline.
+        while IFS= read -r line || [ -n "${line}" ]; do
           line=${line%$'\r'}
+          # The runner decodes %25/%0A/%0D in annotation text.
+          line=${line//'%'/%25}
           case "${line}" in
             "ERROR: "*)
               last_annotation_level="error"
@@ -394,12 +399,12 @@ runs:
               ;;
             *)
               # A continuation line of a multi-line LEVEL: message --
-              # AGENTS.md's convention doesn't forbid one, even though
+              # the CLI output convention doesn't forbid one, even though
               # loom doesn't currently emit any. Re-annotate at the same
               # level rather than silently dropping it from the
               # PR-facing summary (it's still visible above via "tee"
               # either way).
-              if [ -n "${last_annotation_level}" ]; then
+              if [ -n "${last_annotation_level}" ] && [ -n "${line}" ]; then
                 echo "::${last_annotation_level}::${line}"
               fi
               ;;
@@ -426,6 +431,10 @@ runs:
               printf '%s\n' "${loom_stdout}" \
                 | sed -n 's/^pitloom: embedded \(.*\) into .*$/\1/p' | head -n1
             )
+            if [ -z "${arcname}" ]; then
+              echo "::error::Cannot find the embedded SBOM name in loom's output"
+              exit 1
+            fi
             sbom_path=$(basename "${arcname}")
             "${python_bin}" -c 'import sys, zipfile; wp, an, op = sys.argv[1:4]; zf = zipfile.ZipFile(wp); data = zf.read(an); zf.close(); out = open(op, "wb"); out.write(data); out.close()' \
               "${embed_wheel_path}" "${arcname}" "${sbom_path}"

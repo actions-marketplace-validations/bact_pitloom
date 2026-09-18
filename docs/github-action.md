@@ -9,8 +9,8 @@ SPDX-License-Identifier: CC0-1.0
 # GitHub Action
 
 Use this when your project isn't Hatchling-based, or you just want CI to
-produce an SBOM artifact or embed PEP 770 SBOMs into built wheels with
-one `uses:` line -- for any Python build backend, not just Hatchling.
+produce an SBOM artifact or embed PEP 770 SBOMs into built wheels, for any
+Python build backend.
 
 The action can create a standalone SBOM file on the runner, or embed the
 generated SBOM directly into built `.whl` files via `embed-wheel: "dist/*.whl"`.
@@ -21,11 +21,13 @@ Standalone SBOM artifact:
 
 ```yaml
 - uses: actions/setup-python@v7
+  with:
+    python-version: "3.x"
 - uses: bact/pitloom@v0.18.1
 ```
 
-Put your own `actions/setup-python` step first: the action uses the Python
-on `PATH`. See [Python selection](#python-selection).
+Set up Python first: the action uses the Python on `PATH`. See
+[Python selection](#python-selection).
 
 Generate and embed PEP 770 SBOM into built wheels:
 
@@ -46,6 +48,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
+        with:
+          python-version: "3.x"
       - uses: bact/pitloom@v0.18.1
 ```
 
@@ -55,30 +59,24 @@ not a branch. The pin also selects the Pitloom version: see
 
 ## What the pin covers
 
-The ref after `@` fixes the action's code and the Pitloom release it installs:
-
-- `pitloom-version` empty (default): installs the Pitloom version carried by
-  the pinned ref, from PyPI. `@v0.18.1` and that tag's commit SHA both give
-  0.18.1.
-- A ref whose version is not on PyPI fails with an error. This covers an
-  unreleased commit, a branch (`@main`) between a version bump and its release,
-  and a tag pushed before the PyPI upload finishes. Pin a release, or set
-  `pitloom-version`.
-- `pitloom-version` overrides it: a version (`0.18.1`) or specifier
+- **Pitloom version:** with `pitloom-version` empty, the action installs the
+  version carried by the pinned ref (tag or SHA) from PyPI. `@v0.18.1` and that
+  tag's commit SHA both give 0.18.1. It fails if the version is not on PyPI: an
+  unreleased commit, a branch between a version bump and its release, or a tag
+  pushed before the upload finishes.
+- **`pitloom-version`** overrides it: a version (`0.18.1`) or a specifier
   (`>=0.18,<1.0`).
 - Pitloom's own dependencies are resolved by pip at run time, not pinned.
 
 ## Python selection
 
-`python-version` empty (default): the action uses the `python` already on
-`PATH`, so your own `actions/setup-python` step is honoured. It installs Pitloom
-into that environment; to keep it apart from your project's packages, run the
-action in its own job.
+With `python-version` empty, the action uses the `python` on `PATH` and
+installs Pitloom into it. To keep Pitloom apart from your project's packages,
+run the action in its own job.
 
-If that Python is missing, older than 3.10, without pip, externally managed
-(PEP 668), unwritable, or its scripts directory is not on `PATH` (pyenv shims,
-for example), the action warns and installs Python 3.x with `setup-python`,
-which changes `PATH` for later steps.
+If that Python is missing, older than 3.10, externally managed (PEP 668), or
+otherwise cannot install packages, the action warns and installs Python 3.x
+with `setup-python`, which changes `PATH` for later steps.
 
 Set `python-version` to always run `setup-python` with that version.
 
@@ -170,6 +168,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
+        with:
+          python-version: "3.x"
       # Same release as the action below, which installs its own pinned version.
       - run: pip install pitloom==0.18.1
 
@@ -264,6 +264,8 @@ jobs:
       - uses: actions/checkout@v7
 
       - uses: actions/setup-python@v7
+        with:
+          python-version: "3.x"
 
       # 1. Build wheel using ANY build backend (Flit, Setuptools, Maturin, etc.)
       - name: Build wheel

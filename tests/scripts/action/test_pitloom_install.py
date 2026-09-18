@@ -10,9 +10,12 @@ answers the version query, so only the script's own decisions are tested.
 
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import TYPE_CHECKING, NamedTuple
 
 import pytest
+
+if TYPE_CHECKING:
+    from tests.scripts.action.conftest import StubBin
 
 # Stub env: STUB_LOG (file recording pip calls), STUB_PIP_EXIT,
 # STUB_VERSION, STUB_VERSION_EXIT, STUB_CRLF (end version line with CRLF).
@@ -39,10 +42,11 @@ class _Run(NamedTuple):
 
 @pytest.fixture(name="run_install")
 def run_install_fixture(
-    stub_bin: Any, tmp_path: Path, scripts_dir: Path
+    stub_bin: "StubBin", tmp_path: Path, scripts_dir: Path
 ) -> Callable[..., _Run]:
     """Return ``run(extras, version, *, with_loom, with_python, **stub_env)``."""
     log = tmp_path / "pip.log"
+    stub_bin.link("tr")
     script = scripts_dir / "action" / "pitloom-install.sh"
 
     def run(
@@ -80,6 +84,12 @@ def test_empty_version_installs_the_checkout_version(
     assert "4.5.6" in result.stdout
 
 
+def test_blank_version_is_treated_as_empty(run_install: Callable[..., _Run]) -> None:
+    result = run_install("", "  ", STUB_VERSION="4.5.6")
+    assert result.returncode == 0
+    assert result.pip_calls == ["-m pip install pitloom==4.5.6"]
+
+
 def test_windows_crlf_in_derived_version_is_stripped(
     run_install: Callable[..., _Run],
 ) -> None:
@@ -101,6 +111,9 @@ def test_empty_version_with_extras(run_install: Callable[..., _Run]) -> None:
         (">=0.18,<1.0", "pitloom>=0.18,<1.0"),
         ("~=0.18", "pitloom~=0.18"),
         ("!=0.18.0", "pitloom!=0.18.0"),
+        ("  >=0.18", "pitloom>=0.18"),
+        (" 0.18.1\r\n", "pitloom==0.18.1"),
+        (">= 0.18, < 1.0", "pitloom>=0.18,<1.0"),
     ],
 )
 def test_explicit_version_wins_over_the_checkout_version(
@@ -128,24 +141,22 @@ def test_explicit_version_pip_failure_adds_no_pin_hint(
 ) -> None:
     result = run_install("", "0.18.1", STUB_PIP_EXIT="1")
     assert result.returncode == 1
+    assert result.pip_calls == ["-m pip install pitloom==0.18.1"]
     assert "::error::" not in result.stdout
 
 
+@pytest.mark.parametrize(
+    "stub_env",
+    [{"STUB_VERSION_EXIT": "1"}, {"STUB_VERSION": ""}],
+    ids=["read-fails", "empty"],
+)
 def test_unreadable_checkout_version_fails_before_pip(
-    run_install: Callable[..., _Run],
+    run_install: Callable[..., _Run], stub_env: dict[str, str]
 ) -> None:
-    result = run_install("", "", STUB_VERSION_EXIT="1")
+    result = run_install("", "", **stub_env)
     assert result.returncode == 1
     assert "::error::" in result.stdout
     assert "pitloom-version" in result.stdout
-    assert result.pip_calls == []
-
-
-def test_empty_checkout_version_fails_before_pip(
-    run_install: Callable[..., _Run],
-) -> None:
-    result = run_install("", "", STUB_VERSION="")
-    assert result.returncode == 1
     assert result.pip_calls == []
 
 

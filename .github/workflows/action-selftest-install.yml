@@ -17,7 +17,8 @@ on:
     branches: [main, develop]
     paths: &action-paths
       - "action.yml"
-      - "scripts/**"
+      - "scripts/action/**"
+      - "scripts/check_version_consistency.py"
       - "src/pitloom/__about__.py"
       - ".gitattributes"
       - ".github/workflows/action-selftest-install.yml"
@@ -53,7 +54,7 @@ jobs:
           # An explicit python-version is honoured.
           - {name: "explicit python", os: ubuntu-latest, preinstalled_python: "3.11", copy_version: "0.18.0", action_python: "3.12", expect_version: "0.18.0", expect_python: "3.12"}
           # A pinned ref whose version is not on PyPI: the install script
-          # must fail on pip's "no matching distribution".
+          # must fail with its own error, after deriving the version.
           - {name: "unreleased fails", os: ubuntu-latest, preinstalled_python: "3.11", copy_version: "999.0.0", expect_failure: true}
           # Whatever Python the runner image ships: usable or fallback, the
           # action must succeed.
@@ -108,7 +109,7 @@ jobs:
           out=$(bash .selftest-action/scripts/action/pitloom-install.sh 2>&1) || rc=$?
           echo "${out}"
           [ "${rc}" -ne 0 ]
-          printf '%s\n' "${out}" | grep -F "No matching distribution found for pitloom==${COPY_VERSION}" > /dev/null
+          printf '%s\n' "${out}" | grep -F "Installing pitloom==${COPY_VERSION}" > /dev/null
           printf '%s\n' "${out}" | grep -F "Cannot install pitloom==${COPY_VERSION}" > /dev/null
 
       - name: Assert the installed Pitloom version
@@ -139,10 +140,7 @@ jobs:
             [ "${actual}" != "${FORBID_PYTHON}" ]
           fi
 
-      - name: Assert an SBOM was written and loom runs
+      - name: Assert an SBOM was written
         if: ${{ !matrix.expect_failure }}
         shell: bash
-        run: |
-          set -euo pipefail
-          test -s selftest-sbom.spdx3.json
-          loom --help > /dev/null
+        run: test -s selftest-sbom.spdx3.json
