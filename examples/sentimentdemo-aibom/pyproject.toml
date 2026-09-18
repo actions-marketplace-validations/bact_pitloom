@@ -26,11 +26,10 @@ classifiers = [
 # Pitloom from [project.dependencies] during the build step.
 # fasttext-community is a drop-in replacement (still `import fasttext`) with
 # prebuilt Windows/macOS/Linux wheels, unlike fasttext==0.9.3 which has no
-# Windows wheel; fasttext-community caps requires-python at <3.14 -- see
-# pitloom's own pyproject.toml for the identical split.
+# Windows wheel -- see pitloom's own pyproject.toml for the identical
+# rationale.
 dependencies = [
-    "fasttext>=0.9.3; python_version>='3.14'",
-    "fasttext-community>=0.11.7; python_version<'3.14'",
+    "fasttext-community>=0.11.8",
     "stav>=0.4.1",
 ]
 

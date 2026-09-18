@@ -13,6 +13,7 @@ on:
       - "src/pitloom/**"
       - "pyproject.toml"
       - ".github/workflows/docs.yml"
+      - ".github/actions/**"
   workflow_dispatch:
 
 permissions:
@@ -38,9 +39,10 @@ jobs:
           cache-dependency-path: pyproject.toml
 
       - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install "." --group docs
+        uses: ./.github/actions/install-pitloom
+        with:
+          groups: --group docs
+          package-spec: "."
 
       - name: Build site
         run: mkdocs build --strict

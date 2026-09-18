@@ -9,6 +9,7 @@ on:
     paths: &trigger-paths
       - "pyproject.toml"
       - ".github/workflows/pip-audit.yml"
+      - ".github/actions/**"
   pull_request:
     paths: *trigger-paths
   schedule:
@@ -38,9 +39,10 @@ jobs:
           cache-dependency-path: pyproject.toml
 
       - name: Install project and dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install ".[ai,content-type]" --group dev
+        uses: ./.github/actions/install-pitloom
+        with:
+          groups: --group dev
+          package-spec: ".[ai,content-type]"
 
       - name: Run pip-audit
         # Failed pip-audit = blocking

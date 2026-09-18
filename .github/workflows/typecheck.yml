@@ -39,10 +39,10 @@ jobs:
           cache-dependency-path: pyproject.toml
 
       - name: Install dependencies
-        run: |
-          pip install --upgrade pip
-          pip install ".[ai,content-type]"
-          pip install --group test --group typecheck
+        uses: ./.github/actions/install-pitloom
+        with:
+          groups: --group test --group typecheck
+          package-spec: ".[ai,content-type]"
 
       - name: mypy
         run: |

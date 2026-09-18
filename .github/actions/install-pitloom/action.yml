@@ -1,0 +1,102 @@
+# SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
+# SPDX-FileType: SOURCE
+# SPDX-License-Identifier: Apache-2.0
+
+name: "Install Pitloom from checkout"
+description: >-
+  Installs Pitloom from the local checkout, working around its
+  self-referential pyproject.toml build dependency (see
+  working-docs/implementation/hatchling-build-hook.md). Shared by every
+  CI workflow that needs a working local install instead of copy-pasting
+  the same bootstrap sequence.
+
+inputs:
+  hatchling-version:
+    description: >-
+      Exact Hatchling version to pin before installing Pitloom (e.g.
+      "1.32.0"). Empty installs whatever "hatchling" currently resolves
+      to. Must be pinned before Pitloom, since an isolated install would
+      otherwise resolve its own Hatchling version and ignore this pin.
+    required: false
+    default: ""
+  extra-packages:
+    description: >-
+      Extra space-separated packages/specs to pre-install alongside
+      hatchling/setuptools (e.g. "editables" or
+      "editables build==1.6.1 spdx3-validate==0.0.7").
+    required: false
+    default: ""
+  groups:
+    description: >-
+      Dependency-group flags to install before the local package (e.g.
+      "--group test --group lint"). Installed in its own "pip install"
+      call, without "--no-build-isolation" (see the "runs" step below for
+      why that flag is scoped to package-spec only). Empty adds nothing.
+    required: false
+    default: ""
+  package-spec:
+    description: >-
+      Bare pip install target for the local package, with no shell
+      quoting or flags embedded (e.g. "." or ".[ai,content-type]").
+      Combine with the "editable" input for a "pip install -e" install.
+    required: true
+  editable:
+    description: >-
+      "true" installs package-spec with "pip install -e" instead of a
+      normal install.
+    required: false
+    default: "false"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install Pitloom from checkout
+      shell: bash
+      # All inputs are read from env vars, not spliced into the script via
+      # ${{ }}, and every reference is double-quoted. GitHub Actions
+      # substitutes ${{ }} into the script's literal text before bash ever
+      # parses it, so an unquoted/direct splice lets shell metacharacters
+      # in an input value (e.g. from a less-trusted caller) run as
+      # commands; a quoted env-var read never re-parses its own contents.
+      env:
+        HATCHLING_VERSION: ${{ inputs.hatchling-version }}
+        EXTRA_PACKAGES: ${{ inputs.extra-packages }}
+        GROUPS: ${{ inputs.groups }}
+        PACKAGE_SPEC: ${{ inputs.package-spec }}
+        EDITABLE: ${{ inputs.editable }}
+      run: |
+        python -m pip install --upgrade pip
+        if [ -n "$HATCHLING_VERSION" ]; then
+          pip install "hatchling==$HATCHLING_VERSION"
+        else
+          pip install hatchling
+        fi
+        # EXTRA_PACKAGES/GROUPS are intentionally unquoted -- each is a
+        # space-separated list of independent pip arguments, and this
+        # still only word-splits the already-substituted value; it can't
+        # reintroduce shell-metacharacter injection the way a direct
+        # GitHub expression splice into the script text can.
+        pip install setuptools $EXTRA_PACKAGES
+        if [ -n "$GROUPS" ]; then
+          # No --no-build-isolation here: that flag exists only to stop
+          # PACKAGE_SPEC's own build (below) from fetching "pitloom" off
+          # PyPI as its self-referential build dependency (see the "if
+          # EDITABLE" block's comment). GROUPS packages have no such
+          # self-reference and get a normal isolated build if one of them
+          # ever needs to build from sdist (e.g. fuzz.yml's "fuzz" group
+          # includes atheris, which has no wheel below Python 3.12 and
+          # needs its own build-time deps, not just this env's setuptools).
+          pip install $GROUPS
+        fi
+        # pyproject.toml lists "pitloom" as its own build dependency
+        # (self-embeds its SBOM); an isolated build of PACKAGE_SPEC would
+        # otherwise fetch "pitloom" fresh off PyPI (possibly stale or
+        # crashing) instead of using this checkout's own source.
+        # --no-build-isolation skips that fetch, scoped to just this call
+        # so it doesn't affect GROUPS above; HATCH_BUILD_NO_HOOKS skips
+        # the build hook itself (nothing provides it yet).
+        if [ "$EDITABLE" = "true" ]; then
+          HATCH_BUILD_NO_HOOKS=1 pip install -e "$PACKAGE_SPEC" --no-build-isolation
+        else
+          HATCH_BUILD_NO_HOOKS=1 pip install "$PACKAGE_SPEC" --no-build-isolation
+        fi

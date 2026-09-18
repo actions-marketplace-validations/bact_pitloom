@@ -1,6 +1,6 @@
 ---
 Created: 2026-04-14
-Last-Modified: 2026-09-17
+Last-Modified: 2026-09-18
 SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 SPDX-FileType: DOCUMENTATION
 SPDX-License-Identifier: CC0-1.0
@@ -561,33 +561,19 @@ be built:
   test-fixture bugs, no production code changed). See
   [windows-macos-ci.md](../implementation/windows-macos-ci.md).
   ([PR #220](https://github.com/bact/pitloom/pull/220))
-- [ ] **`fasttext` Windows/macOS + Python 3.14 gap untested** -- PR #220
-  split the `fasttext` extra by `python_version` (`fasttext-community`
-  for <3.14, plain `fasttext==0.9.3` for >=3.14, since
-  `fasttext-community` caps its own `requires-python` at <3.14). Plain
-  `fasttext==0.9.3` has no Windows wheel and fails building from source
-  there (the exact bug #220 fixes for <3.14) -- but no CI matrix job
-  combines Windows or macOS with Python 3.14, so this known gap stays
-  silently untested. Upstream 3.14 support is in progress:
-  [fasttext-community#13](https://github.com/munlicode/fasttext-community/pull/13)
-  (open, awaiting the project owner's review as of 2026-09-17) -- nothing
-  to do on Pitloom's side but wait. Revisit the Python-version marker
-  split once that lands, or add a dedicated Windows/macOS + 3.14 CI job
-  if it stalls.
-- [ ] **CI workflow step duplication** -- the checkout / setup-python /
-  pip-install boilerplate is hand-copied across 11 of the 17
-  `.github/workflows/*.yml` files with no shared source, so a change to
-  one (e.g. a cache key, a Python setup option) has to be repeated by
-  hand in every file or silently drifts. (`licenseid update` is a
-  narrower sub-case -- only `test.yml` and `action-selftest.yml` run it,
-  not all 11.) Candidate fix: a local composite action
-  (`.github/actions/setup-pitloom-ci/action.yml`) that each workflow's
-  steps call instead of repeating the block. Not urgent -- flagged
-  during a CI redundancy audit, no drift has caused a bug yet --
-  but matches the "Consolidate Patterns" principle in CLAUDE.md.
-  Deliberately kept out of PR #220's scope (a repo-wide CI refactor
-  shouldn't land bundled with the first real Windows/macOS CI run) --
-  do as its own follow-up PR once #220 is merged and stable.
+- [x] **`fasttext` Windows/macOS + Python 3.14 gap** -- resolved upstream
+  ([fasttext-community#13](https://github.com/munlicode/fasttext-community/pull/13)).
+  See [windows-macos-ci.md](../implementation/windows-macos-ci.md).
+  ([PR #222](https://github.com/bact/pitloom/pull/222))
+- [x] **CI workflow step duplication (pip-install portion)** -- the
+  Hatchling-pin/dependency-group/editable-install bootstrap, including
+  the pitloom self-referential build-dependency workaround, is now a
+  shared composite action,
+  [install-pitloom](../../.github/actions/install-pitloom/action.yml),
+  used by 10 of the 16 `.github/workflows/*.yml` files.
+  ([PR #222](https://github.com/bact/pitloom/pull/222)) Checkout/
+  setup-python steps are still hand-copied per workflow -- smaller,
+  lower-drift-risk boilerplate not folded into this action.
 
 ### Diagnostics / logging
 

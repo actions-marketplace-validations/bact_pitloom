@@ -28,20 +28,19 @@ jobs:
           cache: pip
           cache-dependency-path: pyproject.toml
 
-      - name: Install build dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install build==1.6.1 spdx3-validate==0.0.7
-
       - name: Install Pitloom from checkout
-        run: pip install -e ".[content-type]"
+        uses: ./.github/actions/install-pitloom
+        with:
+          extra-packages: editables build==1.6.1 spdx3-validate==0.0.7
+          package-spec: ".[content-type]"
+          editable: "true"
 
       - name: Build sdist and wheel
         run: |
-          # --no-isolation: use the checkout's local Pitloom, not an isolated
-          # build env, so the build hook embeds a freshly generated SBOM
-          # (.dist-info/sboms/). The Action step below regenerates and
-          # overwrites this copy in the published wheel.
+          # --no-isolation: use the checkout's local Pitloom, not an
+          # isolated build env, so the build hook embeds a freshly
+          # generated SBOM (.dist-info/sboms/) using this checkout
+          # instead of fetching pitloom from PyPI.
           python -m build --no-isolation
 
       - name: Resolve the built wheel
@@ -50,7 +49,7 @@ jobs:
         # embed-wheel's own glob has already silently absorbed it (its
         # multi-match handling skips embedding rather than failing --
         # see attach-release-sbom's "if:" comment below). Every
-        # downstream step (embed, verify, validate) trusts this single
+        # downstream step (verify, embed, validate) trusts this single
         # resolved path instead of re-deriving and re-validating it.
         id: wheel
         run: |
@@ -63,6 +62,18 @@ jobs:
             exit 1
           fi
           echo "path=${wheels[0]}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify build hook embedded an SBOM
+        # hatch-integration.yml and build.yml both exercise the Hatchling
+        # hook already, but only against a fixture project / an editable
+        # install -- neither builds the real release package. This
+        # confirms the hook still works against the actual release wheel
+        # before "Regenerate and embed SBOM" below overwrites its output.
+        env:
+          WHEEL_PATH: ${{ steps.wheel.outputs.path }}
+        run: |
+          set -euo pipefail
+          loom verify-wheel --fail-on-mismatch "${WHEEL_PATH}"
 
       - name: Regenerate and embed SBOM
         # uses: ./ + install: false runs this commit's own Action/CLI
@@ -83,7 +94,7 @@ jobs:
           WHEEL_PATH: ${{ steps.wheel.outputs.path }}
         run: |
           set -euo pipefail
-          loom verify-wheel "${WHEEL_PATH}" \
+          loom verify-wheel --fail-on-mismatch "${WHEEL_PATH}" \
             --sbom-filename "$(basename "${SBOM_PATH}")"
 
       - name: Validate SBOM
