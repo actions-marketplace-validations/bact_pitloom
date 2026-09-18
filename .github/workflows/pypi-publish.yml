@@ -73,7 +73,7 @@ jobs:
           WHEEL_PATH: ${{ steps.wheel.outputs.path }}
         run: |
           set -euo pipefail
-          loom verify-wheel "${WHEEL_PATH}"
+          loom verify-wheel --fail-on-mismatch "${WHEEL_PATH}"
 
       - name: Regenerate and embed SBOM
         # uses: ./ + install: false runs this commit's own Action/CLI
@@ -94,7 +94,7 @@ jobs:
           WHEEL_PATH: ${{ steps.wheel.outputs.path }}
         run: |
           set -euo pipefail
-          loom verify-wheel "${WHEEL_PATH}" \
+          loom verify-wheel --fail-on-mismatch "${WHEEL_PATH}" \
             --sbom-filename "$(basename "${SBOM_PATH}")"
 
       - name: Validate SBOM
