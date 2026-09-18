@@ -35,11 +35,9 @@ jobs:
       matrix:
         # python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
         python-version: ["3.10", "3.14"]
-        # hatchling-version: the floor pinned in pyproject.toml
-        # ("hatchling>=1.32.0", no upper bound) and "" for whatever
-        # latest resolves to -- catches an undocumented break in a new
-        # Hatchling release the way 1.32.3's silent BuildHookInterface
-        # generic-arity change would otherwise have gone unnoticed (see
+        # hatchling-version: the pyproject.toml floor ("hatchling>=1.32.0",
+        # no upper bound) and "" for latest -- catches an undocumented
+        # break in a new Hatchling release before it ships (see
         # working-docs/implementation/hatchling-build-hook.md).
         hatchling-version: ["1.32.0", ""]
       fail-fast: false
@@ -47,13 +45,13 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
-      - uses: ./.github/actions/setup-pitloom-ci
+      - uses: ./.github/actions/setup-python
         with:
           python-version: ${{ matrix.python-version }}
 
       - name: Install Pitloom and build tools
-        # "Build sampleproject" below runs without HATCH_BUILD_NO_HOOKS,
-        # so the hook under test still runs normally.
+        # HATCH_BUILD_NO_HOOKS only scopes to this step -- "Build
+        # sampleproject" below still runs the hook under test.
         uses: ./.github/actions/install-pitloom
         with:
           hatchling-version: ${{ matrix.hatchling-version }}
@@ -82,12 +80,10 @@ jobs:
           echo "WHEEL_NAME=$(basename "${WHEEL}")" >> "$GITHUB_ENV"
 
       - name: Verify SBOM embedded in wheel
-        # Authoritative presence/location/ambiguity check (also flags
-        # e.g. a stale second SBOM left in dist/). The step below only
-        # re-locates the file to read its content -- it trusts this
-        # check already ran, rather than re-verifying presence itself.
-        # --fail-on-mismatch: a name/version mismatch against the wheel's
-        # own METADATA is a real bug here, not just a WARNING.
+        # Authoritative presence/location/ambiguity check (e.g. a stale
+        # second SBOM in dist/) -- the step below trusts this ran and
+        # just re-locates the file. --fail-on-mismatch: a name/version
+        # mismatch against the wheel's own METADATA is a real bug here.
         run: |
           cd tests/fixtures/projects/sampleproject-hatchling
           loom verify-wheel --fail-on-mismatch "${WHEEL_PATH}"
@@ -200,10 +196,9 @@ jobs:
           EOF
 
       - name: Extract standalone SBOM copy for artifact upload
-        # Extracted before validation runs, so the artifact upload step
-        # below (which runs if: always()) still has an SBOM to attach
-        # even when validation fails -- the invalid SBOM is exactly what
-        # a human debugging that failure would want to download.
+        # Extracted before validation runs, so the if: always() upload
+        # step below can still attach it even when validation fails --
+        # useful for debugging exactly that failure.
         run: |
           cd tests/fixtures/projects/sampleproject-hatchling
           python - <<'EOF'

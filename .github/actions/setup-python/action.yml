@@ -1,14 +1,15 @@
 # SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 # SPDX-License-Identifier: Apache-2.0
 
-name: Set up Pitloom CI environment
+name: Set up Python for Pitloom CI
 description: >
-  Set up Python -- shared boilerplate across Pitloom CI workflows. Does NOT
-  check out the repo: a local composite action can only be loaded after
-  checkout already happened in the caller's own job, so every caller must
-  keep its own actions/checkout step before this one. Does NOT upgrade pip
-  either -- every caller follows this with ./.github/actions/install-pitloom,
-  which already does that as its own first step.
+  Runs actions/setup-python with Pitloom CI's shared version/cache config.
+  Does NOT check out the repo: a local composite action can only be loaded
+  after checkout already happened in the caller's own job, so every caller
+  must keep its own actions/checkout step before this one. Does NOT
+  upgrade pip either -- every caller follows this with
+  ./.github/actions/install-pitloom, which already does that as its own
+  first step.
 
 inputs:
   python-version:

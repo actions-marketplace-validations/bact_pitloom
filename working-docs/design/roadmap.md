@@ -567,9 +567,10 @@ be built:
   ([PR #222](https://github.com/bact/pitloom/pull/222))
 - [x] **CI workflow step duplication** -- two shared composite actions
   replace hand-copied boilerplate across 10 of the 17
-  `.github/workflows/*.yml` files: `setup-pitloom-ci` for
-  setup-python/pip-upgrade ([PR #221](https://github.com/bact/pitloom/pull/221))
-  and `install-pitloom` for the Hatchling-pin/dependency-group/
+  `.github/workflows/*.yml` files: `setup-python` for the
+  actions/setup-python version/cache config
+  ([PR #221](https://github.com/bact/pitloom/pull/221)) and
+  `install-pitloom` for the Hatchling-pin/dependency-group/
   editable-install bootstrap. See
   [ci-install-composite-action.md](../implementation/ci-install-composite-action.md)
   ([PR #222](https://github.com/bact/pitloom/pull/222)). `checkout` stays

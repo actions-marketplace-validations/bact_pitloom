@@ -33,8 +33,8 @@ and this project adheres to
 
 - Switch from `fasttext` to `fasttext-community` on Python < 3.14 to have
   better Windows support ([#220])
-- CI workflows share Python setup/pip-upgrade via a local composite action
-  (`.github/actions/setup-pitloom-ci`) instead of hand-copying it 10 times
+- CI workflows share Python setup via a local composite action
+  (`.github/actions/setup-python`) instead of hand-copying it 10 times
   ([#221])
 - Use `fasttext-community` on all supported Python versions, including
   3.14, now that upstream ships 3.14 wheels ([#222])
