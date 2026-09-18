@@ -5,4 +5,4 @@
 
 """Package information for Pitloom."""
 
-__version__ = "0.18.1"
+__version__ = "0.19.0"

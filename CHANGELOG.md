@@ -17,18 +17,22 @@ and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Full release notes: <https://github.com/bact/pitloom/releases>
-- Commit history: <https://github.com/bact/pitloom/compare/v0.18.0...v0.18.1>
+- Commit history: <https://github.com/bact/pitloom/compare/v0.18.1...v0.19.0>
 
-## [Unreleased]
+## [0.19.0] - 2026-09-18
 
 ### Changed
 
-- GitHub Action installs the Pitloom version of its pinned ref (tag or SHA) instead of the latest release; `pitloom-version` still overrides ([#224])
-- GitHub Action uses the workflow's Python unless `python-version` is set; falls back to `setup-python` 3.x with a warning if unusable; no longer runs `pip --upgrade pip` ([#224])
+- GitHub Action installs the Pitloom version of its pinned ref (tag or SHA)
+  instead of the latest release; `pitloom-version` still overrides ([#224])
+- GitHub Action uses the workflow's Python unless `python-version` is set;
+  falls back to `setup-python` 3.x with a warning if unusable;
+  no longer runs `pip --upgrade pip` ([#224])
 
 ### Fixed
 
-- GitHub Action failed on Windows runners and on `args` under macOS's bash 3.2; unbalanced `args` quoting is now an error ([#224])
+- GitHub Action failed on Windows runners and on `args` under macOS's bash 3.2;
+  unbalanced `args` quoting is now an error ([#224])
 
 [#224]: https://github.com/bact/pitloom/pull/224
 
@@ -874,6 +878,7 @@ release because "Loom" and "Pyloom" were unavailable on PyPI.
 
 ---
 
+[0.19.0]: https://github.com/bact/pitloom/compare/v0.18.1...v0.19.0
 [0.18.1]: https://github.com/bact/pitloom/compare/v0.18.0...v0.18.1
 [0.18.0]: https://github.com/bact/pitloom/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/bact/pitloom/compare/v0.16.4...v0.17.0
