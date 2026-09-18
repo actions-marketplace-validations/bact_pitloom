@@ -356,7 +356,8 @@ below, which is the actual commitment for what ships before mid-October):
   Needs design: which skill should own them (a new one, or folded into
   `sbom-generate`), and what phrasings distinguish "pin ids before a
   first run" from "import ids from an existing SBOM" without colliding
-  with plain generate/enrich requests.
+  with plain generate/enrich requests. See
+  [skills-trigger-coverage.md](../implementation/skills-trigger-coverage.md).
 - [ ] **Deterministic same-model identification for auto-harvest** --
   `ai_AIPackage` elements are excluded from the Loom ID registry's
   auto-harvest since `ai_model.name` is extraction-dependent. Open
@@ -421,7 +422,8 @@ be built:
   fragment-registration-and-regenerate path end to end, so this is about
   whether standalone `loom merge`/`loom fragment list` requests (outside
   that flow) warrant their own trigger phrasings, and if so, in which
-  skill.
+  skill. See
+  [skills-trigger-coverage.md](../implementation/skills-trigger-coverage.md).
 - [x] **Core merge mechanism and `loom fragment validate`** -- both
   already ship, substantially superseding the original design cluster's
   Phase 1/4 plan. See

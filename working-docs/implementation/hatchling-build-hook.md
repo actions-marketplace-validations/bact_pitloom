@@ -367,6 +367,15 @@ dependencies = [
 ]
 ```
 
+**Floor policy (PR #223):** the floor stays at 1.29.0 -- verified by a real
+build + embed in a scratch venv pinned to it, and by the
+`hatch-integration.yml` floor matrix axis -- until a feature genuinely
+needs a newer Hatchling. Do not raise it to the latest known-good release:
+the version-agnostic arity fix above exists so older Hatchling keeps
+working. Every user-facing example and the CI matrix use 1.29.0; only the
+historical bug narrative above keeps 1.32.0/1.32.3, as facts about that
+past break.
+
 ## Test plan
 
 | Test | Description |

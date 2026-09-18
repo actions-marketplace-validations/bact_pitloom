@@ -1,6 +1,6 @@
 ---
 Created: 2026-08-11
-Last-Modified: 2026-09-01
+Last-Modified: 2026-09-18
 SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 SPDX-FileType: DOCUMENTATION
 SPDX-License-Identifier: CC0-1.0
@@ -13,6 +13,18 @@ Steps for cutting a Pitloom release, maintainer-facing. Distinct from
 the release-cutting process itself, run once per version bump.
 
 ## 1. Pre-tag verification (local)
+
+CI already covers most of this list on the release PR -- check the green
+run before repeating it locally. Job-name map (`gh pr checks` shows job
+names, not workflow names): pytest = `Test on Python ...`; mypy/pyright/
+pyrefly = `Type checking`; ruff, **pylint and flake8** = one job, `Ruff
+(Lint & Format)`; plugin validation = `claude plugin validate`; version
+fields = `Check version fields agree`; `python -m build --wheel` + PEP 770
+embed + `verify-wheel`/`validate-wheel` on Pitloom's own wheel =
+`Python X on <os>` (`build.yml`, ubuntu/windows/macos); the hook against
+the Hatchling floor and latest = `Hook on Python X / Hatchling Y`
+(`hatch-integration.yml`). Docs-only commits skip most workflows via
+`paths-ignore`.
 
 - [ ] `pytest tests/ -q` -- 0 failed.
 - [ ] `mypy examples/ src/ tests/` -- clean.
@@ -28,12 +40,18 @@ the release-cutting process itself, run once per version bump.
       `.claude-plugin/plugin.json`, `CITATION.cff`, `codemeta.json`,
       `README.md`, `action.yml`, `docs/index.md`. Check with
       `grep -rn "<old-version>"` across those files -- anything left
-      over is a missed bump.
+      over is a missed bump. Dependency floors (e.g. `hatchling>=`) are
+      *not* covered by `scripts/check_version_consistency.py`: grep them by
+      hand across `pyproject.toml`, README, `docs/`, examples, CI matrix,
+      comments and test literals (see [recurring-bug-patterns.md](recurring-bug-patterns.md)).
 - [ ] `CHANGELOG.md`: every merged PR since the last tag either has an
       entry, or is a routine dependabot/CI-only/docs-only/test-only
       change that doesn't need one (cross-check `git log --oneline
       <last-tag>..HEAD | grep "Merge pull request"` against the
-      `[#NNN]:` link refs at the bottom of the file).
+      `[#NNN]:` link refs at the bottom of the file). Include the
+      version-bump PR itself when it carries more than version strings
+      (0.18.1's bump PR also lowered a dependency floor and changed the
+      skills, and had no entry until this check caught it).
 - [ ] `python -m build --wheel` succeeds locally; the built wheel embeds
       `<name>-<version>.dist-info/sboms/<name>-<version>.spdx3.json` (PEP 770).
 - [ ] Run the `Fuzz` workflow (`workflow_dispatch`, both targets) for a

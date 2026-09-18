@@ -38,6 +38,7 @@ Pitloom is invoked from several usage surfaces (CLI, the Hatchling build hook, t
 - **A docstring or comment describing "how surface X does Y" is a claim, not a fact.** Verify it against that surface's actual entry-point code (`__main__.main()`, `plugins/hatch.py`, the public library-API functions) before trusting or writing it -- a stale claim invites the exact regression it was meant to prevent, the moment someone trusts it instead of rereading the code.
 - **A pattern hand-copied across 3+ call sites drifts.** When the same kind of message/check/value is written at several call sites (e.g. a `WARNING:` naming which SBOM field a failure skips), factor the shared shape into one helper/constant instead of retyping it per site -- otherwise wording or behavior silently diverges between sites with no single place to notice or fix it.
 - **A test asserting on one surface doesn't cover the others.** When behavior must hold identically across surfaces (CLI vs library API vs Hatchling hook vs GitHub Action) or across every subcommand, add a regression test that exercises each surface/subcommand it's meant to hold for -- not just whichever one was easiest to reach from a test.
+- **A skill is discovered through its frontmatter `description` only.** A body section documenting a command does not make it triggerable, and the skills have no tests. When a CLI command/flag is added or renamed, enumerate `add_parser(` subcommands against every `skills/*/SKILL.md` description; keep Pitloom's *verify* (structural) vs *validate* (schema/SHACL) distinction explicit, since users treat them as synonyms; give combined asks ("generate SBOM meeting CISA") an explicit hand-off in both skills; and give every "ask a follow-up" step a non-interactive fallback. Audit method, decisions and the deferred gaps: [skills-trigger-coverage.md](working-docs/implementation/skills-trigger-coverage.md).
 
 ## Design principles
 
@@ -159,6 +160,18 @@ read it before extending or citing any of these one-liners.
   fails the whole workflow/action to load, reported at the block's line,
   not the actual one (PR #222,
   [ci-install-composite-action.md](working-docs/implementation/ci-install-composite-action.md)).
+- **A version floor asserted in many places drifts, and no script checks
+  it** (`check_version_consistency.py` covers only Pitloom's own version).
+  Keep a dependency floor at its empirically verified technical minimum
+  (raising it to "latest known-good" defeats a version-agnostic compat
+  fix), and when changing it grep every spelling, classifying each hit as
+  enforced requirement / illustrative example (both move) or historical
+  narrative (stays factual) (PR #223,
+  [recurring-bug-patterns.md](working-docs/implementation/recurring-bug-patterns.md)).
+- **A manual repro that fails is first suspect for a wrong replication**
+  (missing install steps, a raw `str` where the real call site passes a
+  parsed object) -- replicate the real call shape before calling it an
+  incompatibility (PR #223, same doc).
 - **pip's `--no-build-isolation` is invocation-global, not per-package**
   -- combining a self-referential local-package install with unrelated
   `--group`/extras packages in one `pip install` call forces isolation

@@ -1,6 +1,6 @@
 ---
 Created: 2026-09-17
-Last-Modified: 2026-09-17
+Last-Modified: 2026-09-18
 SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 SPDX-FileType: DOCUMENTATION
 SPDX-License-Identifier: CC0-1.0
@@ -428,3 +428,40 @@ shape described, not just the module where each was first found.
   `test_fragments_merge_required.py`). Write the fake against the real
   method's actual signature (check it, don't guess), not a generic
   passthrough shim.
+- **A version floor asserted in many places drifts -- and nothing checks
+  it.** `scripts/check_version_consistency.py` covers Pitloom's *own*
+  version string only, not dependency floors. The Hatchling floor lives in
+  `pyproject.toml` (`[build-system] requires` *and* `dependencies`),
+  README/docs/example snippets, the `hatch-integration.yml` matrix's
+  floor axis, `_MIN_HATCHLING_SBOM_VERSION` in `plugins/hatch.py`, test
+  literals, and an action-input example (PR #223). Two traps: (1) raising
+  the floor to "the latest known-good" silently defeats a version-agnostic
+  compat fix (#222 exists so older Hatchling keeps working) -- keep the
+  floor at the *empirically verified* technical minimum (build + embed in a
+  scratch venv pinned to it), and raise it only when a feature needs more;
+  (2) prose and code sample disagreeing in the same paragraph ("Hatchling
+  **1.29.0+** required" above `requires = ["hatchling>=1.32.3"]`). When
+  changing one, `grep -rn` every spelling and classify each hit: *enforced
+  requirement* and *illustrative example* move together; *historical
+  narrative* (what the floor was when a past break happened) stays
+  factual. Also keep the CI matrix's floor axis equal to the pyproject
+  floor.
+- **A manual repro that fails is first suspect for a wrong replication,
+  not a real bug.** Two false alarms in one session (PR #223): an
+  editable install run without the install sequence the CI composite
+  action actually performs (Hatchling pin, `editables`, `setuptools`),
+  and `normalize_requirement("Foo>=1")` called with a raw `str` where the
+  real call site passes a `packaging.requirements.Requirement`. Read the
+  actual call site/invocation and replicate its exact shape before
+  concluding an old dependency version is incompatible.
+- **To find what an undocumented upstream release changed, diff the two
+  released wheels, not the changelog.** Hatchling 1.32.3's generic-arity
+  change was in no changelog: `pip download pkg==A pkg==B --no-deps`,
+  unzip both, `diff` the module (here `builders/plugin/interface.py`) and
+  `git log -S` the upstream repo for the introducing commit (PR #222).
+- **`gh pr checks` lists job names, not workflow names, and `paths-ignore`
+  skips workflows on docs-only commits.** A "missing" check usually
+  means a differently-named job of a workflow that did run (`Python 3.10
+  on ubuntu-latest` is `build.yml`; pylint is a step inside `Ruff (Lint &
+  Format)`, not its own check). Confirm with `gh run list --workflow=...`
+  before concluding a check didn't run.
