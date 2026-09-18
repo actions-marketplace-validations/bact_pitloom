@@ -35,11 +35,11 @@ jobs:
       matrix:
         # python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
         python-version: ["3.10", "3.14"]
-        # hatchling-version: the pyproject.toml floor ("hatchling>=1.32.0",
+        # hatchling-version: the pyproject.toml floor ("hatchling>=1.29.0",
         # no upper bound) and "" for latest -- catches an undocumented
         # break in a new Hatchling release before it ships (see
         # working-docs/implementation/hatchling-build-hook.md).
-        hatchling-version: ["1.32.0", ""]
+        hatchling-version: ["1.29.0", ""]
       fail-fast: false
 
     steps:

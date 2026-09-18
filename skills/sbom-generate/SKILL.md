@@ -1,6 +1,6 @@
 ---
 # Created: 2026-07-05
-# Last-Modified: 2026-09-08
+# Last-Modified: 2026-09-18
 # SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 # SPDX-FileType: SOURCE
 # SPDX-License-Identifier: Apache-2.0
@@ -22,7 +22,11 @@ description: >-
   Also triggers, with enrichment layered on top (see "Combine with
   enrichment" below), on "generate SBOM and enrich it", "give me a complete
   SBOM", "create an SBOM and fill in information as much as possible", and
-  "help me get a full SBOM". Also triggers on requests to embed an SBOM
+  "help me get a full SBOM". Also triggers, with a named standard's minimum
+  elements layered on top (see "Combine with a named standard" below), on
+  "give me SBOM with CISA 2026 minimum elements", "generate an SBOM that
+  meets NTIA requirements", and "create an AIBOM compliant with G7 SBOM for
+  AI". Also triggers on requests to embed an SBOM
   directly into a built wheel per PEP 770 -- "embed the SBOM in this
   wheel", "embed SBOM to the wheel", "embed SBOM to python wheel",
   "embed-wheel", "add the SBOM to dist/*.whl", "put the SBOM in the
@@ -149,6 +153,32 @@ together with `--project-dir` -- it has no effect on `enrich` without
 set `[tool.pitloom] use-lockfile = false` in `pyproject.toml`. On by
 default; an explicit CLI flag always wins over the config value.
 
+### Why element ids stay stable across reruns (the Loom ID registry)
+
+Every element's `spdxId` is content-addressed from the resolved file
+set -- regenerating from the same unchanged source normally reproduces
+the same ids, which is what lets a fragment written against one run
+still merge cleanly into a later regeneration (see the `sbom-enrich`
+skill's fragment workflow, which depends on this). `project`/`wheel`/`env`
+auto-harvest newly-minted ids into a registry file
+(`.pitloom-ids.json` by default, `--registry FILE` to override,
+`--update-registry`/`--no-update-registry` toggles the behaviour, on by
+default) after each run, so this stability is normally automatic and
+needs no action from you -- just don't switch `--registry` files between
+a base-SBOM run and a later enrichment/regeneration of the same project,
+or ids can drift.
+
+Two edge cases need the registry touched manually, via `loom ids
+generate`/`loom ids import` -- **not yet wired into this skill's trigger
+phrasings** (tracked in the roadmap for future skill design): pinning an
+id ahead of a first run (e.g. to match an external naming scheme), or
+reusing ids from a pre-existing SBOM not produced by Pitloom's own
+auto-harvest. If a user's request clearly needs one of these, say so and
+point at [docs/cli.md's "Pin ids across fragments"
+section](https://github.com/bact/pitloom/blob/main/docs/cli.md#pin-ids-across-fragments)
+for the exact commands rather than improvising -- don't attempt to
+hand-construct or guess at registry file contents.
+
 
 ## Embed an SBOM into a wheel (PEP 770)
 
@@ -185,18 +215,19 @@ for the full flag reference, including `--output` (rejected when more
 than one wheel matches, since a single standalone copy would be
 ambiguous) and `--sbom-basename`.
 
-To check a wheel's embedded SBOM afterwards, either pass `--verify`/
-`--validate` to `embed-wheel` itself, or run the standalone commands
-against an already-embedded wheel:
+To check the wheel's embedded SBOM right after this same embed, pass
+`--verify`/`--validate` to `embed-wheel` itself -- both checks share the
+one disk read this embed already did:
 
 ```bash
 loom embed-wheel dist/*.whl --verify --validate
-loom verify-wheel dist/*.whl     # PEP 770 location, extension, name/version cross-check
-loom validate-wheel dist/*.whl   # schema/SHACL content validation
 ```
 
-See the `sbom-validate` skill for `validate-wheel`'s content-validation
-counterpart against standalone (non-embedded) SPDX 3 documents.
+For checking an already-embedded wheel later (not right after an embed
+in this same command), see the `sbom-validate` skill's "Validate a
+wheel's embedded SBOM" section -- it runs `verify-wheel`/`validate-wheel`
+together (or `verify-wheel` alone with a follow-up question, for a
+presence-only ask).
 
 ## Useful flags
 
@@ -252,6 +283,26 @@ which one:
 
 Plain "generate an SBOM" with no enrichment language in the request skips
 both -- just run the base generate command.
+
+## Combine with a named standard (NTIA/CISA/G7)
+
+A request can also ask for generation *and* a named standard's minimum
+elements in one breath -- "give me SBOM with CISA 2026 minimum elements",
+"generate an SBOM that meets NTIA requirements", "create an AIBOM
+compliant with G7 SBOM for AI". This is the same one-breath pattern as
+"Combine with enrichment" above, just naming a standard instead of asking
+for enrichment in general: generate the base SBOM first (with `--enrich`
+too, since it's free and the standard's gap analysis benefits from it),
+then invoke the `sbom-enrich` skill's "Complete a standard's minimum
+elements" section on the result -- do not stop at the base `loom generate`
+call and consider the request done.
+
+```bash
+loom generate <target> --enrich -o sbom.spdx3.json
+```
+
+Then hand off to `sbom-enrich` for the checklist-driven gap analysis and
+fragment workflow.
 
 ## Verify the result
 
@@ -341,7 +392,10 @@ back a JSON file that looks complete but isn't:
 
 - `references/examples.md` -- copy-paste recipes for every target type.
 - The sibling `sbom-enrich` skill -- the agentic, prose-reading enrichment
-  pass; see "Combine with enrichment" above for when a request calls for it.
+  pass; see "Combine with enrichment" above for when a request calls for
+  it, and its "Complete a standard's minimum elements" section for
+  NTIA/CISA/G7 compliance work; see "Combine with a named standard" above
+  for when a request calls for that instead.
 - The sibling `sbom-validate` skill -- schema/shape-level conformance
   check for any SBOM this skill produces.
 - `docs/resources.md` in the Pitloom repository -- SPDX 3 spec, ontology,

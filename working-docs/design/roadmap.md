@@ -346,6 +346,17 @@ below, which is the actual commitment for what ships before mid-October):
 
 ### AI model id stability (follow-up to [#178](https://github.com/bact/pitloom/pull/178))
 
+- [ ] **Skill trigger coverage for `loom ids generate`/`loom ids import`**
+  -- flagged during a 2026-09-18 skills-coverage audit: the skills now
+  explain the registry *concept* (why ids stay stable across reruns via
+  auto-harvest, so `sbom-enrich`'s dangling-fragment troubleshooting can
+  point at a registry mismatch -- see `sbom-generate`'s "Why element ids
+  stay stable across reruns" section), but the two manual commands
+  themselves have no trigger phrasings or dedicated skill workflow.
+  Needs design: which skill should own them (a new one, or folded into
+  `sbom-generate`), and what phrasings distinguish "pin ids before a
+  first run" from "import ids from an existing SBOM" without colliding
+  with plain generate/enrich requests.
 - [ ] **Deterministic same-model identification for auto-harvest** --
   `ai_AIPackage` elements are excluded from the Loom ID registry's
   auto-harvest since `ai_model.name` is extraction-dependent. Open
@@ -402,6 +413,15 @@ roadmap until 2026-09-15 -- re-verified against current code before
 listing below, since parts of its Phase 1/4 plan turned out to already
 be built:
 
+- [ ] **Skill trigger coverage for `loom merge` and `loom fragment
+  list`** -- flagged during a 2026-09-18 skills-coverage audit: neither
+  has a trigger phrasing or dedicated workflow in any `skills/*/SKILL.md`
+  (`loom merge` appears only as one bash example line in
+  `sbom-generate`). Needs design: `sbom-enrich` already covers the
+  fragment-registration-and-regenerate path end to end, so this is about
+  whether standalone `loom merge`/`loom fragment list` requests (outside
+  that flow) warrant their own trigger phrasings, and if so, in which
+  skill.
 - [x] **Core merge mechanism and `loom fragment validate`** -- both
   already ship, substantially superseding the original design cluster's
   Phase 1/4 plan. See

@@ -1,6 +1,6 @@
 ---
 # Created: 2026-08-10
-# Last-Modified: 2026-09-08
+# Last-Modified: 2026-09-18
 # SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 # SPDX-FileType: SOURCE
 # SPDX-License-Identifier: Apache-2.0
@@ -15,7 +15,18 @@ description: >-
   this SBOM", "validate this BOM", "is this SBOM valid", "is it a valid
   SBOM", "check this SBOM", "check this SBOM's SPDX conformance", "verify
   this SBOM", "is this SBOM in good shape", "validate the merged output",
-  "run spdx3-validate on this file". A quick
+  "run spdx3-validate on this file". Also triggers, on the wheel-embedded
+  SBOM specifically (see "Validate a wheel's embedded SBOM" below, which
+  runs both `verify-wheel` and `validate-wheel`) -- "check validity of
+  SBOM in wheel", "check the SBOM in this wheel", "validate the SBOM in
+  this wheel", "validate wheel SBOM", "is the wheel's SBOM valid", "is the
+  SBOM inside this wheel valid", "check if wheel SBOM is valid", "validate
+  SBOM embedded in wheel". Also triggers, for presence/location only (see
+  "Presence/location only" below, which runs `verify-wheel` alone and
+  asks a follow-up before checking content) -- "is SBOM in correct
+  location in the wheel", "is this wheel has an SBOM", "does this wheel
+  have a SBOM", "check if the wheel has an SBOM", "where is the SBOM in
+  this wheel". A quick
   `@graph`-presence sanity check (see the sibling `sbom-generate`/
   `sbom-enrich` skills) is not a substitute for this: it cannot catch a
   missing required property or a wrong relationship type, which only
@@ -92,17 +103,45 @@ fragment validate` does.)
 
 ## Validate a wheel's embedded SBOM
 
-For "is this wheel's SBOM valid" rather than a standalone document, use
-`validate-wheel` instead -- it locates the embedded SBOM under
-`.dist-info/sboms/` (PEP 770) and runs the same schema/SHACL check:
+For "is this wheel's SBOM valid" rather than a standalone document, run
+**both** checks -- they answer different questions and neither implies
+the other:
 
 ```bash
-loom validate-wheel dist/mypackage-1.0.0-py3-none-any.whl
+loom verify-wheel dist/mypackage-1.0.0-py3-none-any.whl     # present, right place, name/version match
+loom validate-wheel dist/mypackage-1.0.0-py3-none-any.whl   # schema/SHACL content check
 ```
 
+`verify-wheel` (structural: is an SBOM present at the PEP 770 location,
+does its extension match its format, does its declared name/version match
+the wheel's own `.dist-info/METADATA`) and `validate-wheel` (content:
+schema/SHACL conformance) are independent -- a wheel can pass one and fail
+the other. A generic "is this wheel's SBOM valid/good" request runs both,
+in that order (the cheap structural check first).
+
+### Presence/location only -- ask before validating content
+
+A narrower request -- "is SBOM in correct location in the wheel", "is
+this wheel has an SBOM", "does this wheel have a SBOM", "check if the
+wheel has an SBOM", "where is the SBOM in this wheel" -- asks only
+whether an SBOM is present and correctly placed, not whether it's valid.
+Answer that with `verify-wheel` alone; do not also run `validate-wheel`
+unasked. **Presence in the right place says nothing about content** -- the
+file at that path could be malformed JSON, or syntactically valid JSON
+that isn't valid SPDX 3 -- so after reporting the `verify-wheel` result,
+ask a follow-up: "Do you also want me to check whether the SBOM content
+itself is valid (well-formed and SPDX 3 conformant)?" Only run
+`validate-wheel` if they say yes.
+
+**Non-interactive session (CI/batch, no human to answer):** don't block
+waiting for a reply -- report the `verify-wheel` result, explicitly state
+that content validity was not checked, and stop there. Don't silently run
+`validate-wheel` on their behalf either -- expanding scope on an
+unattended run is its own kind of unasked deviation.
+
 See the `sbom-generate` skill's "Embed an SBOM into a wheel" section for
-`verify-wheel` (PEP 770 location/extension/name-version, no schema/SHACL
-content check) and `embed-wheel --verify`/`--validate`.
+`embed-wheel --verify`/`--validate` (the combined flag form, run
+immediately after an embed in the same command).
 
 ## Report the result
 

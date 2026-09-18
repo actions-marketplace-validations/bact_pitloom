@@ -29,7 +29,7 @@ action's callers run under), [wheel-sbom-verification.md](wheel-sbom-verificatio
 - `loom verify-wheel`/`loom validate-wheel` calls added or consolidated
   in `build.yml`, `hatch-integration.yml`, and `pypi-publish.yml`,
   replacing three independently hand-rolled zipfile-inspection scripts.
-- `hatch-integration.yml` gained a `hatchling-version: ["1.32.0", ""]`
+- `hatch-integration.yml` gained a `hatchling-version: ["1.29.0", ""]`
   matrix axis (floor + latest) so a future undocumented Hatchling break
   -- like the one this same PR fixes -- is caught by CI instead of a
   user bug report.

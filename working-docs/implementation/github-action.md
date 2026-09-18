@@ -1,6 +1,6 @@
 ---
 Created: 2026-07-05
-Last-Modified: 2026-08-29
+Last-Modified: 2026-09-18
 SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 SPDX-FileType: DOCUMENTATION
 SPDX-License-Identifier: CC0-1.0
@@ -29,7 +29,7 @@ Pass them through `args` (the Action itself has no dedicated multi-creator
 input):
 
 ```yaml
-- uses: bact/pitloom@v0.18.0
+- uses: bact/pitloom@v0.18.1
   with:
     project-path: "."
     output: "sbom.spdx3.json"
@@ -54,7 +54,7 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v7
-      - uses: bact/pitloom@v0.18.0
+      - uses: bact/pitloom@v0.18.1
         id: pitloom
         with:
           project-path: "."
@@ -84,7 +84,7 @@ jobs:
         python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v7
-      - uses: bact/pitloom@v0.18.0
+      - uses: bact/pitloom@v0.18.1
         with:
           project-path: "."
           python-version: ${{ matrix.python-version }}
