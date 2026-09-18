@@ -200,8 +200,7 @@ full picture.
   for Pitloom's transitive dependencies (only Pitloom itself is pinned);
   an isolated venv option; lint `scripts/` in CI (only `examples/ src/
   tests/` are); known edge cases: `args` containing a literal ASCII RS or a CR
-  inside quotes, quadratic `${PL_ARGS//[[:space:]]/}` on bash 3.2, loom
-  stderr lines starting `::` echoed raw to the log. See
+  inside quotes, quadratic `${PL_ARGS//[[:space:]]/}` on bash 3.2. See
   [github-action.md](../implementation/github-action.md).
 - [ ] **SARIF output** -- emit a SARIF file as a build artifact for CI
   findings (inline PR annotations, Security-tab view), fed by

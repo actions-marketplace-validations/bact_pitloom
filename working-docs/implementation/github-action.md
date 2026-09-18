@@ -116,7 +116,10 @@ currently emitted by `loom`, but not forbidden by the convention) is
 re-annotated at the same level rather than silently dropped. `set +e`
 brackets the `loom` invocation so a failing run still gets its `ERROR:`
 line annotated before the step's exit code is re-checked and propagated
-explicitly.
+explicitly. The raw echo of `loom`'s output is fenced with `::stop-commands::`
+(random token) so a `::` line in it is logged, not run as a workflow command;
+stdout is redirected to stderr for the rest of the step because the runner
+does not order the two streams against each other.
 
 ## Version pinning and Python selection
 

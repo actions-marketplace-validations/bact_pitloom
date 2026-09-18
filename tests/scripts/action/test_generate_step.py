@@ -234,6 +234,22 @@ def test_large_output_on_both_streams_does_not_deadlock(
     assert "::error::after the flood" in result.output
 
 
+def test_workflow_commands_in_loom_output_are_not_run(
+    generate: Callable[..., _Result],
+) -> None:
+    result = generate(
+        LOOM_STDOUT="::set-output name=x::y\\n",
+        LOOM_STDERR="INFO: fine\\n::add-mask::secret\\n",
+    )
+    lines = result.output.splitlines()
+    stop = next(line for line in lines if line.startswith("::stop-commands::"))
+    resume = f"::{stop.removeprefix('::stop-commands::')}::"
+    start, end = lines.index(stop), lines.index(resume)
+    for raw in ("::set-output name=x::y", "::add-mask::secret"):
+        assert start < lines.index(raw) < end
+    assert lines.index("::notice::fine") > end
+
+
 def test_first_printed_path_wins(generate: Callable[..., _Result]) -> None:
     result = generate(
         LOOM_STDOUT=(
