@@ -41,7 +41,7 @@ jobs:
         uses: ./.github/actions/install-pitloom
         with:
           groups: --group docs
-          install-target: '"."'
+          package-spec: "."
 
       - name: Build site
         run: mkdocs build --strict

@@ -50,7 +50,7 @@ jobs:
         uses: ./.github/actions/install-pitloom
         with:
           groups: --group fuzz
-          install-target: '".[gguf]"'
+          package-spec: ".[gguf]"
 
       - name: Run fuzz_${{ matrix.target }}.py
         run: |

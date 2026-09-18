@@ -41,9 +41,8 @@ jobs:
       - name: Install dependencies
         uses: ./.github/actions/install-pitloom
         with:
-          extra-packages: pybind11
           groups: --group test --group typecheck
-          install-target: '".[ai,content-type]"'
+          package-spec: ".[ai,content-type]"
 
       - name: mypy
         run: |

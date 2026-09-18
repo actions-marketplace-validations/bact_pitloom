@@ -26,7 +26,7 @@ extension.
 
 | Format | Extension(s) | Install extra |
 | :----- | :----------- | :------------- |
-| fastText | `.ftz`, `.bin` | `pip install fasttext-community` (or `fasttext` on Python 3.14+) |
+| fastText | `.ftz`, `.bin` | `pip install fasttext-community` |
 | GGUF | `.gguf` | `pip install gguf` |
 | HDF5 / Keras v1-v2 | `.h5`, `.hdf5` | `pip install h5py` |
 | Keras v3 | `.keras` | (none -- stdlib only) |

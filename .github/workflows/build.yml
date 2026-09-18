@@ -87,7 +87,8 @@ jobs:
         uses: ./.github/actions/install-pitloom
         with:
           extra-packages: editables build==1.6.1
-          install-target: "-e ."
+          package-spec: "."
+          editable: "true"
 
       - name: Build wheel
         id: build
@@ -116,35 +117,13 @@ jobs:
         id: verify_wheel_sbom
         if: steps.build.outcome == 'success'
         run: |
-          python << 'EOF'
-          import sys
-          import zipfile
-          from pathlib import Path
-
-          wheels = list(Path("dist").glob("*.whl"))
-          if not wheels:
-              print("::error title=No Wheel Found::No .whl file found in dist/")
-              sys.exit(1)
-
-          wheel_path = wheels[0]
-          with zipfile.ZipFile(wheel_path) as zf:
-              sbom_entries = [n for n in zf.namelist()
-                              if "/sboms/" in n and n.endswith(".spdx3.json")]
-
-          if not sbom_entries:
-              print(f"::error title=SBOM Missing::No .spdx3.json found under "
-                    f".dist-info/sboms/ in {wheel_path.name}")
-              sys.exit(1)
-
-          for entry in sbom_entries:
-              print(f"::notice title=SBOM Embedded::Found {entry} in {wheel_path.name}")
-          EOF
+          loom verify-wheel "dist/${{ steps.build.outputs.wheel_name }}"
         continue-on-error: true
 
       - name: Display wheel SBOM verification error
         if: steps.build.outcome == 'success' && steps.verify_wheel_sbom.outcome == 'failure'
         run: |
-          echo "::error title=Embedded SBOM Missing::The wheel was built but does not contain an SBOM in .dist-info/sboms/. Check that the Pitloom build hook ran correctly."
+          echo "::error title=Embedded SBOM Verification Failed::loom verify-wheel rejected the wheel's embedded SBOM (missing, ambiguous, or misplaced). See the 'Verify SBOM embedded in wheel' step's log for the exact reason."
 
       - name: Generate SBOM
         id: sbom
@@ -350,7 +329,7 @@ jobs:
           | Step | Status | Description |
           | :--- | :--- | :--- |
           | Build Wheel | ${{ steps.build.outcome == 'failure' && '❌ Failed' || '✅ Passed' }} | ${{ steps.build.outcome == 'failure' && 'Wheel build failed. Check build logs above.' || 'Successfully built wheel.' }} |
-          | SBOM Embedded in Wheel | ${{ steps.verify_wheel_sbom.outcome == 'failure' && '❌ Failed' || steps.verify_wheel_sbom.outcome == 'success' && '✅ Passed' || '⊘ Skipped' }} | ${{ steps.verify_wheel_sbom.outcome == 'failure' && 'SBOM not found inside wheel. Pitloom build hook may not have run.' || steps.verify_wheel_sbom.outcome == 'success' && 'SBOM found in .dist-info/sboms/.' || 'Skipped due to build failure.' }} |
+          | SBOM Embedded in Wheel | ${{ steps.verify_wheel_sbom.outcome == 'failure' && '❌ Failed' || steps.verify_wheel_sbom.outcome == 'success' && '✅ Passed' || '⊘ Skipped' }} | ${{ steps.verify_wheel_sbom.outcome == 'failure' && 'loom verify-wheel rejected the SBOM (missing, ambiguous, or misplaced) -- see its log for the reason.' || steps.verify_wheel_sbom.outcome == 'success' && 'SBOM found in .dist-info/sboms/.' || 'Skipped due to build failure.' }} |
           | Generate SBOM (standalone) | ${{ steps.sbom.outcome == 'failure' && '❌ Failed' || steps.sbom.outcome == 'success' && '✅ Passed' || '⊘ Skipped' }} | ${{ steps.sbom.outcome == 'failure' && 'SBOM generation failed. Verify project structure.' || steps.sbom.outcome == 'success' && 'Successfully generated SBOM.' || 'Skipped due to build failure.' }} |
           | Validate SBOM (spdx3-validate) | ${{ steps.validate.outcome == 'failure' && '❌ Failed' || steps.validate.outcome == 'success' && '✅ Passed' || '⊘ Skipped' }} | ${{ steps.validate.outcome == 'failure' && 'SBOM validation failed. SBOM does not conform to SPDX spec.' || steps.validate.outcome == 'success' && 'Successfully validated SBOM.' || 'Skipped due to previous failure.' }} |
 

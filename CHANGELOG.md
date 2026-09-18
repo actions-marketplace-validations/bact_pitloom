@@ -1,5 +1,5 @@
 ---
-Last-Modified: 2026-09-17
+Last-Modified: 2026-09-18
 SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 SPDX-FileType: DOCUMENTATION
 SPDX-License-Identifier: CC0-1.0
@@ -33,6 +33,8 @@ and this project adheres to
 
 - Switch from `fasttext` to `fasttext-community` on Python < 3.14 to have
   better Windows support ([#220])
+- Use `fasttext-community` on all supported Python versions, including
+  3.14, now that upstream ships 3.14 wheels ([#222])
 
 ### Fixed
 

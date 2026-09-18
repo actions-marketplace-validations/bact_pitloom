@@ -61,7 +61,8 @@ jobs:
         with:
           hatchling-version: ${{ matrix.hatchling-version }}
           extra-packages: editables build==1.6.1 spdx3-validate==0.0.7
-          install-target: "-e ."
+          package-spec: "."
+          editable: "true"
 
       - name: Print installed Hatchling version
         run: |
@@ -83,38 +84,34 @@ jobs:
           echo "WHEEL_PATH=${WHEEL}" >> "$GITHUB_ENV"
           echo "WHEEL_NAME=$(basename "${WHEEL}")" >> "$GITHUB_ENV"
 
-      - name: Verify SBOM is present inside the wheel
+      - name: Verify SBOM embedded in wheel
+        # Authoritative presence/location/ambiguity check (also flags
+        # e.g. a stale second SBOM left in dist/). The step below only
+        # re-locates the file to read its content -- it trusts this
+        # check already ran, rather than re-verifying presence itself.
+        run: |
+          cd tests/fixtures/projects/sampleproject-hatchling
+          loom verify-wheel "${WHEEL_PATH}"
+
+      - name: Verify SBOM content
+        # [tool.pitloom] sbom-basename = "sbom" in this fixture's
+        # pyproject.toml pins the filename read here.
         run: |
           cd tests/fixtures/projects/sampleproject-hatchling
           python - <<'EOF'
+          import json
           import sys
           import zipfile
           from pathlib import Path
 
-          wheels = list(Path("dist").glob("*.whl"))
-          if not wheels:
-              print("ERROR: No wheel found in dist/", file=sys.stderr)
-              sys.exit(1)
-          wheel_path = wheels[0]
-
-          sbom_key = None
-          with zipfile.ZipFile(wheel_path) as zf:
-              for name in zf.namelist():
-                  if name.endswith(".dist-info/sboms/sbom.spdx3.json"):
-                      sbom_key = name
-                      break
-
-          if sbom_key is None:
-              print(
-                  f"ERROR: SBOM not found in {wheel_path.name}. "
-                  "Expected a file matching *.dist-info/sboms/sbom.spdx3.json",
-                  file=sys.stderr,
-              )
-              sys.exit(1)
-
+          wheel_path = next(Path("dist").glob("*.whl"))
+          sbom_key = next(
+              name
+              for name in zipfile.ZipFile(wheel_path).namelist()
+              if name.endswith(".dist-info/sboms/sbom.spdx3.json")
+          )
           print(f"Found SBOM at: {sbom_key}")
 
-          import json
           with zipfile.ZipFile(wheel_path) as zf:
               sbom = json.loads(zf.read(sbom_key).decode("utf-8"))
 
@@ -203,7 +200,11 @@ jobs:
           print("SBOM presence check passed.")
           EOF
 
-      - name: Extract SBOM from wheel for validation
+      - name: Extract standalone SBOM copy for artifact upload
+        # Extracted before validation runs, so the artifact upload step
+        # below (which runs if: always()) still has an SBOM to attach
+        # even when validation fails -- the invalid SBOM is exactly what
+        # a human debugging that failure would want to download.
         run: |
           cd tests/fixtures/projects/sampleproject-hatchling
           python - <<'EOF'
@@ -220,10 +221,13 @@ jobs:
                       break
           EOF
 
-      - name: Validate SBOM with spdx3-validate
+      - name: Validate SBOM with loom validate-wheel
+        # Validates directly from the wheel (no manual re-extraction
+        # needed) -- loom validate-wheel handles the extract-to-tempfile
+        # + spdx3-validate call internally.
         run: |
-          spdx3-validate --json tests/fixtures/projects/sampleproject-hatchling/dist/sbom.spdx3.json
-          echo "SBOM validation passed."
+          cd tests/fixtures/projects/sampleproject-hatchling
+          loom validate-wheel "${WHEEL_PATH}"
 
       - name: Create job summary
         if: always()

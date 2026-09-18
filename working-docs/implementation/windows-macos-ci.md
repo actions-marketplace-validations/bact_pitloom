@@ -1,6 +1,6 @@
 ---
 Created: 2026-09-17
-Last-Modified: 2026-09-17
+Last-Modified: 2026-09-18
 SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 SPDX-FileType: DOCUMENTATION
 SPDX-License-Identifier: CC0-1.0
@@ -92,9 +92,13 @@ failures -- none in production code:
 `fasttext==0.9.3` for `>=3.14`), since plain `fasttext==0.9.3` has no
 Windows wheel and fails building from source there -- the real-world
 bug report that prompted adding Windows CI in the first place. This
-leaves a known, tracked gap: no CI job combines Windows/macOS with
+left a known, tracked gap: no CI job combined Windows/macOS with
 Python 3.14, so that combination's `fasttext==0.9.3` build failure
-stays untested (see roadmap.md's "Testing / CI" section).
+stayed untested.
+
+**Update (PR #222):** `fasttext-community` 0.11.8 added Python 3.14
+wheels, so the marker split is gone -- `fasttext-community>=0.11.8` is
+now used unconditionally and the gap above no longer applies.
 
 ## Where
 

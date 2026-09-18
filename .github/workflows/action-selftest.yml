@@ -55,7 +55,8 @@ jobs:
           extra-packages: >-
             editables build==1.6.1 check-wheel-contents==0.6.3
             installer==1.0.1
-          install-target: '-e ".[validate,build]"'
+          package-spec: ".[validate,build]"
+          editable: "true"
 
       - name: Build licenseid database
         run: licenseid update
