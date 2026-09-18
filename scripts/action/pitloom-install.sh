@@ -51,7 +51,7 @@ fi
 
 if ! "${python_bin}" -m pip install "${spec}"; then
   if [ -n "${derived_version}" ]; then
-    echo "::error::Cannot install pitloom==${derived_version} (see pip output above). The action may be pinned to an unreleased commit: pin a release tag or its SHA, or set pitloom-version"
+    echo "::error::Cannot install pitloom==${derived_version} (see pip output above). If it is unreleased, pin a release tag or SHA, or set pitloom-version"
   fi
   exit 1
 fi

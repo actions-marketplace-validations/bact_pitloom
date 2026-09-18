@@ -15,8 +15,7 @@ from typing import Any
 
 import pytest
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-SCRIPT = REPO_ROOT / "scripts" / "action" / "python_probe.py"
+SCRIPT_NAME = "python_probe.py"
 
 
 @pytest.fixture(name="probe")
@@ -74,26 +73,17 @@ def test_missing_install_dir_uses_nearest_existing_parent(
     assert _reason(probe, setup, install_dirs=(missing,)) is None
 
 
-@pytest.mark.parametrize(
-    ("changes", "expected"),
-    [
-        ({"version_info": (3, 9, 6)}, "older than 3.10"),
-        ({"has_pip": False}, "pip"),
-    ],
-    ids=["too-old", "no-pip"],
-)
-def test_interpreter_facts_that_disqualify(
-    probe: ModuleType, setup: _Setup, changes: dict[str, Any], expected: str
-) -> None:
-    assert _reason(probe, setup) is None
-    reason = _reason(probe, setup, **changes)
-    assert reason is not None
-    assert expected in reason
-
-
-def test_min_python_boundary(probe: ModuleType, setup: _Setup) -> None:
+def test_python_below_the_floor_is_rejected(probe: ModuleType, setup: _Setup) -> None:
     assert _reason(probe, setup, version_info=(3, 10, 0)) is None
-    assert _reason(probe, setup, version_info=(3, 9, 99)) is not None
+    reason = _reason(probe, setup, version_info=(3, 9, 99))
+    assert reason is not None
+    assert "older than 3.10" in reason
+
+
+def test_missing_pip_is_rejected(probe: ModuleType, setup: _Setup) -> None:
+    reason = _reason(probe, setup, has_pip=False)
+    assert reason is not None
+    assert "pip" in reason
 
 
 def test_externally_managed_is_rejected(probe: ModuleType, setup: _Setup) -> None:
@@ -111,22 +101,18 @@ def test_externally_managed_is_fine_inside_a_venv(
     assert _reason(probe, setup, base_prefix="/somewhere/else") is None
 
 
-@pytest.mark.parametrize("value", ["1", "true", "YES"])
+@pytest.mark.parametrize(
+    ("value", "usable"),
+    [("1", True), ("true", True), ("YES", True)]
+    + [("", False), ("0", False), ("false", False), ("off", False)],
+)
 def test_externally_managed_honours_pip_override(
-    probe: ModuleType, setup: _Setup, value: str
+    probe: ModuleType, setup: _Setup, value: str, usable: bool
 ) -> None:
     setup.mark_externally_managed()
     assert _reason(probe, setup) is not None
-    assert _reason(probe, setup, environ={"PIP_BREAK_SYSTEM_PACKAGES": value}) is None
-
-
-@pytest.mark.parametrize("value", ["", "0", "false", "off"])
-def test_externally_managed_falsy_override_does_not_count(
-    probe: ModuleType, setup: _Setup, value: str
-) -> None:
-    setup.mark_externally_managed()
     reason = _reason(probe, setup, environ={"PIP_BREAK_SYSTEM_PACKAGES": value})
-    assert reason is not None
+    assert (reason is None) is usable
 
 
 @pytest.mark.parametrize("which", ["install", "scripts"])
@@ -140,7 +126,9 @@ def test_unwritable_directory_is_rejected(
     blocked = str(setup.site if which == "install" else setup.bin)
     assert _reason(probe, setup) is None
     monkeypatch.setattr(
-        probe.os, "access", lambda path, mode: os.fspath(path) != blocked
+        probe.os,
+        "access",
+        lambda path, mode: not (mode == os.W_OK and os.fspath(path) == blocked),
     )
     reason = _reason(probe, setup)
     assert reason is not None
@@ -161,19 +149,21 @@ def test_scripts_dir_on_path_ignores_empty_entries_and_spelling(
     assert _reason(probe, setup, path_env=path_env) is None
 
 
-def test_min_python_matches_requires_python() -> None:
+def test_min_python_matches_requires_python(
+    probe: ModuleType, scripts_dir: Path
+) -> None:
     """The probe's floor must not drift from what Pitloom itself needs."""
-    pyproject = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8-sig")
+    pyproject = (scripts_dir.parent / "pyproject.toml").read_text(encoding="utf-8-sig")
     match = re.search(r'^requires-python\s*=\s*">=(\d+)\.(\d+)"', pyproject, re.M)
     assert match is not None
-    probe_source = SCRIPT.read_text(encoding="utf-8-sig")
-    assert f"MIN_PYTHON = ({match.group(1)}, {match.group(2)})" in probe_source
+    assert probe.MIN_PYTHON == (int(match.group(1)), int(match.group(2)))
 
 
-def test_script_runs_under_the_current_interpreter() -> None:
+def test_script_runs_under_the_current_interpreter(scripts_dir: Path) -> None:
     """Exercises the real ``Interpreter.current()`` gathering end to end."""
+    script = scripts_dir / "action" / SCRIPT_NAME
     result = subprocess.run(
-        [sys.executable, str(SCRIPT)], capture_output=True, text=True, check=False
+        [sys.executable, str(script)], capture_output=True, text=True, check=False
     )
     assert result.returncode in (0, 1)
     assert (result.returncode == 0) == (result.stdout == "")

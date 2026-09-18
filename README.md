@@ -65,7 +65,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the dev install.
 | [Hatchling build hook](#hatchling-build-hook) | You build wheels with Hatchling and want an SBOM embedded automatically. |
 | [Python API](#python-api) | You are calling Pitloom from Python code you control. |
 | [Python tracking decorator](#python-tracking-decorator) | You are training/fine-tuning a model and want to capture provenance as you go, as an SPDX fragment. |
-| [GitHub Action](#use-pitloom-as-a-github-action) | Your project isn't Hatchling-based, or you just want CI to produce an SBOM artifact with one `uses:` line. |
+| [GitHub Action](#use-pitloom-as-a-github-action) | Your project isn't Hatchling-based, or you just want CI to produce an SBOM artifact. |
 | [Agent Skill](#use-pitloom-as-an-ai-agent-skill) | You want an AI coding agent to generate (and optionally enrich) an SBOM on request. |
 | [Claude Code plugin](#use-pitloom-as-a-claude-code-plugin) | You use Claude Code and want the Skills installable with one command. |
 
@@ -263,7 +263,7 @@ Add SBOM generation to any repository's CI, for any Python build backend,
 not just Hatchling:
 
 ```yaml
-- uses: actions/setup-python@v6
+- uses: actions/setup-python@v7
 - uses: bact/pitloom@v0.18.1
 ```
 

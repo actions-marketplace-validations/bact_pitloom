@@ -79,10 +79,24 @@ def test_python_text_drops_cr_and_forces_utf8(stub_bin: Any, source: Any) -> Non
     assert result.stdout == "a\nenc=utf-8\n"
 
 
-def test_python_text_keeps_the_python_exit_status(stub_bin: Any, source: Any) -> None:
-    stub_bin.add("python", WORKING + "exit 3\n")
+@pytest.mark.parametrize("pipefail", ["-o", "+o"])
+def test_python_text_keeps_the_python_exit_status(
+    stub_bin: Any, source: Any, pipefail: str
+) -> None:
+    """Independent of the caller's ``pipefail`` setting."""
+    stub_bin.add("python", WORKING + "printf 'partial\\n'; exit 3\n")
+    result = source(f"set {pipefail} pipefail; python_text script.py || echo rc=$?")
+    assert result.returncode == 0
+    assert result.stdout.splitlines() == ["partial", "rc=3"]
+
+
+def test_python_text_prints_nothing_for_empty_output(
+    stub_bin: Any, source: Any
+) -> None:
+    stub_bin.add("python", WORKING)
     result = source("python_text script.py")
-    assert result.returncode == 3
+    assert result.returncode == 0
+    assert result.stdout == ""
 
 
 def test_python_text_without_python_fails(source: Any) -> None:

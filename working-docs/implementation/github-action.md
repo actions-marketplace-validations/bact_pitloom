@@ -54,6 +54,7 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
       - uses: bact/pitloom@v0.18.1
         id: pitloom
         with:

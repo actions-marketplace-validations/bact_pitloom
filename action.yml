@@ -173,6 +173,8 @@ runs:
       if: inputs.install == 'true' && inputs.python-version == ''
       shell: bash
       run: |
+        set -euo pipefail
+
         # Forward slashes: safe for bash and native Python on Windows.
         action_path="${GITHUB_ACTION_PATH//\\//}"
         . "${action_path}/scripts/action/python-resolve.sh"
@@ -185,7 +187,7 @@ runs:
           fi
         fi
         if [ "${usable}" = false ]; then
-          echo "::warning::Python on PATH is not usable (${reason:-probe failed}); installing Python 3.x with actions/setup-python, which changes PATH for later steps. Set python-version to choose"
+          echo "::warning::Python on PATH is not usable (${reason:-probe failed}); installing 3.x via setup-python, which changes PATH. Set python-version to choose"
         fi
         echo "usable=${usable}" >> "${GITHUB_OUTPUT}"
 
@@ -321,7 +323,7 @@ runs:
             loom_args+=("--no-build-isolation")
           fi
         fi
-        if [ -n "${PL_ARGS}" ]; then
+        if [ -n "${PL_ARGS//[[:space:]]/}" ]; then
           # Quote-aware split: PL_ARGS is a shell-like list of extra flags
           # (e.g. '--creator-name "CI Bot"'), not a single token. Plain bash
           # word-splitting (extra_args=(${PL_ARGS})) has no quote-awareness
@@ -329,37 +331,49 @@ runs:
           # so split it with Python's shlex instead. A read loop, not
           # readarray, which macOS's bash 3.2 lacks.
           require_python
-          while IFS= read -r extra_arg; do
-            loom_args+=("${extra_arg}")
-          done < <(
+          if ! extra_args_text=$(
             python_text -c 'import shlex, sys; print(*shlex.split(sys.argv[1]), sep="\n")' \
               "${PL_ARGS}"
-          )
+          ); then
+            echo "::error::Cannot parse args; check its quoting"
+            exit 1
+          fi
+          if [ -n "${extra_args_text}" ]; then
+            while IFS= read -r extra_arg; do
+              loom_args+=("${extra_arg}")
+            done <<< "${extra_args_text}"
+          fi
         fi
 
-        # Capture stdout to a file (while still echoing it to the log; Git
-        # Bash on Windows has no /dev/stderr for tee) so a
-        # loom-picked default filename can be recovered below when
-        # "output" was left empty. Capture stderr too (while still
-        # streaming it live) so its INFO:/WARNING:/ERROR: lines --
-        # AGENTS.md's "CLI output" convention, always at the start of the
-        # line -- can be re-emitted as ::notice::/::warning::/::error::
-        # workflow commands, giving them real GitHub Actions annotations
-        # (PR "Checks" tab, job summary) instead of just plain log text.
-        # -e is dropped around the call so a failing "loom" doesn't abort
-        # the script before its ERROR: line gets annotated; the exit code
-        # is re-checked and propagated explicitly afterward.
+        # Capture stdout and stderr in files (each still echoed to the log)
+        # so a loom-picked default filename can be recovered below when
+        # "output" was left empty, and so its INFO:/WARNING:/ERROR: lines --
+        # the CLI output convention, always at the start of the line -- can
+        # be re-emitted as ::notice::/::warning::/::error:: workflow
+        # commands, giving them real GitHub Actions annotations (PR "Checks"
+        # tab, job summary) instead of just plain log text.
+        # Both tees are members of a pipeline, so both have finished when it
+        # does (a process substitution would not be waited for, and Git Bash
+        # has no /dev/stderr). Fd 3 carries loom's stdout past the stderr
+        # tee; loom's exit status comes back through a file. -e is dropped
+        # so a failing "loom" doesn't abort the script before its ERROR: line
+        # gets annotated; the status is propagated explicitly afterward.
         loom_stderr_file=$(mktemp)
         loom_stdout_file=$(mktemp)
+        loom_exit_file=$(mktemp)
+        trap 'rm -f "${loom_stderr_file}" "${loom_stdout_file}" "${loom_exit_file}"' EXIT
         set +e
-        loom "${loom_args[@]}" 2> >(tee "${loom_stderr_file}" >&2) \
-          | tee "${loom_stdout_file}" >&2
-        loom_exit=$?
-        wait
+        {
+          {
+            loom "${loom_args[@]}" 2>&1 1>&3 3>&-
+            echo "$?" > "${loom_exit_file}"
+          } | tee "${loom_stderr_file}" >&2
+        } 3>&1 | tee "${loom_stdout_file}" >&2
         set -e
-        loom_stdout=$(cat "${loom_stdout_file}")
-        rm -f "${loom_stdout_file}"
+        loom_exit=$(<"${loom_exit_file}")
+        loom_exit=${loom_exit:-1}
         # Windows Python ends every line with CR; drop it before parsing.
+        loom_stdout=$(<"${loom_stdout_file}")
         loom_stdout=${loom_stdout//$'\r'/}
 
         last_annotation_level=""
@@ -391,7 +405,6 @@ runs:
               ;;
           esac
         done < "${loom_stderr_file}"
-        rm -f "${loom_stderr_file}"
 
         if [ "${loom_exit}" -ne 0 ]; then
           exit "${loom_exit}"

@@ -53,8 +53,6 @@ def run_install_fixture(
         with_python: bool = True,
         **stub_env: str,
     ) -> _Run:
-        stub_bin.remove("python")
-        stub_bin.remove("loom")
         if with_python:
             stub_bin.add("python", PYTHON_STUB)
         if with_loom:
@@ -67,7 +65,6 @@ def run_install_fixture(
             **stub_env,
         )
         calls = log.read_text(encoding="utf-8").splitlines() if log.exists() else []
-        log.unlink(missing_ok=True)
         return _Run(result.returncode, result.stdout + result.stderr, calls)
 
     return run

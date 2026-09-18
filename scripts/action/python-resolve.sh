@@ -14,8 +14,8 @@
 # Also defines:
 #   require_python  exit 1 with an ::error:: annotation if python_bin is empty
 #   python_text     run python_bin with UTF-8 stdio and without the CR that
-#                   Windows Python adds to every line, so that $(...) and
-#                   readarray-style captures get clean text
+#                   Windows Python adds to every line; returns python's own
+#                   exit status
 #
 # See also: python_probe.py, pitloom-install.sh
 
@@ -40,5 +40,11 @@ python_text() {
     echo "No working python found on PATH" >&2
     return 127
   fi
-  PYTHONIOENCODING=utf-8 "${python_bin}" "$@" | tr -d '\r'
+  local text status=0
+  # Not a pipe into tr: that would hide python's exit status without pipefail.
+  text=$(PYTHONIOENCODING=utf-8 "${python_bin}" "$@") || status=$?
+  if [ -n "${text}" ]; then
+    printf '%s\n' "${text//$'\r'/}"
+  fi
+  return "${status}"
 }

@@ -20,7 +20,7 @@ generated SBOM directly into built `.whl` files via `embed-wheel: "dist/*.whl"`.
 Standalone SBOM artifact:
 
 ```yaml
-- uses: actions/setup-python@v6
+- uses: actions/setup-python@v7
 - uses: bact/pitloom@v0.18.1
 ```
 
@@ -45,7 +45,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
       - uses: bact/pitloom@v0.18.1
 ```
 
@@ -60,7 +60,7 @@ The ref after `@` fixes the action's code and the Pitloom release it installs:
 - `pitloom-version` empty (default): installs the Pitloom version carried by
   the pinned ref, from PyPI. `@v0.18.1` and that tag's commit SHA both give
   0.18.1.
-- A ref whose version is not on PyPI fails with an `ERROR:`. This covers an
+- A ref whose version is not on PyPI fails with an error. This covers an
   unreleased commit, a branch (`@main`) between a version bump and its release,
   and a tag pushed before the PyPI upload finishes. Pin a release, or set
   `pitloom-version`.
@@ -169,7 +169,7 @@ jobs:
       contents: write  # EndBug/add-and-commit needs write to push loom-ids.json
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
       # Same release as the action below, which installs its own pinned version.
       - run: pip install pitloom==0.18.1
 
@@ -262,6 +262,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
 
       # 1. Build wheel using ANY build backend (Flit, Setuptools, Maturin, etc.)
       - name: Build wheel

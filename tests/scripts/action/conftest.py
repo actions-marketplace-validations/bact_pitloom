@@ -17,29 +17,24 @@ BASH = shutil.which("bash")
 class StubBin:
     """A directory used as the entire ``PATH`` of a bash subprocess.
 
-    Holds only the stubs added to it plus the few external programs the
-    helper scripts call, so the host's real ``python`` never leaks in.
+    Holds only the stubs added to it plus ``dirname``, so the host's real
+    ``python`` never leaks in.
     """
 
     def __init__(self, directory: Path, bash: str) -> None:
         self.directory = directory
         self.bash = bash
         directory.mkdir()
-        for tool in ("dirname", "tr"):
-            found = shutil.which(tool)
-            if found is None:
-                raise RuntimeError(f"{tool} not found")
-            (directory / tool).symlink_to(found)
+        dirname = shutil.which("dirname")
+        if dirname is None:
+            raise RuntimeError("dirname not found")
+        (directory / "dirname").symlink_to(dirname)
 
     def add(self, name: str, body: str) -> None:
         """Add an executable bash stub called ``name``."""
         stub = self.directory / name
-        stub.unlink(missing_ok=True)
         stub.write_text(f"#!{self.bash}\n{body}", encoding="utf-8")
         stub.chmod(0o755)
-
-    def remove(self, name: str) -> None:
-        (self.directory / name).unlink(missing_ok=True)
 
     def run(self, args: list[str], **env: str) -> "subprocess.CompletedProcess[str]":
         """Run ``bash <args>`` with ``PATH`` limited to this directory."""
