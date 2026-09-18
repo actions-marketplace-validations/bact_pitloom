@@ -29,7 +29,9 @@ inputs:
   groups:
     description: >-
       Dependency-group flags to install before the local package (e.g.
-      "--group test --group lint"). Empty skips this step.
+      "--group test --group lint"). Installed in its own "pip install"
+      call, without "--no-build-isolation" (see the "runs" step below for
+      why that flag is scoped to package-spec only). Empty adds nothing.
     required: false
     default: ""
   package-spec:
@@ -76,12 +78,23 @@ runs:
         # GitHub expression splice into the script text can.
         pip install setuptools $EXTRA_PACKAGES
         if [ -n "$GROUPS" ]; then
+          # No --no-build-isolation here: that flag exists only to stop
+          # PACKAGE_SPEC's own build (below) from fetching "pitloom" off
+          # PyPI as its self-referential build dependency (see the "if
+          # EDITABLE" block's comment). GROUPS packages have no such
+          # self-reference and get a normal isolated build if one of them
+          # ever needs to build from sdist (e.g. fuzz.yml's "fuzz" group
+          # includes atheris, which has no wheel below Python 3.12 and
+          # needs its own build-time deps, not just this env's setuptools).
           pip install $GROUPS
         fi
         # pyproject.toml lists "pitloom" as its own build dependency
-        # (self-embeds its SBOM); isolated builds can fetch a stale,
-        # crashing PyPI copy. --no-build-isolation skips that fetch;
-        # HATCH_BUILD_NO_HOOKS skips the hook (nothing provides it yet).
+        # (self-embeds its SBOM); an isolated build of PACKAGE_SPEC would
+        # otherwise fetch "pitloom" fresh off PyPI (possibly stale or
+        # crashing) instead of using this checkout's own source.
+        # --no-build-isolation skips that fetch, scoped to just this call
+        # so it doesn't affect GROUPS above; HATCH_BUILD_NO_HOOKS skips
+        # the build hook itself (nothing provides it yet).
         if [ "$EDITABLE" = "true" ]; then
           HATCH_BUILD_NO_HOOKS=1 pip install -e "$PACKAGE_SPEC" --no-build-isolation
         else

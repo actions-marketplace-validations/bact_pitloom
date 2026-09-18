@@ -220,7 +220,15 @@ jobs:
 
       - name: Extract SBOM metadata for summary
         id: metadata
-        if: steps.validate.outcome == 'success'
+        # Also requires the embedded-wheel checks, not just the standalone
+        # spdx3-validate one -- otherwise this (and "Create Job Summary"
+        # below) can report success while "Create failure summary" also
+        # fires for a failed embedded-SBOM check, producing a
+        # self-contradictory step summary.
+        if: |
+          steps.validate.outcome == 'success' &&
+          steps.verify_wheel_sbom.outcome == 'success' &&
+          steps.validate_wheel_sbom.outcome == 'success'
         run: |
           python << 'EOF'
           import json
@@ -275,7 +283,10 @@ jobs:
           EOF
 
       - name: Create Job Summary
-        if: steps.validate.outcome == 'success'
+        if: |
+          steps.validate.outcome == 'success' &&
+          steps.verify_wheel_sbom.outcome == 'success' &&
+          steps.validate_wheel_sbom.outcome == 'success'
         run: |
           # Determine which URLs were used based on SPDX version
           SPDX_VER="${{ env.SPDX_VERSION }}"

@@ -9,6 +9,7 @@ on:
     paths: &trigger-paths
       - "pyproject.toml"
       - ".github/workflows/pip-audit.yml"
+      - ".github/actions/**"
   pull_request:
     paths: *trigger-paths
   schedule:

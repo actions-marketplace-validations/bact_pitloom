@@ -565,20 +565,15 @@ be built:
   ([fasttext-community#13](https://github.com/munlicode/fasttext-community/pull/13)).
   See [windows-macos-ci.md](../implementation/windows-macos-ci.md).
   ([PR #222](https://github.com/bact/pitloom/pull/222))
-- [ ] **CI workflow step duplication** -- the checkout / setup-python /
-  pip-install boilerplate is hand-copied across 11 of the 17
-  `.github/workflows/*.yml` files with no shared source, so a change to
-  one (e.g. a cache key, a Python setup option) has to be repeated by
-  hand in every file or silently drifts. (`licenseid update` is a
-  narrower sub-case -- only `test.yml` and `action-selftest.yml` run it,
-  not all 11.) Candidate fix: a local composite action
-  (`.github/actions/setup-pitloom-ci/action.yml`) that each workflow's
-  steps call instead of repeating the block. Not urgent -- flagged
-  during a CI redundancy audit, no drift has caused a bug yet --
-  but matches the "Consolidate Patterns" principle in CLAUDE.md.
-  Deliberately kept out of PR #220's scope (a repo-wide CI refactor
-  shouldn't land bundled with the first real Windows/macOS CI run) --
-  do as its own follow-up PR once #220 is merged and stable.
+- [x] **CI workflow step duplication (pip-install portion)** -- the
+  Hatchling-pin/dependency-group/editable-install bootstrap, including
+  the pitloom self-referential build-dependency workaround, is now a
+  shared composite action,
+  [install-pitloom](../../.github/actions/install-pitloom/action.yml),
+  used by 10 of the 16 `.github/workflows/*.yml` files.
+  ([PR #222](https://github.com/bact/pitloom/pull/222)) Checkout/
+  setup-python steps are still hand-copied per workflow -- smaller,
+  lower-drift-risk boilerplate not folded into this action.
 
 ### Diagnostics / logging
 
