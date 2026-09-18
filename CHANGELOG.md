@@ -1,5 +1,5 @@
 ---
-Last-Modified: 2026-09-15
+Last-Modified: 2026-09-18
 SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 SPDX-FileType: DOCUMENTATION
 SPDX-License-Identifier: CC0-1.0
@@ -36,10 +36,18 @@ and this project adheres to
 - CI workflows share Python setup/pip-upgrade via a local composite action
   (`.github/actions/setup-pitloom-ci`) instead of hand-copying it 10 times
   ([#221])
+- Use `fasttext-community` on all supported Python versions, including
+  3.14, now that upstream ships 3.14 wheels ([#222])
+
+### Fixed
+
+- Fix Hatchling build hook to work with Hatchling >=1.32.0, including the
+  undocumented `BuildHookInterface` arity change in 1.32.3+ ([#222])
 
 [#217]: https://github.com/bact/pitloom/pull/217
 [#220]: https://github.com/bact/pitloom/pull/220
 [#221]: https://github.com/bact/pitloom/pull/221
+[#222]: https://github.com/bact/pitloom/pull/222
 
 ## [0.18.0] - 2026-09-16
 

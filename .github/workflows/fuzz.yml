@@ -44,7 +44,10 @@ jobs:
           python-version: "3.x"
 
       - name: Install project and fuzz dependencies
-        run: pip install ".[gguf]" --group fuzz
+        uses: ./.github/actions/install-pitloom
+        with:
+          groups: --group fuzz
+          package-spec: ".[gguf]"
 
       - name: Run fuzz_${{ matrix.target }}.py
         run: |

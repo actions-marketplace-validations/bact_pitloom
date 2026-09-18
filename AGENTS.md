@@ -146,6 +146,25 @@ read it before extending or citing any of these one-liners.
   call's arguments (`Mock(wraps=os.chmod)`) instead of asserting `stat()`
   there; keep the real bit-for-bit assertion on POSIX (PR #220,
   [windows-macos-ci.md](working-docs/implementation/windows-macos-ci.md)).
+- **A third-party library's undocumented breaking API change can be
+  survived without an upper version pin** by detecting its actual
+  runtime shape (e.g. `len(SomeClass.__parameters__)` for a changed
+  generic arity) instead of hardcoding a version check, paired with a
+  `TYPE_CHECKING` branch so static analysis still sees one concrete shape
+  (PR #222, [hatchling-build-hook.md](working-docs/implementation/hatchling-build-hook.md)).
+- **GitHub Actions substitutes `${{ }}` even inside a `run:` block's
+  shell comments** -- a literal `${{ }}` example written to explain the
+  syntax, if placed inside `run: |` rather than above it (e.g. in a
+  step-level comment before `env:`), becomes a malformed expression and
+  fails the whole workflow/action to load, reported at the block's line,
+  not the actual one (PR #222,
+  [ci-install-composite-action.md](working-docs/implementation/ci-install-composite-action.md)).
+- **pip's `--no-build-isolation` is invocation-global, not per-package**
+  -- combining a self-referential local-package install with unrelated
+  `--group`/extras packages in one `pip install` call forces isolation
+  off for all of them, a real risk for any of those packages that needs
+  to build from source (PR #222,
+  [ci-install-composite-action.md](working-docs/implementation/ci-install-composite-action.md)).
 
 ## CLI output
 

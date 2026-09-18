@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from hatchling.builders.config import BuilderConfig
 from hatchling.builders.hooks.plugin.interface import BuildHookInterface
@@ -211,7 +211,48 @@ def _stage_sbom_file(
     return staging_dir, staging_path
 
 
-class PitloomBuildHook(BuildHookInterface[BuilderConfig]):
+if TYPE_CHECKING:
+    # Static shape for type checkers only -- must match the installed
+    # Hatchling's actual BuildHookInterface arity. See
+    # _resolve_build_hook_base() below for the real, version-agnostic
+    # base used at runtime.
+    from hatchling.plugin.manager import PluginManager
+
+    class _PitloomBuildHookBase(
+        BuildHookInterface[BuilderConfig[PluginManager], PluginManager]
+    ):
+        """Static shape for type checkers -- see :func:`_resolve_build_hook_base`."""
+
+else:
+    from hatchling.plugin.manager import PluginManager
+
+    def _resolve_build_hook_base() -> type:
+        """Pick the Hatchling ``BuildHookInterface`` base matching the
+        installed Hatchling's actual generic arity (see
+        working-docs/implementation/hatchling-build-hook.md for why this
+        varies by version). ``__parameters__`` is a side-effect-free
+        tuple read, so detecting the arity this way can't itself trigger
+        the subscription ``TypeError`` it works around.
+
+        Raises:
+            RuntimeError: If the arity is neither 1 nor 2.
+        """
+        param_count = len(BuildHookInterface.__parameters__)
+        if param_count == 1:
+            return BuildHookInterface[BuilderConfig]
+        if param_count == 2:
+            return BuildHookInterface[BuilderConfig, PluginManager]
+        raise RuntimeError(
+            f"{_HATCHLING_ERROR_PREFIX} BuildHookInterface has an "
+            f"unexpected number of type parameters ({param_count}); "
+            "Pitloom's Hatchling build hook may need updating for this "
+            "Hatchling version."
+        )
+
+    _PitloomBuildHookBase = _resolve_build_hook_base()
+
+
+class PitloomBuildHook(_PitloomBuildHookBase):
     """Hatchling build hook that embeds an SPDX 3 SBOM in the wheel.
 
     Activated by adding ``[tool.hatch.build.hooks.pitloom]`` to the project's

@@ -36,9 +36,10 @@ jobs:
           python-version: "3.10"
 
       - name: Install dependencies
-        run: |
-          pip install ".[ai,content-type]"
-          pip install --group lint --group test
+        uses: ./.github/actions/install-pitloom
+        with:
+          groups: --group lint --group test
+          package-spec: ".[ai,content-type]"
 
       - name: Ruff check
         run: |

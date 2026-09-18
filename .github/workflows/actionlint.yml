@@ -47,6 +47,9 @@ jobs:
         uses: mpalmer/action-validator@c994f427b7c42cd5ecb1bc9315cb91c3d7d72e3d  #v0.9.0
         with:
           version: "0.9.0"
+          # Newline-separated, not comma-separated -- action-validator
+          # splits patterns on lines (xargs -I{} per line), so a
+          # comma-joined value is one non-matching literal pathspec.
           patterns: |
             action.yml
-            :(glob).github/actions/**/action.yml
+            .github/actions/**/action.yml

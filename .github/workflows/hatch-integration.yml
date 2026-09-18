@@ -29,12 +29,19 @@ concurrency:
 
 jobs:
   hatch-integration:
-    name: Hook on Python ${{ matrix.python-version }}
+    name: Hook on Python ${{ matrix.python-version }} / Hatchling ${{ matrix.hatchling-version || 'latest' }}
     runs-on: ubuntu-latest
     strategy:
       matrix:
         # python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
         python-version: ["3.10", "3.14"]
+        # hatchling-version: the floor pinned in pyproject.toml
+        # ("hatchling>=1.32.0", no upper bound) and "" for whatever
+        # latest resolves to -- catches an undocumented break in a new
+        # Hatchling release the way 1.32.3's silent BuildHookInterface
+        # generic-arity change would otherwise have gone unnoticed (see
+        # working-docs/implementation/hatchling-build-hook.md).
+        hatchling-version: ["1.32.0", ""]
       fail-fast: false
 
     steps:
@@ -45,10 +52,18 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install Pitloom and build tools
+        # "Build sampleproject" below runs without HATCH_BUILD_NO_HOOKS,
+        # so the hook under test still runs normally.
+        uses: ./.github/actions/install-pitloom
+        with:
+          hatchling-version: ${{ matrix.hatchling-version }}
+          extra-packages: editables build==1.6.1 spdx3-validate==0.0.7
+          package-spec: "."
+          editable: "true"
+
+      - name: Print installed Hatchling version
         run: |
-          # Install Pitloom from the current checkout (no isolation needed).
-          pip install -e .
-          pip install build==1.6.1 spdx3-validate==0.0.7
+          python -c "import hatchling; from importlib.metadata import version; print('Hatchling', version('hatchling'))"
 
       - name: Build sampleproject with --no-isolation
         # --no-isolation picks up the locally installed Pitloom instead of
@@ -66,38 +81,36 @@ jobs:
           echo "WHEEL_PATH=${WHEEL}" >> "$GITHUB_ENV"
           echo "WHEEL_NAME=$(basename "${WHEEL}")" >> "$GITHUB_ENV"
 
-      - name: Verify SBOM is present inside the wheel
+      - name: Verify SBOM embedded in wheel
+        # Authoritative presence/location/ambiguity check (also flags
+        # e.g. a stale second SBOM left in dist/). The step below only
+        # re-locates the file to read its content -- it trusts this
+        # check already ran, rather than re-verifying presence itself.
+        # --fail-on-mismatch: a name/version mismatch against the wheel's
+        # own METADATA is a real bug here, not just a WARNING.
+        run: |
+          cd tests/fixtures/projects/sampleproject-hatchling
+          loom verify-wheel --fail-on-mismatch "${WHEEL_PATH}"
+
+      - name: Verify SBOM content
+        # [tool.pitloom] sbom-basename = "sbom" in this fixture's
+        # pyproject.toml pins the filename read here.
         run: |
           cd tests/fixtures/projects/sampleproject-hatchling
           python - <<'EOF'
+          import json
           import sys
           import zipfile
           from pathlib import Path
 
-          wheels = list(Path("dist").glob("*.whl"))
-          if not wheels:
-              print("ERROR: No wheel found in dist/", file=sys.stderr)
-              sys.exit(1)
-          wheel_path = wheels[0]
-
-          sbom_key = None
-          with zipfile.ZipFile(wheel_path) as zf:
-              for name in zf.namelist():
-                  if name.endswith(".dist-info/sboms/sbom.spdx3.json"):
-                      sbom_key = name
-                      break
-
-          if sbom_key is None:
-              print(
-                  f"ERROR: SBOM not found in {wheel_path.name}. "
-                  "Expected a file matching *.dist-info/sboms/sbom.spdx3.json",
-                  file=sys.stderr,
-              )
-              sys.exit(1)
-
+          wheel_path = next(Path("dist").glob("*.whl"))
+          sbom_key = next(
+              name
+              for name in zipfile.ZipFile(wheel_path).namelist()
+              if name.endswith(".dist-info/sboms/sbom.spdx3.json")
+          )
           print(f"Found SBOM at: {sbom_key}")
 
-          import json
           with zipfile.ZipFile(wheel_path) as zf:
               sbom = json.loads(zf.read(sbom_key).decode("utf-8"))
 
@@ -186,7 +199,11 @@ jobs:
           print("SBOM presence check passed.")
           EOF
 
-      - name: Extract SBOM from wheel for validation
+      - name: Extract standalone SBOM copy for artifact upload
+        # Extracted before validation runs, so the artifact upload step
+        # below (which runs if: always()) still has an SBOM to attach
+        # even when validation fails -- the invalid SBOM is exactly what
+        # a human debugging that failure would want to download.
         run: |
           cd tests/fixtures/projects/sampleproject-hatchling
           python - <<'EOF'
@@ -203,16 +220,19 @@ jobs:
                       break
           EOF
 
-      - name: Validate SBOM with spdx3-validate
+      - name: Validate SBOM with loom validate-wheel
+        # Validates directly from the wheel (no manual re-extraction
+        # needed) -- loom validate-wheel handles the extract-to-tempfile
+        # + spdx3-validate call internally.
         run: |
-          spdx3-validate --json tests/fixtures/projects/sampleproject-hatchling/dist/sbom.spdx3.json
-          echo "SBOM validation passed."
+          cd tests/fixtures/projects/sampleproject-hatchling
+          loom validate-wheel "${WHEEL_PATH}"
 
       - name: Create job summary
         if: always()
         run: |
           cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
-          ## Hatch integration -- Python ${{ matrix.python-version }}
+          ## Hatch integration -- Python ${{ matrix.python-version }} / Hatchling ${{ matrix.hatchling-version || 'latest' }}
 
           | Step | Result |
           | :--- | :--- |
@@ -225,7 +245,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
-          name: hatch-integration-py${{ matrix.python-version }}
+          name: hatch-integration-py${{ matrix.python-version }}-hatchling${{ matrix.hatchling-version || 'latest' }}
           path: |
             tests/fixtures/projects/sampleproject-hatchling/dist/*.whl
             tests/fixtures/projects/sampleproject-hatchling/dist/sbom.spdx3.json
