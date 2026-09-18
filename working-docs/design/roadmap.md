@@ -566,12 +566,11 @@ be built:
   See [windows-macos-ci.md](../implementation/windows-macos-ci.md).
   ([PR #222](https://github.com/bact/pitloom/pull/222))
 - [x] **CI workflow step duplication (pip-install portion)** -- the
-  Hatchling-pin/dependency-group/editable-install bootstrap, including
-  the pitloom self-referential build-dependency workaround, is now a
-  shared composite action,
-  [install-pitloom](../../.github/actions/install-pitloom/action.yml),
-  used by 10 of the 16 `.github/workflows/*.yml` files.
-  ([PR #222](https://github.com/bact/pitloom/pull/222)) Checkout/
+  Hatchling-pin/dependency-group/editable-install bootstrap is now a
+  shared composite action, `install-pitloom`, used by 10 of the 16
+  `.github/workflows/*.yml` files. See
+  [ci-install-composite-action.md](../implementation/ci-install-composite-action.md)
+  ([PR #222](https://github.com/bact/pitloom/pull/222)). Checkout/
   setup-python steps are still hand-copied per workflow -- smaller,
   lower-drift-risk boilerplate not folded into this action.
 
