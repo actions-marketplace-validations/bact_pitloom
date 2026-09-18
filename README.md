@@ -180,7 +180,7 @@ register the hook:
 
 ```toml
 [build-system]
-requires = ["hatchling>=1.29.0", "pitloom>=0.18.1"]
+requires = ["hatchling>=1.29.0", "pitloom>=0.19.0"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.hooks.pitloom]
@@ -266,7 +266,7 @@ not just Hatchling:
 - uses: actions/setup-python@v7
   with:
     python-version: "3.x"
-- uses: bact/pitloom@v0.18.1
+- uses: bact/pitloom@v0.19.0
 ```
 
 See [docs/github-action.md](docs/github-action.md) for inputs, outputs,
@@ -485,7 +485,7 @@ and a worked example.
 
 If you use this software, please cite it as follows:
 
-> Suriyawongkul, A. (2026). Pitloom - SBOM generator for AI models and Python projects (Version 0.18.1) [Computer software]. <https://doi.org/10.5281/zenodo.19246283>
+> Suriyawongkul, A. (2026). Pitloom - SBOM generator for AI models and Python projects (Version 0.19.0) [Computer software]. <https://doi.org/10.5281/zenodo.19246283>
 
 BibTeX:
 
@@ -496,7 +496,7 @@ BibTeX:
     month = aug,
     title = {{Pitloom - SBOM generator for AI models and Python projects}},
     url = {https://github.com/bact/pitloom},
-    version = {0.18.1},
+    version = {0.19.0},
     year = {2026}
 }
 ```
