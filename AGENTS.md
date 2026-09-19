@@ -178,6 +178,11 @@ read it before extending or citing any of these one-liners.
   off for all of them, a real risk for any of those packages that needs
   to build from source (PR #222,
   [ci-install-composite-action.md](working-docs/implementation/ci-install-composite-action.md)).
+- **A test helper that normalises what it captures hides the bug class
+  under test** -- `subprocess.run(text=True)` turns CRLF into LF, so no
+  assertion could see a stray CR (PR #224). Decode bytes yourself, and
+  mutation-test a shell/CI change (break key lines one at a time; a
+  surviving mutant is a missing or blind test).
 - **`Path.exists()`/`.is_file()` only swallow a specific errno set
   (ENOENT/ENOTDIR/EBADF/ELOOP on POSIX) -- any other `OSError`, e.g.
   `PermissionError`, propagates uncaught.** A bare `.exists()` call
@@ -363,6 +368,9 @@ in
 
 - Account for GNU/BSD/macOS/Unix tool differences.
 - Defensive variable expansion; quote paths and variables.
+- **Composite-action scripts** (`scripts/action/`, tested by `tests/scripts/action/` against stub programs): CI lints only `examples/ src/ tests/`, so run the linters, `shellcheck -x` and `actionlint` on `scripts/` by hand. Notes: [github-action.md](working-docs/implementation/github-action.md).
+- **Windows Git Bash / macOS bash 3.2**: native Windows Python ends lines with CR that `$(...)` keeps; Git Bash has no `/dev/stderr`; bash 3.2 has no `readarray` and is quadratic on `${x//pat/}`. Normalise `GITHUB_ACTION_PATH` backslashes; keep `*.sh` and `action.yml` LF (`.gitattributes`).
+- **Never let a step log tool output raw**: a `::` line is run as a workflow command. Fence the echo with `::stop-commands::<random token>`; the runner does not order stdout against stderr, so fence, echo and annotations must share one stream.
 
 ## Naming
 

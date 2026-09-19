@@ -1,6 +1,6 @@
 ---
 Created: 2026-08-11
-Last-Modified: 2026-09-18
+Last-Modified: 2026-09-19
 SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 SPDX-FileType: DOCUMENTATION
 SPDX-License-Identifier: CC0-1.0
@@ -33,6 +33,9 @@ the Hatchling floor and latest = `Hook on Python X / Hatchling Y`
 - [ ] `pylint src/ tests/ examples/` -- 10.00/10 (`--ignore-paths` any
       stray local `.venv` under `examples/` -- see
       [summary.md](summary.md) for why one can exist untracked).
+- [ ] `scripts/` is not linted by CI: run ruff, mypy, pylint, flake8,
+      `shellcheck -x scripts/action/*.sh` and `actionlint` on it by hand
+      when it changed since the last tag.
 - [ ] `claude plugin validate .claude-plugin/plugin.json` and
       `.../marketplace.json` -- both pass.
 - [ ] Version string consistent across every file that carries one:

@@ -1,6 +1,6 @@
 ---
 Created: 2026-09-17
-Last-Modified: 2026-09-18
+Last-Modified: 2026-09-19
 SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 SPDX-FileType: DOCUMENTATION
 SPDX-License-Identifier: CC0-1.0
@@ -465,3 +465,23 @@ shape described, not just the module where each was first found.
   on ubuntu-latest` is `build.yml`; pylint is a step inside `Ruff (Lint &
   Format)`, not its own check). Confirm with `gh run list --workflow=...`
   before concluding a check didn't run.
+- **A test helper that normalises what it captures hides the bug class
+  under test.** `StubBin.run` used `subprocess.run(text=True)`, whose
+  universal newlines turn CRLF into LF, so every "Windows CR is dropped"
+  assertion in `tests/scripts/action/` passed even with the stripping code
+  deleted. A mutation pass (18 one-line breaks of `action.yml` and
+  `scripts/action/*`, rerun after each fix) exposed it; reviewers had not.
+  Decode bytes without newline translation. Survivors left on purpose:
+  defensive fallbacks, error wording, and the Python-step `if:`
+  expressions (covered only by `action-selftest-install.yml` in CI)
+  (PR #224).
+- **Workflow-command injection through echoed tool output.** A composite
+  step that tees a tool's output to the log lets a line starting `::` run
+  as a workflow command. `::stop-commands::<random token>` fences the echo,
+  but the runner does not order stdout against stderr, so put the fence,
+  the echo and the later annotations on one stream (`exec 1>&2`); a real
+  run showed the token masked as `***` in the log, which is cosmetic
+  (PR #224).
+- **Annotation text needs `%` escaping** (`%25`, `%0A`, `%0D` are decoded
+  by the runner), and a final line without a trailing newline is dropped
+  by `while read` unless the loop also tests `[ -n "${line}" ]` (PR #224).
