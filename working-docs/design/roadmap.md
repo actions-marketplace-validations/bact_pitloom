@@ -70,7 +70,7 @@ coverage**, not just stability -- see
 [G7 SBOM for AI field coverage](#g7-sbom-for-ai-field-coverage-10-headline)
 below. Cross-platform CI is already closed
 ([PR #220](https://github.com/bact/pitloom/pull/220)), as is the
-`--allow-build` timeout (PR #TBD); the remaining stability item
+`--allow-build` timeout (PR #226); the remaining stability item
 (versioning policy) stays in scope but no longer fills the list on its
 own.
 
@@ -91,7 +91,7 @@ is explicitly left to the Skill and not listed as a core 1.0 item.
 | 2 | [Real macOS CI run](#testing--ci) | P0 | High | S | Done -- CI added ([PR #220](https://github.com/bact/pitloom/pull/220)) |
 | 3 | [Mechanical G7 wiring: dataset license + `ai_AIPackage.verifiedUsing`](#g7-sbom-for-ai-field-coverage-10-headline) | P0 | High | S | Not started |
 | 4 | [Fix stale gap claims in `minimum-elements.md`](#g7-sbom-for-ai-field-coverage-10-headline) | P0 | Medium | S | Not started |
-| 5 | [`--allow-build` timeout](#medium-term) | P0 | High | S | Done (PR #TBD) |
+| 5 | [`--allow-build` timeout](#medium-term) | P0 | High | S | Done (PR #226) |
 | 6 | [Model producer + parameter count (structured sources only)](#g7-sbom-for-ai-field-coverage-10-headline) | P1 | High | M | Not started |
 | 7 | [`loom` SDK: dataset provenance + model training-properties capture](#g7-sbom-for-ai-field-coverage-10-headline) | P1 | High | M-L | Not started |
 | 8 | [Versioning/compatibility policy decision](#versioning-and-compatibility-policy-new-for-10) | P0 | High | S | Needs a decision |

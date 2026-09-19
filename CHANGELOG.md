@@ -23,24 +23,32 @@ and this project adheres to
 
 ### Added
 
-- `--build-timeout DURATION` for `--allow-build` (CLI, Action input, library
-  `BuildOptions.timeout`); default 20m, max 7 days; falls back to static discovery on expiry
+- `--build-timeout DURATION` for `--allow-build` (CLI, Action input,
+  library `BuildOptions.timeout`); default 20m, max 7d (7 days);
+  falls back to static discovery on expiry ([#226])
 
 ### Changed
 
 - Library API: `allow_build`/`no_build_isolation` kwargs replaced by one
-  `build_options=BuildOptions(...)`; ignored build flags now warn once on every surface
-- `--allow-build`'s build output is now captured (shown at `DEBUG:` on failure) instead
-  of leaking to Pitloom's own stdout/stderr; its stdin is closed
-- GitHub Action: `model` mode now warns once per explicitly-set `allow-build`/
-  `no-build-isolation`/`build-timeout` input instead of silently dropping it
+  `build_options=BuildOptions(...)`; ignored build flags now warn once
+  on every surface ([#226])
+- `--allow-build`'s build output is now captured (shown at `DEBUG:` on
+  failure) instead of leaking to Pitloom's own stdout/stderr; its stdin
+  is closed ([#226])
+- GitHub Action: `model` mode now warns once per explicitly-set
+  `allow-build`/`no-build-isolation`/`build-timeout` input instead of
+  silently dropping it ([#226])
 
 ### Fixed
 
-- `embed-wheel <wheel1> <wheel2> ...`: the project directory's file list is now
-  resolved (and, with `--allow-build`, built) once per command, not once per wheel
-- `--allow-build`: SIGTERM/SIGHUP/Ctrl-C (and Windows Ctrl-Break) now terminate
-  the build process tree and clean up its temp dirs instead of leaking them
+- `embed-wheel <wheel1> <wheel2> ...`: the project directory's file list
+  is now resolved (and, with `--allow-build`, built) once per command,
+  not once per wheel ([#226])
+- `--allow-build`: SIGTERM/SIGHUP/Ctrl-C (and Windows Ctrl-Break) now
+  terminate the build process tree and clean up its temp dirs instead
+  of leaking them ([#226])
+
+[#226]: https://github.com/bact/pitloom/pull/226
 
 ## [0.19.0] - 2026-09-18
 
