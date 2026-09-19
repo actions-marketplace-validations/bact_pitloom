@@ -1,6 +1,6 @@
 ---
 Created: 2026-07-08
-Last-Modified: 2026-08-09
+Last-Modified: 2026-09-18
 SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 SPDX-FileType: DOCUMENTATION
 SPDX-License-Identifier: CC0-1.0
@@ -56,7 +56,7 @@ details, config, and code examples.
 | [Command line](cli.md) (`loom`) | You want a one-off SBOM from a terminal, a Makefile target, or any shell script. |
 | [Python API](python-api.md) | You are calling Pitloom from Python code you control, or want to track provenance during training/evaluation. |
 | [Hatchling build hook](hatchling-build-hook.md) | You build wheels with Hatchling and want an SBOM embedded automatically (PEP 770). |
-| [GitHub Action](github-action.md) | Your project isn't Hatchling-based, or you just want CI to produce an SBOM artifact with one `uses:` line. |
+| [GitHub Action](github-action.md) | Your project isn't Hatchling-based, or you just want CI to produce an SBOM artifact. |
 | [Agent Skills](agent-skills.md) | You want an AI coding agent to generate (and optionally enrich or validate) an SBOM on request. |
 | [Claude Code plugin](claude-code-plugin.md) | You use Claude Code and want the Skills installable with one command. |
 
@@ -67,6 +67,10 @@ not needed to just generate one:
 
 - [Configuration](configuration.md) -- every `[tool.pitloom]` setting,
   its default, and how to reach it from each surface.
+- [Dependency sources and precedence](dependency-sources.md) -- what
+  shows up in a Source SBOM's dependency list, which lock file wins
+  when more than one is present, and which commands use lock files at
+  all.
 - [Creation metadata](creation-metadata.md) -- who/what/when/how every
   Pitloom-generated element records about its own creation.
 - [Metadata provenance](metadata-provenance.md) -- how Pitloom tracks the
@@ -86,18 +90,18 @@ please read our [Security policy][security].
 
 If you use Pitloom in your academic work, please cite it as follows:
 
-> Suriyawongkul, A. (2026). Pitloom - SBOM generator for AI models and Python projects (Version 0.17.0) [Computer software]. https://doi.org/10.5281/zenodo.19246283
+> Suriyawongkul, A. (2026). Pitloom - SBOM generator for AI models and Python projects (Version 0.19.0) [Computer software]. https://doi.org/10.5281/zenodo.19246283
 
 BibTeX:
 
 ```bibtex
-@software{Suriyawongkul_Pitloom_-_SBOM_2026,
+@software{Suriyawongkul_Pitloom_SBOM_2026,
     author = {Suriyawongkul, Arthit},
     doi = {10.5281/zenodo.19246283},
     month = aug,
     title = {{Pitloom - SBOM generator for AI models and Python projects}},
     url = {https://github.com/bact/pitloom},
-    version = {0.17.0},
+    version = {0.19.0},
     year = {2026}
 }
 ```

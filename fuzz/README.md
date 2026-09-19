@@ -20,7 +20,7 @@ network, no multi-step state):
 - `fuzz_license_expression.py` -- `pitloom.extract._license.normalize_license_expression`.
   By its own contract this never raises for any string input, so the
   harness has no expected-exception allowlist at all: any exception is a bug.
-- `fuzz_gguf_header.py` -- `pitloom.extract._gguf.read_gguf`, parsing a
+- `fuzz_gguf_header.py` -- `pitloom.extract.ai_model.gguf.read_gguf`, parsing a
   GGUF AI model file's binary header via the third-party `gguf` package.
   `read_gguf` intentionally converts a `GGUFReader` open failure to
   `ValueError` ("not a valid GGUF file") -- the harness swallows exactly

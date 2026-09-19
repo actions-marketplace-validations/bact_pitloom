@@ -1,0 +1,31 @@
+{
+    "source": "https://github.com/uptick/django-model-import",
+    "pypi_package": "django-model-import",
+    "pypi_version": "0.9.0",
+    "license": "MIT",
+    "build_backend": "uv_build",
+    "sdist_filename": "django_model_import-0.9.0.tar.gz",
+    "wheel_filename": "django_model_import-0.9.0-py3-none-any.whl",
+    "wheel_files": [
+        "django_model_import-0.9.0.dist-info/METADATA",
+        "django_model_import-0.9.0.dist-info/RECORD",
+        "django_model_import-0.9.0.dist-info/WHEEL",
+        "djangomodelimport/__init__.py",
+        "djangomodelimport/caches.py",
+        "djangomodelimport/core.py",
+        "djangomodelimport/exceptions.py",
+        "djangomodelimport/fields.py",
+        "djangomodelimport/formclassbuilder.py",
+        "djangomodelimport/forms.py",
+        "djangomodelimport/loaders.py",
+        "djangomodelimport/magic.py",
+        "djangomodelimport/parsers.py",
+        "djangomodelimport/py.typed",
+        "djangomodelimport/resultset.py",
+        "djangomodelimport/types.py",
+        "djangomodelimport/utils.py",
+        "djangomodelimport/widgets.py"
+    ],
+    "known_gaps": "ALL",
+    "known_gaps_note": "Same as every other uv_build fixture: known_gaps: \"ALL\" reflects the default (non---allow-build) fast-path fallback only, unchanged by this fixture. This project is the more severe uv_build case: [tool.uv.build-backend] declares module-name = [\"djangomodelimport\"] because the module directory name doesn't match what Hatchling's zero-config auto-discovery would guess from the project name (django_model_import) -- the Hatchling-heuristic fallback doesn't just over-include (see the rendercv fixture) here, it fails outright with zero files (Hatchling's own error: \"no directory that matches the name of your project\"), loudly WARNING:-logged, not silent. --allow-build's real build-and-read (covered by the slow test_models_wheel_uv_build_real_world.py, not this fixture's fast expected.json) reproduces the real wheel's 15 non-dist-info files exactly."
+}

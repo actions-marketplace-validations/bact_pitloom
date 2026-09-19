@@ -1,6 +1,6 @@
 ---
 Created: 2026-03-25
-Last-Modified: 2026-08-30
+Last-Modified: 2026-09-18
 SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 SPDX-FileType: DOCUMENTATION
 SPDX-License-Identifier: CC0-1.0
@@ -53,15 +53,15 @@ the time `initialize()` runs, Hatchling has already:
   module), which canonicalizes via `packaging.utils.canonicalize_name()`.
 - When `[project]` is missing fields (`authors`, `keywords`, `urls`, ...),
   `metadata_from_hatchling()` reads the same `pyproject.toml` a second time
-  and reuses `_try_read_poetry()` (from `pitloom.extract._pyproject`) plus
+  and reuses `_try_read_poetry()` (from `pitloom.extract.project.pyproject`) plus
   the shared `merge_project_metadata()` (`pitloom.core.project`) to fill
   the gaps from `[tool.poetry]`, mirroring what `read_pyproject()` already
   does for the CLI path via the same shared merge helper.
 
 The build hook maps this object into Pitloom's format-neutral
 `ProjectMetadata` via
-`pitloom.extract.hatchling.metadata_from_hatchling(self.metadata,
-project_dir)` -- **not** via `pitloom.extract.pyproject.read_pyproject()`,
+`pitloom.extract.project.hatchling.metadata_from_hatchling(self.metadata,
+project_dir)` -- **not** via `pitloom.extract.project.pyproject.read_pyproject()`,
 which re-parses `pyproject.toml` from scratch and cannot see dynamic values
 resolved by Hatchling plugins. `read_pyproject()` remains the metadata source
 for the standalone CLI (`pitloom`/`loom project`), which has no build
@@ -101,7 +101,7 @@ The user adds `pitloom` to their build dependencies and enables the hook:
 
 ```toml
 [build-system]
-requires = ["hatchling>=1.32.0", "pitloom>=0.17.0"]
+requires = ["hatchling>=1.29.0", "pitloom>=0.19.0"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.hooks.pitloom]
@@ -182,6 +182,68 @@ high level, `initialize()`:
    `initialize()` and is cleaned up in `finalize()`, and appends its path to
    `build_data["sbom_files"]` (see below).
 
+### `BuildHookInterface` generic-arity compatibility
+
+Hatchling 1.32.3 (released 2026-09-17) silently changed
+`BuildHookInterface` from `Generic[BuilderConfigBound]` (one type
+parameter) to `Generic[BuilderConfigBound, PluginManagerBound]` (two) --
+not mentioned in Hatchling's own changelog, landed via upstream commit
+`84023e0` ("Some type fixes"). `pyproject.toml` pins only a floor
+(`hatchling>=1.32.0`, no upper bound), so this broke
+`class PitloomBuildHook(BuildHookInterface[BuilderConfig]):` outright:
+`TypeError: Too few arguments for ... BuildHookInterface; actual 1,
+expected 2`, raised at class-definition time (i.e. on every build/install,
+via Hatchling's own plugin-manager import of this module).
+
+An upper version bound was rejected: it would make Pitloom's own
+`hatchling>=1.32.0` floor a lie for any project pinning an older
+Hatchling, for no real benefit (the fix below supports both). Instead,
+`src/pitloom/plugins/hatch.py` detects the installed Hatchling's actual
+generic arity at runtime, via `len(BuildHookInterface.__parameters__)` --
+a side-effect-free tuple read that cannot itself trigger the subscription
+`TypeError` -- and builds `PitloomBuildHook`'s base class dynamically:
+
+```python
+if TYPE_CHECKING:
+    class _PitloomBuildHookBase(BuildHookInterface[BuilderConfig[PluginManager], PluginManager]):
+        ...
+else:
+    def _resolve_build_hook_base() -> type:
+        param_count = len(BuildHookInterface.__parameters__)
+        if param_count == 1:
+            return BuildHookInterface[BuilderConfig]
+        if param_count == 2:
+            return BuildHookInterface[BuilderConfig, PluginManager]
+        raise RuntimeError(...)  # unknown arity -- fail loudly, don't guess
+
+    _PitloomBuildHookBase = _resolve_build_hook_base()
+
+
+class PitloomBuildHook(_PitloomBuildHookBase):
+    ...
+```
+
+The `TYPE_CHECKING` split exists because mypy/pyright/pyrefly (strict)
+analyze a function body unconditionally -- a single helper containing
+*both* subscript arities as plain code would always have one rejected as
+a static type error, and suppressing it with `# type: ignore` would trip
+`--warn-unused-ignores` on whichever branch the installed Hatchling
+happens to match. `if TYPE_CHECKING: ... else: ...` is special-cased by
+all three checkers to skip the untaken branch entirely, so the `else`
+branch's dynamic-arity logic is invisible to them, and the `if` branch
+gives them one single, fully concrete shape to check against (the shape
+of whatever Hatchling is installed in the typecheck environment -- this
+repo's shared `.venv` tracks latest/unpinned, matching what a fresh
+install actually resolves to, since there's no committed lockfile).
+`BuilderConfig` itself also gained a `Generic[PluginManagerBound]`
+parameter in 1.32.3, hence `BuilderConfig[PluginManager]` in the
+`TYPE_CHECKING` branch.
+
+`.github/workflows/hatch-integration.yml`'s matrix now includes a
+`hatchling-version: ["1.29.0", ""]` axis (floor + latest/unpinned)
+specifically so a future undocumented Hatchling break is caught by CI
+instead of a user report -- the gap that let this one ship silently.
+
 ## What the emitted SBOM contains
 
 Because the hook shares the `pitloom.assemble.spdx3.document.build()`
@@ -213,8 +275,8 @@ Hatchling 1.29.0 introduced native PEP 770 support -- the release where
 Hatchling started reading `build_data["sbom_files"]` at all; older
 Hatchling accepts the mutated `build_data` silently and never embeds the
 file (see `_MIN_HATCHLING_SBOM_VERSION` in `src/pitloom/plugins/hatch.py`).
-Pitloom itself pins `hatchling>=1.32.0`, a stricter floor than this
-feature alone needs -- see below. The wheel builder
+Pitloom itself pins `hatchling>=1.29.0`, matching this feature's own
+floor exactly -- see below. The wheel builder
 initialises `build_data["sbom_files"]` as an empty list and, after all hook
 `initialize()` calls complete, copies every path in the list into
 `.dist-info/sboms/<basename>` inside the wheel.
@@ -295,15 +357,24 @@ Register the plugin via pluggy entry point:
 pitloom = "pitloom.plugins.hatch"
 ```
 
-Require Hatchling 1.32.0+ (native `sbom_files`/PEP 770 support itself only
-needs 1.29.0+; the higher floor is Pitloom's own pin -- see `pyproject.toml`):
+Require Hatchling 1.29.0+ -- matches native `sbom_files`/PEP 770 support's
+own floor exactly (see `pyproject.toml`):
 
 ```toml
 dependencies = [
-    "hatchling>=1.32.0",
+    "hatchling>=1.29.0",
     ...
 ]
 ```
+
+**Floor policy (PR #223):** the floor stays at 1.29.0 -- verified by a real
+build + embed in a scratch venv pinned to it, and by the
+`hatch-integration.yml` floor matrix axis -- until a feature genuinely
+needs a newer Hatchling. Do not raise it to the latest known-good release:
+the version-agnostic arity fix above exists so older Hatchling keeps
+working. Every user-facing example and the CI matrix use 1.29.0; only the
+historical bug narrative above keeps 1.32.0/1.32.3, as facts about that
+past break.
 
 ## Test plan
 

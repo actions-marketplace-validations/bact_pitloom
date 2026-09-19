@@ -15,12 +15,16 @@ from pitloom.__about__ import __version__
 from pitloom.cli.commands.embed_wheel import add_parser as add_embed_wheel
 from pitloom.cli.commands.enrich import add_parser as add_enrich
 from pitloom.cli.commands.env import add_parser as add_env
+from pitloom.cli.commands.fragment import add_parser as add_fragment
 from pitloom.cli.commands.generate import add_parser as add_generate
 from pitloom.cli.commands.merge import add_parser as add_merge
 from pitloom.cli.commands.model import add_parser as add_model
 from pitloom.cli.commands.project import add_parser as add_project
+from pitloom.cli.commands.validate_wheel import add_parser as add_validate_wheel
+from pitloom.cli.commands.verify_wheel import add_parser as add_verify_wheel
 from pitloom.cli.commands.wheel import add_parser as add_wheel
 from pitloom.cli.ids import add_parser as add_ids
+from pitloom.cli.options import add_debug_argument
 from pitloom.core.config import VALID_CONTENT_TYPE_METHODS
 from pitloom.core.creation import (
     VALID_CREATOR_TYPES,
@@ -264,6 +268,7 @@ def _build_parser() -> argparse.ArgumentParser:
         action="version",
         version=f"Pitloom {__version__}",
     )
+    add_debug_argument(parser)
 
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -271,10 +276,13 @@ def _build_parser() -> argparse.ArgumentParser:
     add_project(subparsers, parent_parser)
     add_wheel(subparsers, parent_parser)
     add_embed_wheel(subparsers, parent_parser)
+    add_verify_wheel(subparsers, parent_parser)
+    add_validate_wheel(subparsers, parent_parser)
     add_model(subparsers, parent_parser)
     add_enrich(subparsers, parent_parser)
     add_env(subparsers, parent_parser)
     add_merge(subparsers, parent_parser)
+    add_fragment(subparsers, parent_parser)
     add_ids(subparsers, parent_parser)
 
     return parser

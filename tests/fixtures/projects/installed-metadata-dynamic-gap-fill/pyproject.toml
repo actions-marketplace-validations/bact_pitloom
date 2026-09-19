@@ -1,0 +1,16 @@
+# SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
+# SPDX-License-Identifier: CC0-1.0
+
+# `dynamic = ["version"]` with no resolvable static source (no
+# [tool.setuptools.dynamic] table, no __about__.py/__version__.py
+# heuristic file) -- static parsing categorically cannot resolve
+# `version`, so the in-tree egg-info's real, build-resolved value should
+# be gap-filled in, not treated as a conflict.
+
+[project]
+name = "sampleproject-installed-dynver"
+dynamic = ["version"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"

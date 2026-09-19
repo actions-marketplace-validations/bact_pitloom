@@ -20,6 +20,8 @@ from pitloom.assemble.spdx3.ai import (
 from pitloom.core.ai_metadata import AiModelFormat, AiModelFormatInfo, AiModelMetadata
 from pitloom.ids import EntityEntry, IdRegistry
 
+from ..conftest import fake_build_and_read_path
+
 
 def test_should_preserve_metadata_always() -> None:
     model = AiModelMetadata()
@@ -125,3 +127,47 @@ def test_lookup_ai_model_entity_found_by_file_stem() -> None:
     )
     model = AiModelMetadata(format_info=AiModelFormatInfo(file_name="model.gguf"))
     assert _lookup_ai_model_entity(model, registry) == "urn:doc#AIPackage-3"
+
+
+def test_lookup_ai_model_entity_falls_back_when_physical_path_absolute() -> None:
+    """Regression: a build-and-read (--allow-build) discovered model has
+    an absolute physical_path (a fresh tempfile.mkdtemp() extraction
+    dir -- see ProjectFile.physical_path's docstring), which never
+    matches a registry entry keyed by a project-relative path. Falls
+    back to file_path_relative, the same rule _document_files.py's
+    determinism fix and enrich's _resolve_model_search_dir already
+    apply for this identical hazard."""
+    registry = IdRegistry(
+        namespace="urn:doc",
+        entities={
+            "src/model.gguf": EntityEntry(
+                type="ai_AIPackage", spdx_id="urn:doc#AIPackage-4"
+            )
+        },
+    )
+    model = AiModelMetadata(
+        format_info=AiModelFormatInfo(
+            physical_path=fake_build_and_read_path("src", "model.gguf"),
+            file_path_relative="src/model.gguf",
+        )
+    )
+    assert _lookup_ai_model_entity(model, registry) == "urn:doc#AIPackage-4"
+
+
+def test_lookup_ai_model_entity_absolute_path_no_fallback_skips_candidate() -> None:
+    """When physical_path is absolute and file_path_relative is also
+    unset, no candidate is added for it at all (not a bare empty-string
+    lookup) -- falls through to the next candidate (file stem)."""
+    registry = IdRegistry(
+        namespace="urn:doc",
+        entities={
+            "model": EntityEntry(type="ai_AIPackage", spdx_id="urn:doc#AIPackage-5")
+        },
+    )
+    model = AiModelMetadata(
+        format_info=AiModelFormatInfo(
+            physical_path=fake_build_and_read_path("model.gguf"),
+            file_name="model.gguf",
+        )
+    )
+    assert _lookup_ai_model_entity(model, registry) == "urn:doc#AIPackage-5"

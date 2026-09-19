@@ -1,6 +1,6 @@
 ---
 Created: 2026-02-22
-Last-Modified: 2026-08-29
+Last-Modified: 2026-09-01
 SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 SPDX-FileType: DOCUMENTATION
 SPDX-License-Identifier: CC0-1.0
@@ -53,7 +53,7 @@ types between `ai_AIPackage` and `dataset_DatasetPackage`:
   `list[DatasetReference]` (`pitloom.core.dataset_metadata`) carrying each
   dataset's role, name, URI, and license -- populated today by the
   README/model-card frontmatter enricher (`enrich/readme.py`) and the
-  Hugging Face extractor (`extract/_huggingface.py`).
+  Hugging Face extractor (`extract/remote/huggingface.py`).
 - `add_datasets_for_model()` (`src/pitloom/assemble/spdx3/dataset.py`)
   creates the `dataset_DatasetPackage` element and emits the relationship,
   mapping each role to its native SPDX 3.0.1 `RelationshipType` where one
@@ -140,7 +140,7 @@ generate --no-enrich <target>` + `loom enrich <target>` + `loom merge`)
 produce equivalent enrichment evidence *for a single-model-file target*
 -- both paths share the same deterministic identity computation for the
 referenced `ai_AIPackage` (`_ai_model_identity()` in `document.py`).
-Verified by `tests/core/test_generator_misc.py::test_enrich_then_merge_matches_one_shot_enrich`.
+Verified by `tests/core/generator/test_generator_misc.py::test_enrich_then_merge_matches_one_shot_enrich`.
 
 **This does NOT hold for a project directory target without extra
 care.** `loom project <dir>`/`loom generate <dir>` assign a model's
@@ -161,7 +161,7 @@ merge past. **Always pass `loom enrich --project-dir
 fragment is meant to merge into a project-level base document -- this
 resolves the project's own identity (see `_project_doc_identity()` in
 `assemble/_model_generator.py`) so the two agree. Covered by
-`tests/core/test_generator_model_fragments.py::test_enrich_model_project_target_merges_correctly_end_to_end`
+`tests/core/generator/test_generator_model_fragments.py::test_enrich_model_project_target_merges_correctly_end_to_end`
 (the real regression test -- verifies attachment survives an actual
 merge, not just matching id strings) and
 `test_enrich_model_without_project_target_mismatches_project_level_id`
@@ -381,7 +381,7 @@ inference (or no enrichment) for anything these would have covered.
    model's enrichment look in" is decided, shared rather than
    reimplemented per caller. Only the local-file path runs `readme.py` --
    a Hugging Face Hub source already gets model-card frontmatter natively
-   via `_load_model_card()` in `_huggingface.py`.
+   via `_load_model_card()` in `pitloom.extract.remote.huggingface_fetch`.
 4. `enrich_model()` (same file) is the standalone-fragment counterpart:
    runs the same `run_enrichers()` call but skips full document assembly,
    producing just the new elements via `build_enrichment_fragment()`

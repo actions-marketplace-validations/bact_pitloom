@@ -6,14 +6,33 @@
 """Shared pytest fixtures and configuration."""
 
 import socket
+import tempfile
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from pitloom.extract._license import _get_matcher
+from pitloom.logging_config import _WARNED_ONCE
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
+
+
+def fake_build_and_read_path(*parts: str) -> str:
+    """A path string that mimics ``--allow-build``'s fresh
+    ``tempfile.mkdtemp()`` extraction directory (see
+    ``ProjectFile.physical_path``'s docstring): genuinely absolute
+    under the current platform's own :mod:`pathlib` semantics, never
+    project-relative.
+
+    A hardcoded POSIX literal such as ``"/tmp/xyz"`` is *not* absolute
+    under ``WindowsPath`` semantics (``is_absolute()`` requires a drive
+    letter there) -- using one silently stops exercising the
+    absolute-``physical_path`` branch under test on Windows CI, even
+    though the equivalent real value (from a real ``tempfile.mkdtemp()``
+    on Windows) always carries a drive letter and is genuinely absolute.
+    """
+    return Path(tempfile.gettempdir(), "pitloom-build-and-read-fake", *parts).as_posix()
 
 
 class _NetworkBlockedError(RuntimeError):
@@ -40,6 +59,14 @@ def _reset_license_matcher_cache() -> None:
     """Clear the cached ``AggregatedLicenseMatcher`` before each test, so a
     mock from one test can't leak into the next via ``_get_matcher``'s cache."""
     _get_matcher.cache_clear()
+
+
+@pytest.fixture(autouse=True)
+def _reset_warn_once_state() -> None:
+    """Clear ``warn_once()``'s per-process dedup state before each test, so
+    one test's WARNING->DEBUG downgrade can't leak into the next and hide a
+    real warn_once regression."""
+    _WARNED_ONCE.clear()
 
 
 @pytest.fixture(autouse=True)

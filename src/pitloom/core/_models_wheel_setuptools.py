@@ -12,12 +12,12 @@ Resolves ``packages``/``packages.find``/``package_dir``/``package_data``/
 exclusive) the same way a real setuptools build would -- without
 executing ``setup.py``. A project with neither file (packages only
 resolvable by running an imperative ``setup.py``) is out of scope,
-matching :mod:`pitloom.extract._setuptools`'s existing
+matching :mod:`pitloom.extract.project.setuptools`'s existing
 static-analysis-only boundary; see
 ``working-docs/implementation/sbom-lifecycle-stages.md`` for the full
 rationale.
 
-See also: :mod:`pitloom.core._models_wheel` (dispatch facade),
+See also: :mod:`pitloom.core._models_wheel_dispatch` (dispatch facade),
 :mod:`pitloom.core._models_wheel_types`.
 """
 
@@ -36,6 +36,7 @@ from typing import TYPE_CHECKING
 from pitloom.core._models_wheel_types import (
     IncludedFile,
     has_resolvable_pyproject_config,
+    to_posix_distribution_path,
 )
 
 if TYPE_CHECKING:
@@ -74,7 +75,7 @@ def _chdir(project_dir: Path) -> Iterator[None]:
     *project_dir* for the duration of the call.
 
     This process-wide ``os.chdir()`` is only safe because
-    :mod:`pitloom.core._models_wheel` -- the sole caller of
+    :mod:`pitloom.core._models_wheel_dispatch` -- the sole caller of
     :func:`discover` -- runs every call to this function under its
     read/write discovery lock's exclusive write mode, which keeps it
     from overlapping any other backend's discovery call (Hatchling's
@@ -141,7 +142,7 @@ def _load_distribution(
 
     *pyproject_data*, when given, is the already-parsed
     ``pyproject.toml`` (see
-    :func:`pitloom.extract._setuptools.read_pyproject_toml`) -- pass it
+    :func:`pitloom.extract.project.setuptools.read_pyproject_toml`) -- pass it
     when the caller already parsed the file, to avoid re-parsing it here.
     """
     # pylint: disable=import-outside-toplevel
@@ -153,7 +154,7 @@ def _load_distribution(
 
     if pyproject_data is None and pyproject_path.is_file():
         # pylint: disable-next=import-outside-toplevel
-        from pitloom.extract._setuptools import read_pyproject_toml
+        from pitloom.extract.project.setuptools import read_pyproject_toml
 
         pyproject_data = read_pyproject_toml(project_dir)
 
@@ -199,7 +200,7 @@ def _distribution_path(package: str, filename: str) -> str:
     Windows-style *filename* from setuptools' own file enumeration)."""
     prefix = package.replace(".", "/")
     path = f"{prefix}/{filename}" if prefix else filename
-    return path.replace("\\", "/")
+    return to_posix_distribution_path(path)
 
 
 def _discover_module_files(build_py_cmd: BuildPyCommand) -> list[IncludedFile]:
@@ -288,7 +289,7 @@ def _setup_py_packaging_kwargs(setup_py_path: Path) -> list[str]:
     (or an unpack) present; never raises (a ``setup.py`` this module
     can't even parse is not this function's problem to report)."""
     # pylint: disable-next=import-outside-toplevel
-    from pitloom.extract._setuptools_py import iter_setup_calls
+    from pitloom.extract.project.setuptools_py import iter_setup_calls
 
     try:
         tree = ast.parse(
@@ -339,7 +340,7 @@ def discover(
 
     *pyproject_data*, when given, is the already-parsed
     ``pyproject.toml`` (see
-    :func:`pitloom.extract._setuptools.read_pyproject_toml`) -- pass it
+    :func:`pitloom.extract.project.setuptools.read_pyproject_toml`) -- pass it
     when the caller already parsed the file, to avoid re-parsing it here.
     """
     # pylint: disable=import-outside-toplevel

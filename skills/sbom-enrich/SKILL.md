@@ -1,6 +1,6 @@
 ---
 # Created: 2026-07-05
-# Last-Modified: 2026-08-26
+# Last-Modified: 2026-09-18
 # SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 # SPDX-FileType: SOURCE
 # SPDX-License-Identifier: Apache-2.0
@@ -29,9 +29,10 @@ description: >-
   surface words, different question). Requires a Pitloom-generated SBOM
   to already exist -- generate one first with the `sbom-generate` skill
   if it does not (a request that asks for both in one breath, e.g.
-  "generate SBOM and enrich it" or "give me a complete SBOM", is
-  `sbom-generate`'s to trigger on -- see that skill's "Combine with
-  enrichment" section).
+  "generate SBOM and enrich it", "give me a complete SBOM", or "give me
+  SBOM with CISA 2026 minimum elements", is `sbom-generate`'s to trigger
+  on -- see that skill's "Combine with enrichment" and "Combine with a
+  named standard" sections).
 license: Apache-2.0
 argument-hint: "[sbom-file]"
 ---
@@ -119,6 +120,15 @@ Steps:
    fails the merge outright (raises, so the CLI exits non-zero with an
    `ERROR:` line) rather than silently producing a broken SBOM --
    regenerate the base SBOM and re-run enrichment before merging again.
+
+   **Dangling references can also come from a registry mismatch, not
+   just a Pitloom upgrade:** `project`/`wheel`/`env` auto-harvest ids
+   into a Loom ID registry file so ids normally stay stable across
+   reruns without any action needed (see `sbom-generate`'s "Why element
+   ids stay stable across reruns" section) -- but if a different
+   `--registry` file was used (or none) between the base-SBOM run and
+   this enrichment/regeneration, ids can drift even with nothing else
+   changed. Check this before assuming an upgrade is the cause.
 2. **Run the deterministic pass first:** `loom enrich <model-file>` for
    each local AI model file in scope. This parses only YAML frontmatter
    (no prose, no reasoning) and writes a standalone fragment -- fast,
@@ -136,7 +146,12 @@ Steps:
    dataset relationship and enrichment evidence silently fail to attach
    once merged -- no error, just missing data in the output. When
    `--registry <file>` was used for the base SBOM, pass the same
-   `--registry` here too.
+   `--registry` here too. If the base SBOM was generated with an
+   explicit `--use-lockfile`/`--no-use-lockfile` override (not just the
+   project's `[tool.pitloom] use-lockfile` default), pass the same flag here
+   too -- `--project-dir`'s document identity depends on it, the same way
+   it depends on the resolved file list. Omit the flag (the default) to
+   auto-match the project's own config when no override was used.
 3. Read the project's `README.md` / model card **prose** and any other
    local docs. Only propose fields for gaps step 2 left untouched --
    `loom enrich` already found everything it could from frontmatter, so
@@ -214,7 +229,7 @@ Steps:
    ```
 
    For a stronger check, run the fragment through the same SPDX 3
-   JSON-LD deserializer `merge_fragments()` itself uses -- this catches
+   JSON-LD deserialiser `merge_fragments()` itself uses -- this catches
    the same broken-JSON-LD cases `merge_fragments()` swallows as a
    warning, plus SPDX-shape problems (e.g. an unknown property or type)
    that plain JSON-syntax validity would miss:
@@ -303,7 +318,7 @@ e. **Contradiction check.** Before drafting the fragment, compare each new answe
    against the base SBOM's existing value for that field and against other answers
    already collected this session -- if they conflict, surface both and ask the user
    to confirm which stands, the same way step 6 above handles a prose-vs-frontmatter
-   conflict, generalized to interactively-collected answers too. Never silently pick
+   conflict, generalised to interactively-collected answers too. Never silently pick
    one.
 f. **Draft, validate, register, merge, validate** -- reuse steps 6-10 above verbatim.
    No new mechanism: this workflow only changes *what* gets proposed and *how it's

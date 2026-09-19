@@ -1,0 +1,376 @@
+# ruff: noqa: F403, F405
+from __future__ import annotations
+
+import json
+from typing import cast
+
+from pitloom.assemble.spdx3.document import build
+from pitloom.core.creation import CreationMetadata
+from pitloom.core.document import DocumentModel
+from pitloom.core.project import ProjectFile, ProjectMetadata
+from pitloom.ids import FileEntry, IdRegistry
+
+from ...conftest import fake_build_and_read_path
+from ..conftest import (
+    _annotation_fields_for,
+    _build_graph_for_files,
+    _find_file_element,
+)
+
+
+def test_build_file_native_copyright_and_declared_license() -> None:
+    """A file's own SPDX-FileCopyrightText/License-Identifier tags set
+    native fields directly; the license relationship is hasDeclaredLicense,
+    never hasConcludedLicense (a file's own tag always is its own claim,
+    nothing to classify against)."""
+    files = [
+        ProjectFile(
+            physical_path="src/pkg/tagged.py",
+            distribution_path="pkg/tagged.py",
+            digest_sha256="a" * 64,
+            copyright_text="2026 Test Author",
+            copyright_source="spdx_tag",
+            spdx_license_identifier="MIT",
+        )
+    ]
+    graph = _build_graph_for_files(files)
+    file_elem = _find_file_element(graph, "pkg/tagged.py")
+
+    assert file_elem["software_copyrightText"] == "2026 Test Author"
+
+    relationships = [e for e in graph if e.get("type") == "Relationship"]
+    license_rels = [r for r in relationships if r.get("from") == file_elem["spdxId"]]
+    assert [r["relationshipType"] for r in license_rels] == ["hasDeclaredLicense"]
+
+    license_targets = license_rels[0]["to"]
+    assert isinstance(license_targets, list)
+    license_target_id = license_targets[0]
+    license_elem = next(
+        e
+        for e in graph
+        if e.get("type") == "simplelicensing_SimpleLicensingText"
+        and e.get("spdxId") == license_target_id
+    )
+    assert license_elem["simplelicensing_licenseText"] == "MIT"
+
+
+def test_build_file_absolute_physical_path_uses_distribution_path_in_provenance() -> (
+    None
+):
+    """Regression: a build-and-read-discovered file's ``physical_path``
+    is an absolute path into a ``tempfile.mkdtemp()`` directory that
+    differs every run (see ``ProjectFile.physical_path``'s docstring and
+    ``_models_wheel_build_and_read.py``) -- emitting it verbatim into a
+    "Source: ..." provenance string breaks CLAUDE.md's "SBOM output"
+    determinism invariant, since two runs of an unchanged project would
+    then never be bit-for-bit identical. Confirmed live via a real
+    ``--allow-build`` run against a synthetic uv_build project before
+    this fix: two runs' emitted ``comment``/Annotation ``source`` fields
+    differed only in the temp directory's random suffix. The fix uses
+    ``distribution_path`` (always deterministic) instead of
+    ``physical_path`` whenever the latter is absolute."""
+    files = [
+        ProjectFile(
+            physical_path=fake_build_and_read_path("abc123", "pkg", "tagged.py"),
+            distribution_path="pkg/tagged.py",
+            digest_sha256="a" * 64,
+            copyright_text="2026 Test Author",
+            copyright_source="spdx_tag",
+            spdx_license_identifier="MIT",
+        )
+    ]
+    graph = _build_graph_for_files(files)
+    file_elem = _find_file_element(graph, "pkg/tagged.py")
+    comment = cast("str", file_elem["comment"])
+
+    assert "pitloom-build-and-read" not in comment
+    assert comment == (
+        "Metadata provenance: copyright_text: Source: pkg/tagged.py | "
+        "Field: SPDX-FileCopyrightText"
+    )
+
+    fields = _annotation_fields_for(graph, file_elem["spdxId"])
+    assert fields is not None
+    assert fields["copyright_text"]["source"] == "pkg/tagged.py"
+
+    relationships = [e for e in graph if e.get("type") == "Relationship"]
+    license_rels = [r for r in relationships if r.get("from") == file_elem["spdxId"]]
+    license_target_id = cast("list[str]", license_rels[0]["to"])[0]
+    license_elem = next(e for e in graph if e.get("spdxId") == license_target_id)
+    assert license_elem["simplelicensing_licenseText"] == "MIT"
+
+
+def test_build_file_absolute_physical_path_is_deterministic_across_runs() -> None:
+    """Same file content, two different (simulated) tempdir paths for
+    ``physical_path`` -- as two separate ``--allow-build`` runs of the
+    same unchanged project would produce, since ``tempfile.mkdtemp()``
+    picks a fresh random directory name each time. The two runs' graphs
+    must be identical, guarding against the exact non-determinism bug
+    fixed alongside this test (see the sibling test above for the full
+    failure mode)."""
+    common_kwargs = {
+        "distribution_path": "pkg/tagged.py",
+        "digest_sha256": "a" * 64,
+        "copyright_text": "2026 Test Author",
+        "copyright_source": "spdx_tag",
+        "spdx_license_identifier": "MIT",
+    }
+    graph_run_1 = _build_graph_for_files(
+        [
+            ProjectFile(
+                physical_path=fake_build_and_read_path("run1xyz", "pkg", "tagged.py"),
+                **common_kwargs,  # type: ignore[arg-type]
+            )
+        ]
+    )
+    graph_run_2 = _build_graph_for_files(
+        [
+            ProjectFile(
+                physical_path=fake_build_and_read_path(
+                    "run2different", "pkg", "tagged.py"
+                ),
+                **common_kwargs,  # type: ignore[arg-type]
+            )
+        ]
+    )
+    assert graph_run_1 == graph_run_2
+
+
+def test_build_file_primary_purpose_and_content_type_independent() -> None:
+    """The README.md case: SPDX-FileType: DOCUMENTATION maps to
+    primaryPurpose, and an independently-resolved content_type sets
+    contentType -- both native, both set, neither gated on the other."""
+    files = [
+        ProjectFile(
+            physical_path="README.md",
+            distribution_path="README.md",
+            digest_sha256="a" * 64,
+            file_type="DOCUMENTATION",
+            content_type="text/markdown",
+            content_type_method="extension_guess",
+        )
+    ]
+    graph = _build_graph_for_files(files)
+    file_elem = _find_file_element(graph, "README.md")
+
+    assert file_elem["software_primaryPurpose"] == "documentation"
+    assert file_elem["contentType"] == "text/markdown"
+    assert "summary" not in file_elem
+
+    fields = _annotation_fields_for(graph, file_elem["spdxId"])
+    assert fields is not None
+    # declared: no Method segment recorded.
+    assert "method" not in fields["file_type"]
+    # detected: Method segment present, distinct field key from file_type.
+    assert fields["content_type"]["method"] == "extension_guess"
+
+
+def test_build_file_content_type_config_override_is_sbom_author_supplied() -> None:
+    """A [[tool.pitloom.content-type.override]] match
+    (content_type_method="config_override") sets contentType natively,
+    same as a detected value, but records role sbomAuthorSupplied in
+    provenance -- never magika_content_detection/extension_guess,
+    since Pitloom didn't detect anything for this file."""
+    files = [
+        ProjectFile(
+            physical_path="vendor/lib.bin",
+            distribution_path="vendor/lib.bin",
+            digest_sha256="a" * 64,
+            content_type="application/octet-stream",
+            content_type_method="config_override",
+        )
+    ]
+    graph = _build_graph_for_files(files)
+    file_elem = _find_file_element(graph, "vendor/lib.bin")
+
+    assert file_elem["contentType"] == "application/octet-stream"
+
+    fields = _annotation_fields_for(graph, file_elem["spdxId"])
+    assert fields is not None
+    assert fields["content_type"]["role"] == "sbomAuthorSupplied"
+    assert "method" not in fields["content_type"]
+    assert "tool" not in fields["content_type"]
+
+
+def test_build_file_unmapped_file_type_goes_to_summary_not_content_type() -> None:
+    """An unmapped SPDX-FileType (no SoftwarePurpose equivalent) with no
+    content_type resolved: the raw tag value lands in File.summary, no
+    primaryPurpose or contentType is set, no error."""
+    files = [
+        ProjectFile(
+            physical_path="logo.png",
+            distribution_path="logo.png",
+            digest_sha256="a" * 64,
+            file_type="IMAGE",
+        )
+    ]
+    graph = _build_graph_for_files(files)
+    file_elem = _find_file_element(graph, "logo.png")
+
+    assert "software_primaryPurpose" not in file_elem
+    assert "contentType" not in file_elem
+    assert file_elem["summary"] == "FileType: IMAGE"
+
+    # An unmapped file_type still gets a provenance entry recording where
+    # the raw value came from, same as the mapped case -- summary-only
+    # placement isn't a reason to drop provenance.
+    fields = _annotation_fields_for(graph, file_elem["spdxId"])
+    assert fields is not None
+    assert fields["file_type"]["source"] == "logo.png"
+    assert fields["file_type"]["location"] == "SPDX-FileType"
+
+
+def test_build_file_primary_purpose_never_inferred_from_content_type() -> None:
+    """Regression guard: a resolved content_type must never backfill
+    primaryPurpose, even when file_type is absent entirely -- SoftwarePurpose
+    is about usage, not content, per the SPDX 3 spec."""
+    files = [
+        ProjectFile(
+            physical_path="photo.jpg",
+            distribution_path="photo.jpg",
+            digest_sha256="a" * 64,
+            content_type="image/jpeg",
+            content_type_method="magika",
+        )
+    ]
+    graph = _build_graph_for_files(files)
+    file_elem = _find_file_element(graph, "photo.jpg")
+
+    assert file_elem["contentType"] == "image/jpeg"
+    assert "software_primaryPurpose" not in file_elem
+    assert "summary" not in file_elem  # no file_type tag at all -- nothing to record
+
+
+def test_build_file_contributors_only_in_summary_never_native() -> None:
+    """FileContributor values appear only in File.summary, sorted, never
+    natively -- the Annotation carries a plain source-tracking entry with
+    no value duplicated into it."""
+    files = [
+        ProjectFile(
+            physical_path="pkg/mod.py",
+            distribution_path="pkg/mod.py",
+            digest_sha256="a" * 64,
+            file_contributors=["Bob", "Alice"],
+        )
+    ]
+    graph = _build_graph_for_files(files)
+    file_elem = _find_file_element(graph, "pkg/mod.py")
+
+    assert file_elem["summary"] == "Contributor: Alice; Contributor: Bob"
+
+    fields = _annotation_fields_for(graph, file_elem["spdxId"])
+    assert fields is not None
+    assert "Alice" not in fields["file_contributors"]["source"]
+    assert "Bob" not in fields["file_contributors"]["source"]
+
+
+def test_build_file_summary_combines_contributors_and_file_type_sorted() -> None:
+    """A file with both contributors and an unmapped file_type produces one
+    combined summary string, sorted by key then value ('Contributor'
+    entries before 'FileType', per the alphabetical-by-key rule)."""
+    files = [
+        ProjectFile(
+            physical_path="pkg/mixed.bin",
+            distribution_path="pkg/mixed.bin",
+            digest_sha256="a" * 64,
+            file_contributors=["Zoe", "Amy"],
+            file_type="BINARY",
+        )
+    ]
+    graph = _build_graph_for_files(files)
+    file_elem = _find_file_element(graph, "pkg/mixed.bin")
+
+    assert file_elem["summary"] == (
+        "Contributor: Amy; Contributor: Zoe; FileType: BINARY"
+    )
+
+
+def test_build_file_no_header_data_emits_nothing_extra() -> None:
+    """A file with no header-derived data at all gets no summary, no
+    Annotation, no license relationship, and no native copyright/purpose/
+    contentType fields -- matches today's pre-feature output exactly."""
+    files = [
+        ProjectFile(
+            physical_path="pkg/plain.py",
+            distribution_path="pkg/plain.py",
+            digest_sha256="a" * 64,
+        )
+    ]
+    graph = _build_graph_for_files(files)
+    file_elem = _find_file_element(graph, "pkg/plain.py")
+
+    assert "summary" not in file_elem
+    assert "software_copyrightText" not in file_elem
+    assert "software_primaryPurpose" not in file_elem
+    assert "contentType" not in file_elem
+    assert _annotation_fields_for(graph, file_elem["spdxId"]) is None
+    relationships = [e for e in graph if e.get("type") == "Relationship"]
+    assert not [r for r in relationships if r.get("from") == file_elem["spdxId"]]
+
+
+def test_add_package_files_falls_back_to_distribution_path_lookup() -> None:
+    """A registry entry keyed by distribution_path (the only path an
+    auto-harvested ``software_File`` element can carry -- see
+    `pitloom.ids.IdRegistry.harvest`) is still found, even though the
+    live-scan lookup tries physical_path first. Without this fallback, a
+    src/-layout project (physical_path != distribution_path) would never
+    match auto-harvested file entries, silently defeating cross-run id
+    stability for exactly the most common Python project layout."""
+    registered_id = "https://spdx.org/spdxdocs/pinned-1#File-9"
+    registry = IdRegistry(
+        namespace="https://spdx.org/spdxdocs/pinned-1",
+        files={"pkg/mod.py": FileEntry(spdx_id=registered_id, sha256="a" * 64)},
+    )
+    files = [
+        ProjectFile(
+            physical_path="src/pkg/mod.py",
+            distribution_path="pkg/mod.py",
+            digest_sha256="a" * 64,
+        )
+    ]
+    project = ProjectMetadata(name="fallback-project", version="1.0.0", files=files)
+    doc = DocumentModel(project=project, creation_metadata=CreationMetadata())
+
+    exporter = build(doc, registry=registry)
+    graph = json.loads(exporter.to_json())["@graph"]
+    file_elem = _find_file_element(graph, "pkg/mod.py")
+
+    assert file_elem["spdxId"] == registered_id
+
+
+def test_build_file_shared_license_dedupes_to_one_element() -> None:
+    """Two files declaring the same SPDX-License-Identifier reuse one
+    SimpleLicensingText element, with two separate relationships."""
+    files = [
+        ProjectFile(
+            physical_path="pkg/a.py",
+            distribution_path="pkg/a.py",
+            digest_sha256="a" * 64,
+            spdx_license_identifier="Apache-2.0",
+        ),
+        ProjectFile(
+            physical_path="pkg/b.py",
+            distribution_path="pkg/b.py",
+            digest_sha256="b" * 64,
+            spdx_license_identifier="Apache-2.0",
+        ),
+    ]
+    graph = _build_graph_for_files(files)
+
+    license_elements = [
+        e
+        for e in graph
+        if e.get("type") == "simplelicensing_SimpleLicensingText"
+        and e.get("simplelicensing_licenseText") == "Apache-2.0"
+    ]
+    assert len(license_elements) == 1
+
+    license_spdx_id = license_elements[0]["spdxId"]
+    declared_rels = [
+        e
+        for e in graph
+        if e.get("type") == "Relationship"
+        and e.get("relationshipType") == "hasDeclaredLicense"
+        and e.get("to") == [license_spdx_id]
+    ]
+    assert len(declared_rels) == 2

@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import dataclasses
+import logging
 import sys
 from pathlib import Path
 
@@ -19,11 +20,16 @@ from pitloom.core.models import compute_doc_uuid, get_wheel_files
 from pitloom.core.provenance import ProvenanceConfig
 from pitloom.enrich import run_enrichers
 from pitloom.enrich.base import EnrichmentResult
-from pitloom.extract._huggingface import is_huggingface_source, read_huggingface
 from pitloom.extract.ai_model import read_ai_model
-from pitloom.extract.project import read_project
+from pitloom.extract.project import (
+    resolve_project_with_lockfile,
+    warn_use_lockfile_no_effect,
+)
+from pitloom.extract.remote import is_huggingface_source, read_huggingface
 from pitloom.ids import IdRegistry, resolve_registry
 from pitloom.logging_config import configure_logging
+
+log = logging.getLogger(__name__)
 
 
 def _write_output_file(sbom_json: str, output_path: Path | None) -> None:
@@ -44,6 +50,9 @@ def _resolve_local_offline_default(directory: Path) -> bool:
         return read_pitloom_config(directory / "pyproject.toml").offline
     except FileNotFoundError:
         return False
+    except ValueError as exc:
+        log.warning("Ignoring invalid pyproject.toml in %s: %s", directory, exc)
+        return False
 
 
 def _resolve_model_enrich_config(model_dir: Path) -> EnrichConfig:
@@ -52,9 +61,14 @@ def _resolve_model_enrich_config(model_dir: Path) -> EnrichConfig:
         return read_pitloom_config(model_dir / "pyproject.toml").enrich
     except FileNotFoundError:
         return EnrichConfig()
+    except ValueError as exc:
+        log.warning("Ignoring invalid pyproject.toml in %s: %s", model_dir, exc)
+        return EnrichConfig()
 
 
-def _project_doc_identity(project_dir: Path) -> tuple[str, str]:
+def _project_doc_identity(
+    project_dir: Path, *, use_lockfile: bool | None = None
+) -> tuple[str, str]:
     """Compute ``(doc_name, doc_uuid)`` for a project directory.
 
     ``doc_uuid`` is content-addressed via ``merkle_root`` (see
@@ -67,15 +81,32 @@ def _project_doc_identity(project_dir: Path) -> tuple[str, str]:
     after a Pitloom upgrade that changes file discovery for this
     project's backend, or the fragment's element references may not
     match the base document's spdxIds.
+
+    ``use_lockfile`` must match whatever setting produced the base document
+    being merged into, or the computed ``doc_uuid`` will diverge from it
+    (see ``pitloom.core.models.compute_doc_uuid``'s use of its own
+    ``locked_dependencies`` data). When omitted, it auto-matches
+    *project_dir*'s own ``[tool.pitloom] use-lockfile`` config.
     """
-    project_metadata, _pitloom_config, _config_path = read_project(project_dir)
-    merkle_root, project_files = get_wheel_files(project_dir)
+    project_metadata, _pitloom_config, _config_path = resolve_project_with_lockfile(
+        project_dir, use_lockfile
+    )
+    # allow_build intentionally omitted (stays False): this doc-identity
+    # helper is only reachable from the model/enrich commands, which have
+    # no --allow-build CLI flag of their own to read. The returned
+    # cleanup is therefore always a no-op; call it immediately.
+    merkle_root, project_files, _cleanup = get_wheel_files(project_dir)
+    _cleanup()
     project_metadata.files = project_files
     doc_uuid = compute_doc_uuid(
         name=project_metadata.name,
         version=project_metadata.version or "unknown",
         dependencies=project_metadata.dependencies,
         merkle_root=merkle_root,
+        locked_dependencies=project_metadata.locked_dependencies,
+        locked_dependencies_provenance=project_metadata.provenance.get(
+            "locked_dependencies"
+        ),
     )
     return project_metadata.name, doc_uuid
 
@@ -158,6 +189,7 @@ def enrich_model(
     enrich: bool | None = None,
     project_target: Path | str | None = None,
     registry: str | Path | IdRegistry | None = None,
+    use_lockfile: bool | None = None,
 ) -> str:
     """Run enrichment only for a local model file."""
     configure_logging()
@@ -173,13 +205,23 @@ def enrich_model(
     model_path = Path(source)
     model = read_ai_model(model_path)
     model_dir = model_path.parent
+    # Unlike generate_model_sbom()/generate_project_sbom(), [tool.pitloom]
+    # enrich is NOT consulted as an "off by default" gate here: calling
+    # enrich_model() at all is itself the opt-in (see
+    # test_enrich_model_writes_bare_graph_fragment's docstring). Only an
+    # explicit enrich=False turns it back off.
     enrich_config = dataclasses.replace(
         _resolve_model_enrich_config(model_dir), local=enrich is not False
     )
     results = run_enrichers(model, enrich_config, model_dir)
 
+    if use_lockfile is not None and project_target is None:
+        warn_use_lockfile_no_effect(
+            source_str,
+            "without --project-dir (no base document identity is computed)",
+        )
     base_doc_identity = (
-        _project_doc_identity(Path(project_target))
+        _project_doc_identity(Path(project_target), use_lockfile=use_lockfile)
         if project_target is not None
         else None
     )

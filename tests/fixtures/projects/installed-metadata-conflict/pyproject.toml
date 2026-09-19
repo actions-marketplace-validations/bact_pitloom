@@ -1,0 +1,17 @@
+# SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
+# SPDX-License-Identifier: CC0-1.0
+
+# Genuine version conflict between this pyproject.toml and the in-tree
+# sampleproject_installed_conflict.egg-info/PKG-INFO byproduct sitting
+# next to it -- used by tests/extract/project/test_installed.py and the
+# manual determinism/CLI check in CLAUDE.md's "Manual CLI integration
+# checks" section.
+
+[project]
+name = "sampleproject-installed-conflict"
+version = "1.0.0"
+requires-python = ">=3.10"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"

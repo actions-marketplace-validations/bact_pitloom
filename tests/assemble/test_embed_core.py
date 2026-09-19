@@ -13,13 +13,16 @@ siblings, split from the original test_embed.py.
 from __future__ import annotations
 
 import json
+import logging
 import os
+import shutil
 import stat
 import subprocess
 import sys
 import tempfile
 import zipfile
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 from installer.sources import WheelFile
@@ -146,7 +149,7 @@ def test_embed_sbom_missing_dist_info_raises(tmp_path: Path) -> None:
 
 def test_embed_wheel_sbom_with_pregenerated_sbom(tmp_path: Path) -> None:
     """Test embed_wheel_sbom with a pre-generated SBOM path."""
-    wheel_path = _make_dummy_wheel(tmp_path, "pregen_pkg", "0.5.0")
+    wheel_path = _make_dummy_wheel(tmp_path, "demo_pkg", "1.0.0")
     sbom_file = tmp_path / "custom.spdx3.json"
     sbom_file.write_text(_SAMPLE_SPDX3_JSON, encoding="utf-8")
     out_file = tmp_path / "extracted_sbom.json"
@@ -157,12 +160,46 @@ def test_embed_wheel_sbom_with_pregenerated_sbom(tmp_path: Path) -> None:
         output_path=out_file,
     )
     assert res_path == wheel_path
-    assert arcname.endswith(".dist-info/sboms/pregen_pkg-0.5.0.spdx3.json")
+    assert arcname.endswith(".dist-info/sboms/demo_pkg-1.0.0.spdx3.json")
     assert sbom_json == _SAMPLE_SPDX3_JSON
     assert out_file.read_text(encoding="utf-8") == _SAMPLE_SPDX3_JSON
 
     with WheelFile.open(wheel_path) as wf:
         wf.validate_record()
+
+
+def test_embed_wheel_sbom_missing_metadata_name_does_not_false_mismatch(
+    tmp_path: Path,
+) -> None:
+    """A wheel whose METADATA has no Name: header must not be compared
+    against the SBOM using the "unknown" sentinel `ProjectMetadata.name`
+    otherwise defaults to -- that would either report a bogus mismatch
+    or silently "match" any SBOM literally named "unknown". The
+    cross-check must treat a missing header as "can't compare" (WARNING,
+    non-fatal), same as verify-wheel's own path, not as a false mismatch
+    against a placeholder value."""
+    wheel_path = tmp_path / "noname-1.0.0-py3-none-any.whl"
+    dist_info = "noname-1.0.0.dist-info"
+    with zipfile.ZipFile(wheel_path, "w") as zf:
+        # No "Name:" header at all -- read_wheel()'s ProjectMetadata.name
+        # would otherwise stay at its "unknown" sentinel default.
+        zf.writestr(f"{dist_info}/METADATA", "Metadata-Version: 2.1\nVersion: 1.0.0\n")
+        zf.writestr(
+            f"{dist_info}/WHEEL",
+            "Wheel-Version: 1.0\nGenerator: test\nRoot-Is-Purelib: true\n"
+            "Tag: py3-none-any\n",
+        )
+        zf.writestr(f"{dist_info}/RECORD", "")
+
+    sbom_file = tmp_path / "sbom.spdx3.json"
+    sbom_file.write_text(_SAMPLE_SPDX3_JSON, encoding="utf-8")  # subject: demo_pkg
+
+    # Must not raise -- a missing wheel-side name is "can't compare", not
+    # a mismatch against the SBOM's real "demo_pkg" name.
+    embed_wheel_sbom(wheel_path, sbom_path=sbom_file)
+
+    with zipfile.ZipFile(wheel_path) as zf:
+        assert any(n.endswith(".spdx3.json") and "/sboms/" in n for n in zf.namelist())
 
 
 def test_embed_wheel_sbom_with_project_fixture(tmp_path: Path) -> None:
@@ -204,6 +241,71 @@ def test_embed_wheel_sbom_with_project_fixture(tmp_path: Path) -> None:
     assert val_res.returncode == 0, (
         f"spdx3-validate failed: {val_res.stderr} {val_res.stdout}"
     )
+
+
+def test_embed_wheel_sbom_ignores_conflicting_in_tree_egg_info(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Real end-to-end regression (plan's Case 14) for the installed-
+    metadata source's ``include_installed_metadata=False`` gate on
+    embed-wheel's actual call sites (``embed.py``'s
+    ``_generate_embed_sbom_json``, ``cli/commands/embed_wheel.py``'s
+    ``_resolve_project_dir_and_config``) -- not just a direct
+    ``read_project()`` call. Unlike a bare ``read_project()`` unit test,
+    this exercises the real ``embed_wheel_sbom()`` entry point, so it
+    would catch a future edit that drops the kwarg from either call site.
+
+    ``embed_wheel_sbom()`` already sources its SBOM's project metadata
+    from the *wheel's own* embedded ``.dist-info/METADATA`` (via
+    ``extract/wheel.py``'s ``read_wheel()``), never from
+    ``read_project()`` -- so the assertion that actually matters here is
+    that the conflicting in-tree ``.egg-info`` produces zero observable
+    effect at all: no ``WARNING:`` on stderr/logs, and byte-identical
+    SBOM output whether or not it's present.
+    """
+    fixture = (
+        Path(__file__).parent.parent
+        / "fixtures"
+        / "projects"
+        / "installed-metadata-conflict"
+    )
+    project_with_conflict = tmp_path / "with_conflict"
+    shutil.copytree(fixture, project_with_conflict)
+    project_without_conflict = tmp_path / "without_conflict"
+    shutil.copytree(
+        fixture,
+        project_without_conflict,
+        ignore=shutil.ignore_patterns("*.egg-info"),
+    )
+    assert list(project_with_conflict.glob("*.egg-info"))
+    assert not list(project_without_conflict.glob("*.egg-info"))
+
+    wheel_with = _make_dummy_wheel(
+        tmp_path / "wheel_with", "sampleproject_installed_conflict", "1.0.0"
+    )
+    wheel_without = _make_dummy_wheel(
+        tmp_path / "wheel_without", "sampleproject_installed_conflict", "1.0.0"
+    )
+
+    # Pin the SBOM's `created` timestamp so the two runs are byte-for-byte
+    # comparable regardless of wall-clock skew between them (see
+    # test_embed_sbom_source_date_epoch_reproducibility above).
+    monkeypatch.setenv("SOURCE_DATE_EPOCH", "1700000000")
+
+    with caplog.at_level(logging.WARNING):
+        _, _, sbom_with_conflict, _, _ = embed_wheel_sbom(
+            wheel_with, project_dir=project_with_conflict
+        )
+    assert "disagrees on" not in caplog.text
+    assert "egg-info" not in caplog.text
+
+    _, _, sbom_without_conflict, _, _ = embed_wheel_sbom(
+        wheel_without, project_dir=project_without_conflict
+    )
+
+    assert json.loads(sbom_with_conflict) == json.loads(sbom_without_conflict)
 
 
 def test_cli_embed_wheel_single(
@@ -294,12 +396,36 @@ def test_embed_sbom_empty_content_raises(tmp_path: Path) -> None:
         embed_sbom_in_wheel(wheel_path, "   \n\t  ")
 
 
-def test_embed_sbom_preserves_file_permissions(tmp_path: Path) -> None:
-    """Test embed_sbom_in_wheel preserves original filesystem permissions."""
+def test_embed_sbom_preserves_file_permissions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test embed_sbom_in_wheel preserves original filesystem permissions.
+
+    Windows: NTFS has no POSIX group/other granularity -- os.chmod() only
+    toggles the single read-only attribute, so mode 0o644 (owner-writable)
+    round-trips as 0o666 (world-writable) rather than bit-for-bit. Worse,
+    a fresh 0o644 target is writable by default anyway (the replacement
+    file embed_sbom_in_wheel() builds via tempfile.NamedTemporaryFile is
+    already writable before any chmod runs), so a stat()-based assertion
+    would pass even if the restore call in
+    src/pitloom/_embed_wheel.py's os.chmod(wheel_obj, orig_mode) were
+    deleted entirely. No black-box (stat-based) check can distinguish
+    "restored" from "never touched" on this platform, so spy on the
+    os.chmod call's own arguments instead -- a deliberate mechanism-level
+    check forced by the platform, not a preference for testing internals.
+    """
     wheel_path = _make_dummy_wheel(tmp_path, "perm_pkg", "1.0.0")
     target_mode = stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH  # 0o644
     os.chmod(wheel_path, target_mode)
 
+    if sys.platform == "win32":
+        expected_orig_mode = wheel_path.resolve().stat().st_mode
+        chmod_spy = Mock(wraps=os.chmod)
+        monkeypatch.setattr("pitloom._embed_wheel.os.chmod", chmod_spy)
+
     embed_sbom_in_wheel(wheel_path, _SAMPLE_SPDX3_JSON)
     current_mode = stat.S_IMODE(wheel_path.stat().st_mode)
-    assert current_mode == target_mode
+    if sys.platform == "win32":
+        chmod_spy.assert_called_once_with(wheel_path.resolve(), expected_orig_mode)
+    else:
+        assert current_mode == target_mode

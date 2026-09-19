@@ -20,6 +20,7 @@ from spdx_python_model.bindings import v3_0_1 as spdx3
 from pitloom.assemble.spdx3.provenance import build_source_metadata_annotation
 from pitloom.core.ai_metadata import AiModelFormat, AiModelMetadata
 from pitloom.core.models import build_relationship, generate_spdx_id
+from pitloom.core.project import project_relative_or_fallback
 from pitloom.export.spdx3_json import Spdx3JsonExporter, require_spdx_id
 from pitloom.ids import IdRegistry
 
@@ -98,7 +99,20 @@ def _lookup_ai_model_entity(
     if ai_model.name:
         candidates.append(ai_model.name)
     if ai_model.format_info.physical_path:
-        candidates.append(ai_model.format_info.physical_path)
+        # physical_path is an absolute path into a fresh
+        # tempfile.mkdtemp() extraction directory for a build-and-read
+        # (--allow-build) discovered model (see
+        # ProjectFile.physical_path's docstring) -- it never matches a
+        # registry entry keyed by a project-relative path. Fall back to
+        # file_path_relative, the same "prefer distribution_path over
+        # an absolute physical_path" rule
+        # _document_files.py/enrich's own fixes apply.
+        resolved = project_relative_or_fallback(
+            ai_model.format_info.physical_path,
+            ai_model.format_info.file_path_relative or "",
+        )
+        if resolved:
+            candidates.append(resolved)
     if ai_model.format_info.file_name:
         candidates.append(Path(ai_model.format_info.file_name).stem)
 

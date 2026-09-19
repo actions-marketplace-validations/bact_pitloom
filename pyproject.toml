@@ -5,7 +5,7 @@
 # pitloom is listed here so that isolated builds (pip install pitloom) embed the
 # SBOM via the Hatchling hook.  For CI and local dev, build with --no-isolation
 # so the current checkout is used instead of the PyPI-published version.
-requires = ["hatchling>=1.32.0", "pitloom"]
+requires = ["hatchling>=1.29.0", "pitloom"]
 build-backend = "hatchling.build"
 
 [project]
@@ -21,6 +21,7 @@ keywords = [
     "spdx",
     "supply-chain-security",
     "hatchling",
+    "poetry",
     "bom",
     "aibom",
     "provenance",
@@ -53,16 +54,29 @@ classifiers = [
     "Topic :: Security",
     "Typing :: Typed",
 ]
+# hatchling/setuptools/poetry-core/flit_core/pdm-backend: Track A backend
+# libs, kept mandatory (lightweight; gate file-discovery accuracy, not
+# metadata). Revisit if Track A grows. Track B
+# (maturin/scikit-build-core/meson-python) should be an optional extra
+# when added -- see roadmap.md "Dependency packaging strategy".
 dependencies = [
-    "auditwheel>=6.8.1; sys_platform == 'linux'",
-    "hatchling>=1.32.0",
+    "auditwheel>=6.8.2; sys_platform == 'linux'",
+    "flit_core>=3.9",
+    "hatchling>=1.29.0",
     "licenseid>=0.3.7",
-    "pipdeptree>=4.2.0",
+    # 25.0 floor: `packaging.markers.Marker` only accepts the PEP 751
+    # `extras`/`dependency_groups` pseudo-environment variable names
+    # starting at this release (24.x raises InvalidMarker for them) --
+    # required by pitloom.extract.lock.pylock's default-groups filtering.
+    "packaging>=25.0",
+    "pdm-backend>=2.4.1",
+    "pipdeptree>=4.2.3",
+    "poetry-core>=2.4.1",
     "py-spdx-license>=0.0.1,<1",
     "pyproject-metadata>=0.12.1",
     "pyyaml>=6.0.3,<7",
     "rfc8785>=0.1.4",
-    "setuptools>=70",
+    "setuptools>=84.0.0",
     "spdx-python-model==0.0.6",
     "tomli>=2.4.1; python_version<'3.11'",
 ]
@@ -72,22 +86,37 @@ pitloom = "pitloom.plugins.hatch"
 
 [project.optional-dependencies]
 ai = [
-    "fasttext==0.9.3",                          # or fasttext-community>=0.11.7
+    # fasttext-community is a drop-in replacement (still `import fasttext`)
+    # with prebuilt wheels for Windows/macOS/Linux across Python 3.9-3.14,
+    # unlike fasttext==0.9.3 which has no Windows wheel and fails building
+    # from source on CI.
+    "fasttext-community>=0.11.8",
     "fickling>=0.1.12",
     "gguf>=0.19.0",
     "h5py>=3.16.0",
-    "huggingface_hub>=1.22.0",
+    "huggingface_hub>=1.29.0",
     "numpy>=2.2.6,<2.3; python_version<'3.11'", # based on wheel availability
     "numpy>=2.3.5,<3; python_version>='3.11'",  # based on wheel availability
     "onnx>=1.22.0",
     "safetensors[numpy]>=0.8.0",
 ]
+# PyPA build: powers --allow-build's build-and-read file discovery
+# (pitloom.core._models_wheel_build_and_read). Optional -- the mechanism
+# executes third-party build-time code, and is a categorically heavier,
+# opt-in mechanism, unlike the mandatory Track A backend libs above. See
+# working-docs/design/non-hatchling-file-discovery.md's "Dependency
+# packaging strategy". pyproject_hooks comes in transitively via build.
+build = ["build>=1.2.2"]
 content-type = ["magika>=1.0.3"]
 
-fasttext = ["fasttext==0.9.3"] # or fasttext-community>=0.11.7
+fasttext = [
+    # Same rationale as the "ai" extra's fasttext line above -- keep both
+    # in sync.
+    "fasttext-community>=0.11.8",
+]
 gguf = ["gguf>=0.19.0"]
 hdf5 = ["h5py>=3.16.0"]
-huggingface_hub = ["huggingface_hub>=1.22.0"]
+huggingface_hub = ["huggingface_hub>=1.29.0"]
 numpy = [
     "numpy>=2.2.6,<2.3; python_version<'3.11'",
     "numpy>=2.3.5,<3; python_version>='3.11'",
@@ -95,6 +124,7 @@ numpy = [
 onnx = ["onnx>=1.22.0"]
 pytorch = ["fickling>=0.1.12"]
 safetensors = ["safetensors[numpy]>=0.8.0"]
+validate = ["spdx3-validate>=0.0.7"]
 
 [project.scripts]
 loom = "pitloom.__main__:main"    # default command-line entry point
@@ -115,10 +145,11 @@ lint = [
     "flake8>=7.3.0",
     "flake8-cognitive-complexity>=0.1.0",
     "pip-audit>=2.10.1",
-    "pylint>=4.0.7",
-    "ruff>=0.16.3",
+    "pylint>=4.0.8",
+    "ruff>=0.16.7",
 ]
 test = [
+    "build>=1.2.2",                # for the uv_build build-and-read integration test
     "check-wheel-contents>=0.6.3",
     "installer>=1.0.1",
     "pytest>=9.1.1",
@@ -129,15 +160,16 @@ test = [
 ]
 typecheck = [
     "mypy>=2.3.1",
-    "pyrefly>=1.2.0",
-    "pyright>=1.1.411",
-    "types-setuptools>=80",
+    "pyrefly>=1.3.0",
+    "pyright>=1.1.414",
+    "types-PyYAML>=6.0.12.20260906",
+    "types-setuptools>=84.0.0.20260812",
 ]
 docs = [
     "mkdocs>=1.6.1",
-    "mkdocs-material>=9.6.0",
+    "mkdocs-material>=9.7.7",
     "mkdocstrings[python]>=1.0.6",
-    "ruff>=0.16.3",
+    "ruff>=0.16.7",
 ]
 dev = [
     { include-group = "lint" },
@@ -184,10 +216,13 @@ exclude = [
     "tests/fixtures/croissant/*.json",
     "tests/fixtures/fragments/*.json",
     "tests/fixtures/huggingface-hub/*.txt",
+    "tests/fixtures/real-world-projects/",
+    "tests/fixtures/real-world-locks/",
 ]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/pitloom"]
+exclude = ["tests/fixtures/"]
 
 [tool.hatch.version]
 path = "src/pitloom/__about__.py"
@@ -218,6 +253,10 @@ module = "fickling.*"
 
 [[tool.mypy.overrides]]
 ignore_missing_imports = true
+module = ["flit_core", "flit_core.*"]
+
+[[tool.mypy.overrides]]
+ignore_missing_imports = true
 module = "h5py.*"
 
 [[tool.mypy.overrides]]
@@ -228,16 +267,12 @@ module = "magika.*"
 ignore_missing_imports = true
 module = "py_spdx_license.*"
 
-[[tool.mypy.overrides]]
-ignore_missing_imports = true
-module = "yaml.*"
-
 # safetensors safe_open and sys.modules typing changed across library versions.
 # These modules carry type: ignore comments that may be needed on older versions
 # but become unused on newer ones; suppress the churn.
 [[tool.mypy.overrides]]
 warn_unused_ignores = false
-module = "pitloom.extract._safetensors"
+module = "pitloom.extract.ai_model.safetensors"
 
 [tool.pitloom]
 pretty = true
@@ -256,15 +291,15 @@ init-hook = "import sys; sys.path.insert(0, 'src'); sys.path.insert(0, 'examples
 source-roots = ["src", "examples/sentimentdemo-aibom/src"]
 
 [tool.pylint.design]
-max-args = 6                  # Target: 5
-max-attributes = 12           # Target: 10
-max-branches = 12             # Target: 12
-max-locals = 17               # Target: 15
-max-nested-blocks = 5         # Target: 4
-max-positional-arguments = 6  # Track max-args
-max-public-methods = 20       # Target: 20
-max-returns = 6               # Target: 6
-max-statements = 50           # Target: 50
+max-args = 6                 # Target: 5
+max-attributes = 12          # Target: 10
+max-branches = 12            # Target: 12
+max-locals = 17              # Target: 15
+max-nested-blocks = 5        # Target: 4
+max-positional-arguments = 6 # Track max-args
+max-public-methods = 20      # Target: 20
+max-returns = 6              # Target: 6
+max-statements = 50          # Target: 50
 
 [tool.pylint.format]
 max-line-length = 88
@@ -272,7 +307,8 @@ max-line-length = 88
 [tool.pytest.ini_options]
 addopts = [
     "--import-mode=importlib",
-    "-n", "auto",
+    "-n",
+    "auto",
     "--dist=loadscope",
     "--strict-markers",
     "--strict-config",
@@ -285,10 +321,29 @@ markers = [
 # OpenSSF Best Practices "warnings_strict": promote every runtime warning
 # (DeprecationWarning, ResourceWarning, pytest's own internal warnings,
 # etc.) to a hard test failure instead of a silently-printed summary line.
-# Currently zero warnings fire across the suite; a specific, scoped
-# "ignore" entry (not a blanket one) is the fix if a genuine
-# can't-avoid-it warning shows up later.
-filterwarnings = ["error"]
+# A specific, scoped "ignore" entry (not a blanket one) is the fix for a
+# genuine can't-avoid-it warning.
+filterwarnings = [
+    "error",
+    # rdflib's own JSON-LD parser (invoked by spdx3-validate, exercised by
+    # `loom fragment validate`'s tests) instantiates the deprecated
+    # ConjunctiveGraph internally; nothing Pitloom-side to fix.
+    "ignore:ConjunctiveGraph is deprecated:DeprecationWarning:rdflib.plugins.parsers.jsonld",
+    # setuptools' own pyproject.toml applier (invoked by
+    # _models_wheel_setuptools.discover(), a real-library-delegation
+    # module that reads a target *project's* pyproject.toml, not
+    # Pitloom's own) warns -- never raises outside pytest -- on legacy
+    # pre-PEP-639 metadata forms a real-world project may still use
+    # (`project.license` as a TOML table, `tool.setuptools.license-files`,
+    # `License ::` trove classifiers). Nothing Pitloom-side to fix: this
+    # is the *target* project's own metadata style, not something
+    # discover() emits. No message component -- multiple distinct
+    # deprecation messages come from this one module for this one class
+    # of legacy metadata, and pinning to setuptools' verbose, multi-line
+    # message text would be far more brittle than scoping to the
+    # category+module setuptools itself uses for exactly this warning.
+    "ignore::setuptools.warnings.SetuptoolsDeprecationWarning:setuptools.config._apply_pyprojecttoml",
+]
 
 [tool.pylint.messages_control]
 disable = [

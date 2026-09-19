@@ -1,5 +1,5 @@
 ---
-Last-Modified: 2026-08-30
+Last-Modified: 2026-09-18
 SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 SPDX-FileType: DOCUMENTATION
 SPDX-License-Identifier: CC0-1.0
@@ -17,7 +17,151 @@ and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Full release notes: <https://github.com/bact/pitloom/releases>
-- Commit history: <https://github.com/bact/pitloom/compare/v0.16.4...v0.17.0>
+- Commit history: <https://github.com/bact/pitloom/compare/v0.18.1...v0.19.0>
+
+## [0.19.0] - 2026-09-18
+
+### Changed
+
+- GitHub Action installs the Pitloom version of its pinned ref (tag or SHA)
+  instead of the latest release; `pitloom-version` still overrides ([#224])
+- GitHub Action uses the workflow's Python unless `python-version` is set;
+  falls back to `setup-python` 3.x with a warning if unusable;
+  no longer runs `pip --upgrade pip` ([#224])
+
+### Fixed
+
+- GitHub Action failed on Windows runners and on `args` under macOS's bash 3.2;
+  unbalanced `args` quoting is now an error ([#224])
+
+[#224]: https://github.com/bact/pitloom/pull/224
+
+## [0.18.1] - 2026-09-18
+
+### Added
+
+- `FragmentConfig` dataclass for `[tool.pitloom.fragment]` entries --
+  role/description/required/sha256/link-to-main, backward-compatible
+  with plain path strings ([#217])
+- `loom fragment list` CLI command -- shows each configured
+  fragment's existence, element count, and SHA-256 match status ([#217])
+
+### Changed
+
+- Switch from `fasttext` to `fasttext-community` on Python < 3.14 to have
+  better Windows support ([#220])
+- CI workflows share Python setup via a local composite action
+  (`.github/actions/setup-python`) instead of hand-copying it 10 times
+  ([#221])
+- Use `fasttext-community` on all supported Python versions, including
+  3.14, now that upstream ships 3.14 wheels ([#222])
+- Lower the Hatchling build-hook floor from `>=1.32.0` to the real
+  technical minimum `>=1.29.0` (native PEP 770 `sbom_files` support)
+  ([#223])
+- Broaden `skills/*/SKILL.md` trigger coverage (CISA/NTIA/G7 combined
+  requests, wheel-embedded SBOM presence vs. validity checks) and
+  document the Loom ID registry's id-stability mechanism ([#223])
+
+### Fixed
+
+- Fix Hatchling build hook to work with Hatchling >=1.32.0, including the
+  undocumented `BuildHookInterface` arity change in 1.32.3+ ([#222])
+
+[#217]: https://github.com/bact/pitloom/pull/217
+[#220]: https://github.com/bact/pitloom/pull/220
+[#221]: https://github.com/bact/pitloom/pull/221
+[#222]: https://github.com/bact/pitloom/pull/222
+[#223]: https://github.com/bact/pitloom/pull/223
+
+## [0.18.0] - 2026-09-16
+
+### Added
+
+- Poetry backend wheel file discovery and lock parsing ([#198])
+- `loom fragment validate` CLI command, using `spdx3-validate`'s
+  library API ([#200])
+- `--debug`/`--no-debug` flags / `PITLOOM_DEBUG` env var to surface
+  `DEBUG:`-level diagnostics on stderr ([#201])
+- `loom verify-wheel`/`validate-wheel` CLI commands and matching
+  `embed-wheel --verify`/`--validate` flags ([#202])
+- SBOM name/version cross-check to `verify-wheel`,
+  with `--fail-on-mismatch` to make a mismatch fatal ([#204])
+- SBOM name/version cross-check to `embed-wheel --sbom`,
+  aborts on mismatch unless `--allow-mismatch` ([#204])
+- PDM-backend and Flit-core metadata extraction and wheel file
+  discovery ([#205])
+- PEP 639 `[project.license-files]` support: each declared license
+  file gets a file reference to the real wheel's `.dist-info/licenses/` path
+  ([#207])
+- Resolved-dependency parsing for `loom project`/`loom generate`
+  from `pylock.toml` (PEP 751), `uv.lock`, `pdm.lock`, `Pipfile.lock`,
+  and a fully pinned `requirements.txt` -- see [Dependency sources and
+  precedence](docs/dependency-sources.md) ([#208])
+- `--no-use-lockfile`/`[tool.pitloom] use-lockfile` opt-out for the
+  resolved-dependency cascade above ([#210])
+- `--offline`/`--use-lockfile` as `action.yml` inputs ([#210])
+- Conflict detection for dependency version (declared specifier
+  vs. lock-resolved version) ([#211])
+- Use lock-file SHA-256 hashes for SPDX 3 `verifiedUsing` in offline
+  builds and prioritised over PyPI online ([#212])
+- In-tree `.egg-info`/`.dist-info` as a supplementary project-metadata
+  source: gap-fills undeclared fields, flags disagreement as a conflict
+  Annotation ([#214])
+- `--allow-build`/`--no-build-isolation`: opt-in build-and-read file
+  discovery via a real PEP 517 build ([#215], [#216])
+
+### Fixed
+
+- `read_project()` no longer returns empty metadata for a
+  `[build-system]`-only `pyproject.toml` when `setup.cfg`/`setup.py`
+  hold the real metadata; no longer drops a `[tool.pitloom]` section
+  already resolved from `pyproject.toml` in that case ([#205])
+- `[tool.setuptools.dynamic] version = {attr = "..."}`/`{file = "..."}`
+  now resolves when a `[project]` table is present ([#205])
+- `detect_license_from_text()` no longer fuzzy-matches license labels
+  under 100 characters ([#205])
+- Flit metadata/wheel-discovery no longer execute project code to
+  resolve a computed `version`/`description` ([#205])
+- PDM wheel discovery no longer writes to disk for
+  `[tool.pdm.version] source = "scm"` with `write_to`, and no longer
+  leaks stale `.pdm-build/` content into the discovered file list
+  ([#205])
+- `embed-wheel --project-dir` now shows the real reason when project
+  metadata can't be resolved ([#205])
+- `loom enrich --project-dir` no longer always ran the lock-file cascade
+  when computing the base document's identity, regardless of the base
+  SBOM's own setting -- silently produced dangling fragment references
+  ([#210])
+
+### Changed
+
+- Promote 18 log messages from `DEBUG:` to `WARNING:` (shown by
+  default, not just under `--debug`) where a failure silently drops
+  data from the generated SBOM: Hugging Face Hub fetch failures
+  (model card, `model_info()`, license files), PyTorch/PT2
+  pickle/graph/metadata parse failures, fastText args/labels reads,
+  README enrichment frontmatter, sdist `pyproject.toml` fallback
+  parsing, and `pitloom.loom` caller-provenance detection. Each promoted
+  message names the affected SBOM field(s) via one grep-able shape,
+  `... | Field(s) affected (skipped|degraded): <name>` ([#201])
+- `embed-wheel` skips per-file SHA-256 hashing in `get_wheel_files()`'s
+  source-tree rescan ([#213])
+
+[#198]: https://github.com/bact/pitloom/pull/198
+[#200]: https://github.com/bact/pitloom/pull/200
+[#201]: https://github.com/bact/pitloom/pull/201
+[#202]: https://github.com/bact/pitloom/pull/202
+[#204]: https://github.com/bact/pitloom/pull/204
+[#205]: https://github.com/bact/pitloom/pull/205
+[#207]: https://github.com/bact/pitloom/pull/207
+[#208]: https://github.com/bact/pitloom/pull/208
+[#210]: https://github.com/bact/pitloom/pull/210
+[#211]: https://github.com/bact/pitloom/pull/211
+[#212]: https://github.com/bact/pitloom/pull/212
+[#213]: https://github.com/bact/pitloom/pull/213
+[#214]: https://github.com/bact/pitloom/pull/214
+[#215]: https://github.com/bact/pitloom/pull/215
+[#216]: https://github.com/bact/pitloom/pull/216
 
 ## [0.17.0] - 2026-08-30
 
@@ -36,7 +180,6 @@ and this project adheres to
 
 ### Changed
 
-- Reorganize Hugging Face tests ([#187])
 - Split `get_wheel_files()` into a per-backend discovery module + registry,
   ready for Poetry/PDM/Flit-core/`uv_build` ([#196])
 - **Setuptools projects**: SBOM element ids shift vs. pre-upgrade output --
@@ -44,8 +187,6 @@ and this project adheres to
 
 ### Fixed
 
-- Prune unreachable branches in  `_pyproject.py`, `_setuptools_cfg.py`
-  ([#188], [#195])
 - Only declare the `simpleLicensing` profile when a real license claim was
   made ([#190])
 - Setuptools `packages.find where=` layouts no longer report wrong
@@ -70,11 +211,8 @@ and this project adheres to
   PT2/ExecuTorch) and routes it to model-SBOM generation instead of
   falling through to project-SBOM ([#196])
 
-[#187]: https://github.com/bact/pitloom/pull/187
-[#188]: https://github.com/bact/pitloom/pull/188
 [#189]: https://github.com/bact/pitloom/pull/189
 [#190]: https://github.com/bact/pitloom/pull/190
-[#195]: https://github.com/bact/pitloom/pull/195
 [#196]: https://github.com/bact/pitloom/pull/196
 
 ## [0.16.4] - 2026-08-21
@@ -95,7 +233,7 @@ and this project adheres to
 - `pytest` now fails on any runtime warning
   (`filterwarnings = ["error"]`, plus `--strict-markers`/`--strict-config`) --
   OpenSSF Best Practices `warnings_strict` ([#179])
-- Add Sigstore and provenance attestation to GitHub release ([#180])
+- Publish Sigstore and provenance attestation to GitHub release ([#180])
 
 ### Fixed
 
@@ -159,8 +297,7 @@ and this project adheres to
 - Reorganize configuration parsing architecture: move INI-to-dictionary adapter
   logic entirely into `setuptools.py` ([#152])
 - Restructure CLI architecture: decentralize parser configuration into
-  individual command modules, and replace `__main__.py` static dispatch
-  with dynamic `args.func` routing ([#153])
+  individual command modules ([#153])
 - Split monolithic test files into domain-scoped folders
   (`cli/`, `core/`, `extract/`, `assemble/`) with `conftest.py`
   ([#153], [#155], [#161])
@@ -452,9 +589,9 @@ and a Claude Code plugin.
 
 - Loom ID registry:
   - a stable file/entity -> SPDX ID registry (`loom-ids.json`)
-  - `pitloom ids generate` pins ids (with SHA-256 hashes) for files under
+  - `loom ids generate` pins ids (with SHA-256 hashes) for files under
     chosen paths and for named entities (`--entity`)
-  - `pitloom ids import` harvests ids from an existing SPDX 3 SBOM
+  - `loom ids import` harvests ids from an existing SPDX 3 SBOM
   - `pitloom.loom`, the `loom -m` extractor, the Hatchling build hook, and
     `generate_sbom()` all consult the registry, so the same dataset, script,
     or model carries the same `spdxId` everywhere ([#91])
@@ -741,6 +878,9 @@ release because "Loom" and "Pyloom" were unavailable on PyPI.
 
 ---
 
+[0.19.0]: https://github.com/bact/pitloom/compare/v0.18.1...v0.19.0
+[0.18.1]: https://github.com/bact/pitloom/compare/v0.18.0...v0.18.1
+[0.18.0]: https://github.com/bact/pitloom/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/bact/pitloom/compare/v0.16.4...v0.17.0
 [0.16.4]: https://github.com/bact/pitloom/compare/v0.16.3...v0.16.4
 [0.16.3]: https://github.com/bact/pitloom/compare/v0.16.2...v0.16.3

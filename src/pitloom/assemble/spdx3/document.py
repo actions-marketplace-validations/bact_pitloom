@@ -8,26 +8,36 @@
 Public entry point / facade: the project-SBOM assembly (:func:`build`) and
 its two shared helpers (:func:`_build_creation_bundle`,
 :func:`_build_main_package`) live here; file-element assembly, single-model
-assembly, and deployed-environment assembly are split into
-:mod:`pitloom.assemble.spdx3._document_files`,
-:mod:`pitloom.assemble.spdx3._document_model`, and
-:mod:`pitloom.assemble.spdx3._document_deployed` respectively, and
+assembly, deployed-environment assembly, and locked-dependency handling are
+split into :mod:`pitloom.assemble.spdx3._document_files`,
+:mod:`pitloom.assemble.spdx3._document_model`,
+:mod:`pitloom.assemble.spdx3._document_deployed`, and
+:mod:`pitloom.assemble.spdx3._document_locked_deps` respectively, and
 re-exported below so every previously-public name is still importable from
 this module.
 """
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from spdx_python_model.bindings import v3_0_1 as spdx3
 
+from pitloom.assemble.spdx3._document_conflicts import attach_metadata_field_conflicts
 from pitloom.assemble.spdx3._document_deployed import build_deployed
 from pitloom.assemble.spdx3._document_files import (
     _add_package_files,
     _emit_file_header_metadata,
     _magika_version,
+)
+from pitloom.assemble.spdx3._document_locked_deps import (
+    _dedup_and_locked_versions,
+    _deduplicated_locked_dependencies,
+    _extract_locked_version_map,
+    _locked_dependencies_completeness,
+    _locked_transitive_only_dependencies,
+    _prefetch_combined_release_info,
 )
 from pitloom.assemble.spdx3._document_model import (
     _ai_model_identity,
@@ -36,14 +46,9 @@ from pitloom.assemble.spdx3._document_model import (
 )
 from pitloom.assemble.spdx3.ai import add_ai_models
 from pitloom.assemble.spdx3.creation_info import build_creation_info
-from pitloom.assemble.spdx3.deps import (
-    add_dependencies,
-    add_phantom_dependencies,
-)
-from pitloom.assemble.spdx3.deps_license import (
-    _add_license_noassertion,
-    build_license_elements,
-)
+from pitloom.assemble.spdx3.deps import add_dependencies, add_phantom_dependencies
+from pitloom.assemble.spdx3.deps_installed import _DEFAULT_LOCKED_PROVENANCE
+from pitloom.assemble.spdx3.deps_license import attach_main_package_license
 from pitloom.assemble.spdx3.provenance import (
     ProvenanceEncoder,
     emit_provenance,
@@ -64,8 +69,13 @@ from pitloom.ids import IdRegistry
 __all__ = [
     "_ai_model_identity",
     "_add_package_files",
+    "_deduplicated_locked_dependencies",
     "_emit_file_header_metadata",
+    "_extract_locked_version_map",
+    "_locked_dependencies_completeness",
+    "_locked_transitive_only_dependencies",
     "_magika_version",
+    "_prefetch_combined_release_info",
     "build",
     "build_deployed",
     "build_enrichment_fragment",
@@ -109,7 +119,12 @@ def _build_main_package(
         main_package.software_downloadLocation = download_location
     if metadata.urls.get("Homepage"):
         main_package.software_homePage = metadata.urls.get("Homepage")
-    main_package.software_copyrightText = f"Copyright (c) {datetime.now().year} " + (
+    created = spdx_ci.created
+    if isinstance(created, datetime):
+        created_year = created.year
+    else:
+        created_year = datetime.now(timezone.utc).year
+    main_package.software_copyrightText = f"Copyright (c) {created_year} " + (
         metadata.authors[0].get("name", metadata.name)
         if metadata.authors
         else metadata.name
@@ -179,6 +194,8 @@ def build(
         version=metadata.version or "unknown",
         dependencies=metadata.dependencies,
         merkle_root=merkle_root,
+        locked_dependencies=metadata.locked_dependencies,
+        locked_dependencies_provenance=metadata.provenance.get("locked_dependencies"),
     )
     _clear_doc_counters(doc_uuid)
 
@@ -229,46 +246,50 @@ def build(
     )
 
     # --- License ---
-    if metadata.license_name:
-        spdx_doc.profileConformance.append(spdx3.ProfileIdentifierType.simpleLicensing)
-        rel_declared, rel_concluded = build_license_elements(
-            license_id=metadata.license_name,
-            package_spdx_id=require_spdx_id(main_package),
-            license_provenance=metadata.provenance.get(
-                "license", "Source: pyproject.toml | Field: project.license"
-            ),
-            creation_info=spdx_ci,
-            doc_name=metadata.name,
-            doc_uuid=doc_uuid,
-            exporter=exporter,
-            # G2: only the pyproject.toml [project]-path extractor populates
-            # license_concluded (independent directory scan) -- None here for
-            # any other backend, which keeps this the original single-value
-            # behavior unchanged.
-            concluded_license_id=metadata.license_concluded,
-            concluded_license_provenance=metadata.provenance.get("license_concluded"),
-            provenance_config=prov_cfg,
-            encoder=encoder,
+    attach_main_package_license(
+        metadata=metadata,
+        main_package=main_package,
+        spdx_ci=spdx_ci,
+        spdx_doc=spdx_doc,
+        doc_uuid=doc_uuid,
+        exporter=exporter,
+        provenance_config=prov_cfg,
+        encoder=encoder,
+    )
+
+    # --- Metadata field conflicts (e.g. an in-tree .egg-info/.dist-info
+    # disagreeing with the static source) ---
+    attach_metadata_field_conflicts(
+        metadata=metadata,
+        main_package=main_package,
+        creation_info=spdx_ci,
+        doc_uuid=doc_uuid,
+        exporter=exporter,
+    )
+
+    # --- Locked (e.g. poetry.lock-resolved) transitive-only dependencies ---
+    # Deduplicated once and shared below: a genuine name/version conflict
+    # in metadata.locked_dependencies must warn exactly once per document,
+    # not once per function that would otherwise recompute it, and each
+    # entry's pin is parsed once, not once per consumer.
+    deduplicated_locked, locked_versions = _dedup_and_locked_versions(
+        metadata.locked_dependencies
+    )
+    transitive_only = _locked_transitive_only_dependencies(
+        metadata, deduplicated_locked=deduplicated_locked
+    )
+    release_info_cache = (
+        None
+        if offline
+        else _prefetch_combined_release_info(
+            metadata.dependencies, transitive_only, locked_versions=locked_versions
         )
-        if rel_declared:
-            exporter.add_relationship(rel_declared)
-        if rel_concluded:
-            exporter.add_relationship(rel_concluded)
-    else:
-        # No license declared anywhere pitloom looked -- assert that
-        # explicitly rather than silently omitting the field; see
-        # add_dependencies' identical NOASSERTION policy for dependencies.
-        _add_license_noassertion(
-            main_package,
-            spdx_ci,
-            metadata.name,
-            doc_uuid,
-            exporter,
-            provenance_config=prov_cfg,
-            encoder=encoder,
-        )
+    )
 
     # --- Dependencies ---
+    locked_dependencies_provenance = metadata.provenance.get(
+        "locked_dependencies", _DEFAULT_LOCKED_PROVENANCE
+    )
     add_dependencies(
         dependencies=metadata.dependencies,
         dep_provenance=metadata.provenance.get("dependencies", "Unknown source"),
@@ -281,7 +302,29 @@ def build(
         provenance_config=prov_cfg,
         encoder=encoder,
         content_type_method=content_type_method,
+        release_info_cache=release_info_cache,
+        locked_versions=locked_versions,
+        locked_provenance=locked_dependencies_provenance,
+        locked_hashes=metadata.locked_dependency_hashes,
     )
+
+    if transitive_only:
+        add_dependencies(
+            dependencies=transitive_only,
+            dep_provenance=locked_dependencies_provenance,
+            main_package_spdx_id=require_spdx_id(main_package),
+            creation_info=spdx_ci,
+            doc_name=metadata.name,
+            doc_uuid=doc_uuid,
+            exporter=exporter,
+            offline=offline,
+            provenance_config=prov_cfg,
+            encoder=encoder,
+            content_type_method=content_type_method,
+            release_info_cache=release_info_cache,
+            completeness=_locked_dependencies_completeness(metadata),
+            locked_hashes=metadata.locked_dependency_hashes,
+        )
 
     # --- Files ---
     file_spdx_ids = _add_package_files(
@@ -335,5 +378,11 @@ def build(
             encoder=encoder,
             enrichment_results_by_model=enrichment_results_by_model,
         )
+
+    if (
+        spdx3.ProfileIdentifierType.simpleLicensing not in spdx_doc.profileConformance
+        and exporter.has_licenses
+    ):
+        spdx_doc.profileConformance.append(spdx3.ProfileIdentifierType.simpleLicensing)
 
     return exporter

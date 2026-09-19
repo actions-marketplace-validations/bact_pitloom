@@ -15,10 +15,24 @@ build instructions.
 
 ## Poetry
 
-`sampleproject-poetry/` is a minimal Python package that exercises
-Pitloom's Poetry metadata extraction (`pitloom.extract.poetry`).
-It uses  metadata under ``[tool.poetry]`` and optionally
-``[tool.poetry.dependencies]`` in `pyproject.toml`.
+`sampleproject-poetry/` is a verbatim copy of a real project's
+(mistral-inference) `pyproject.toml`/`poetry.lock`, used to exercise
+Pitloom's Poetry metadata extraction (`pitloom.extract.project.poetry`). It has
+no `src/` package directory on disk -- metadata-only, not usable for wheel
+file discovery.
+
+`sampleproject-poetry-src/` is a minimal, complete `src/`-layout Poetry
+package that exercises Pitloom's Poetry wheel file discovery
+(`pitloom.core._models_wheel_poetry`) via an explicit
+`packages = [{include = ..., from = "src"}]` entry -- the
+`physical_path`/`distribution_path` divergence every backend's discovery
+module must get right.
+
+`sampleproject-poetry-include-exclude/` exercises the same discovery
+module's `include`/`exclude` glob handling: a file outside the
+auto-discovered package directory only appears because of `include`, and
+a file inside the package directory that would be included by default is
+dropped via `exclude`.
 
 ## Setuptools
 
@@ -51,3 +65,69 @@ auto-discovery is never triggered.
 in `pyproject.toml` and `packages`/`package_dir` in `setup.cfg` --
 proves both files are consulted together (not mutually exclusive) for
 wheel file discovery, matching how a real setuptools build treats them.
+
+`sampleproject-setuptools-license-dotted/` exercises PEP 621's TOML
+dotted-key license form (`license.text = "..."`, as seen in
+apple/tree-sitter-pkl's real `pyproject.toml` -- not published on PyPI,
+so vendored here as a small synthetic fixture instead of a real sdist,
+see `tests/fixtures/real-world-projects/README.md`), confirming it
+parses identically to the more common inline-table form (`license =
+{text = "..."}`).
+
+## Flit
+
+`sampleproject-flit/` is a minimal `src/`-layout Flit-core package that
+exercises Pitloom's Flit metadata extraction (`pitloom.extract.project.flit`)
+and wheel file discovery (`pitloom.core._models_wheel_flit`):
+`version`/`description` are PEP 621 `dynamic` fields resolved from the
+module's `__version__` assignment and docstring (flit-core's own
+convention), and the `src/` layout exercises the same
+`physical_path`/`distribution_path` divergence Poetry's `-src` fixture
+does.
+
+## PDM
+
+`sampleproject-pdm/` is a minimal `src/`-layout PDM-backend package that
+exercises Pitloom's PDM metadata extraction (`pitloom.extract.project.pdm`) and
+wheel file discovery (`pitloom.core._models_wheel_pdm`): `version` is a
+PEP 621 `dynamic` field resolved via `[tool.pdm.version] source =
+"file"`, and `[tool.pdm.build] package-dir = "src"` exercises the same
+`physical_path`/`distribution_path` divergence as the Flit/Poetry `-src`
+fixtures.
+
+## In-tree installed metadata (.egg-info / .dist-info)
+
+Small, hand-crafted (not real-`pip`-installed) fixtures exercising
+`pitloom.extract.project.installed` -- an in-tree `.egg-info`/`.dist-info`
+byproduct next to `pyproject.toml`, reconciled into the static metadata
+(see `working-docs/design/installed-dist-info-source.md`). Each pairs a
+minimal `pyproject.toml` with one or more marker files
+(`<name>.egg-info/PKG-INFO`, `<name>-<ver>.dist-info/METADATA`):
+
+- `installed-metadata-conflict/` -- a genuine `version` *and*
+  `requires_python` disagreement between the static and installed
+  sources (static wins, both recorded). Also used for the manual
+  determinism/CLI check in `CLAUDE.md`'s "Manual CLI integration checks".
+- `installed-metadata-agree/` -- PEP 440-equivalent `version`
+  (`"1.0"`/`"1.0.0"`) and spec-equivalent `requires_python`
+  (`">=3.9"`/`">= 3.9"`) -- not a conflict; static's `description`/
+  `keywords` win unconditionally over the installed side's (gap-fill-only
+  fields, both declared).
+- `installed-metadata-name-mismatch/` -- the in-tree egg-info declares an
+  unrelated package name; rejected entirely, not even used for gap-fill.
+- `installed-metadata-dynamic-gap-fill/` -- `dynamic = ["version"]` with
+  no statically-resolvable value; gap-filled from the installed side.
+- `installed-metadata-tiebreak/` -- both a `.egg-info` and a `.dist-info`
+  present, both name-matching; `.dist-info` wins the deterministic
+  tie-break.
+- `installed-metadata-tiebreak-mismatch/` -- two `.egg-info` dirs, only
+  one name-matching; the mismatched one is rejected by the name filter
+  before the tie-break ever runs (no "multiple candidates" warning).
+- `installed-metadata-malformed/` -- the egg-info's `PKG-INFO` is
+  invalid-UTF-8/binary garbage; decodes with `errors="replace"`, never
+  raises.
+- `installed-metadata-missing-marker/` -- a `.egg-info` directory exists
+  with no `PKG-INFO` file inside it.
+- `installed-metadata-decoy-vendor/` -- a decoy
+  `vendor/somepkg.egg-info/PKG-INFO` several directory levels deep, used
+  to confirm the bounded, non-recursive glob never descends into it.

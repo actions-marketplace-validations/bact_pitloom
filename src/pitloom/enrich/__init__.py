@@ -18,8 +18,9 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from pitloom.core.ai_metadata import AiModelMetadata
+from pitloom.core.ai_metadata import AiModelFormatInfo, AiModelMetadata
 from pitloom.core.enrich_config import EnrichConfig
+from pitloom.core.project import project_relative_or_fallback
 from pitloom.enrich.base import Enricher, EnrichmentResult
 from pitloom.enrich.readme import ReadmeEnricher
 
@@ -37,7 +38,7 @@ def run_enrichers(
     that enables but raises is logged and skipped -- one failing source
     must not prevent the others from running, same discipline already
     used for extraction sources elsewhere (e.g.
-    ``_huggingface.py``'s own catch-and-log helpers).
+    ``pitloom.extract.remote.huggingface``'s own catch-and-log helpers).
     """
     sources: list[tuple[bool, Enricher]] = [
         (config.local, ReadmeEnricher()),
@@ -55,6 +56,32 @@ def run_enrichers(
     return results
 
 
+def _resolve_model_search_dir(
+    project_dir: Path, format_info: AiModelFormatInfo
+) -> Path:
+    """Resolve the directory to search for one model's enrichment sources.
+
+    ``format_info.physical_path`` is normally project-root-relative, so
+    joining it onto *project_dir* is safe -- except for a build-and-read
+    discovered file (see ``ProjectFile.physical_path``'s docstring),
+    whose ``physical_path`` is instead an absolute path into a fresh
+    ``tempfile.mkdtemp()`` extraction directory. ``project_dir /
+    Path(physical_path).parent`` with an absolute right-hand operand
+    silently discards *project_dir* (`pathlib`'s own join semantics),
+    resolving into the extracted-wheel tempdir instead of the real
+    project tree -- which won't contain a co-located README the wheel
+    never packaged, silently disabling README enrichment. Fall back to
+    ``file_path_relative`` (the file's wheel-distribution path, always
+    project_dir-relative) in that case, the same "prefer
+    distribution_path over an absolute physical_path" rule
+    ``_document_files.py``'s own determinism fix applies.
+    """
+    physical_path = project_relative_or_fallback(
+        format_info.physical_path or "", format_info.file_path_relative or ""
+    )
+    return project_dir / Path(physical_path).parent
+
+
 def run_enrichers_for_models(
     ai_models: list[AiModelMetadata], config: EnrichConfig, project_dir: Path
 ) -> list[list[EnrichmentResult]]:
@@ -62,7 +89,8 @@ def run_enrichers_for_models(
 
     Each model's own directory (own directory only, no ancestor walk-up,
     same rule the single-model path uses) is resolved from
-    ``format_info.physical_path`` relative to *project_dir*. Returns one
+    ``format_info.physical_path`` relative to *project_dir* -- see
+    :func:`_resolve_model_search_dir` for the one exception. Returns one
     ``list[EnrichmentResult]`` per model, same order as *ai_models* --
     shared by every project-level caller (``generate_project_sbom()``, the
     Hatchling build hook) so the "which directory does this model's
@@ -72,7 +100,7 @@ def run_enrichers_for_models(
         run_enrichers(
             ai_model,
             config,
-            project_dir / Path(ai_model.format_info.physical_path or "").parent,
+            _resolve_model_search_dir(project_dir, ai_model.format_info),
         )
         for ai_model in ai_models
     ]

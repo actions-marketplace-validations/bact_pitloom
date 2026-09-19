@@ -1,6 +1,6 @@
 ---
 Created: 2026-08-11
-Last-Modified: 2026-08-30
+Last-Modified: 2026-09-16
 SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 SPDX-FileType: DOCUMENTATION
 SPDX-License-Identifier: CC0-1.0
@@ -40,6 +40,13 @@ Install with extra content type detection:
 pip install "pitloom[content-type]"
 ```
 
+Install with SPDX 3 schema/SHACL validation support (`loom fragment
+validate`, `loom validate-wheel`):
+
+```bash
+pip install "pitloom[validate]"
+```
+
 ## Usage details
 
 ### Generate an SBOM
@@ -51,19 +58,23 @@ loom project .
 loom project /path/to/project -o sbom.spdx3.json
 ```
 
-> **Limitation:** the per-file inventory (which files are listed, their
-> hashes, and the package's Merkle-root integrity hash) is discovered
-> using each build backend's own file-inclusion rules where supported.
-> Hatchling and setuptools (including `[tool.setuptools.packages.find]
-> where=`, `package_data`, and `include_package_data`/`MANIFEST.in`)
-> are both accurate. For a Poetry, PDM, or Flit project, or any other
-> backend using its own inclusion rules Pitloom doesn't yet understand,
-> the discovery falls back to a Hatchling-based heuristic and logs a
-> warning -- the file list can be silently incomplete or mis-pathed for
-> those. Project-level metadata (name, version, dependencies, license,
-> authors) is unaffected -- it's read independently and isn't subject
-> to this limitation. Backend-aware support for the remaining backends
-> is tracked as a near-term roadmap priority.
+> **Limitation:** the per-file inventory (file list and hashes)
+> is backend-aware and accurate for Flit-core, PDM-backend, Poetry,
+> Hatchling, setuptools, and uv_build
+> (uv_build needs [`--allow-build` flag](#building-a-project-to-discover-its-file-list-allow-build)).
+> Other backends (e.g. maturin, scikit-build-core, meson-python)
+> fall back to a heuristic and log a `WARNING:`.
+
+If a lock file (`pylock.toml`, `uv.lock`, `poetry.lock`, `pdm.lock`,
+`Pipfile.lock`, or a fully pinned `requirements.txt`) is present next
+to `pyproject.toml` (or `setup.py`, for `Pipfile.lock`/`requirements.txt`),
+its resolved transitive dependencies are added to the Source SBOM's
+dependency list too -- see
+[Dependency sources and precedence](dependency-sources.md) for which
+one wins when more than one is present, and what counts as "resolved"
+for each. On by default; pass `--no-use-lockfile` (or set
+`[tool.pitloom] use-lockfile = false`) to fall back to direct dependencies
+and environment introspection only.
 
 Generate an **Analyzed SBOM** from a pre-built wheel (extracting bundled
 binaries as phantom dependencies):
@@ -96,11 +107,61 @@ Or inject an existing pre-generated SBOM into built wheels:
 loom embed-wheel dist/*.whl --sbom sbom.spdx3.json
 ```
 
+`sbom.spdx3.json`'s declared subject name/version (PEP 503/440-normalised)
+is cross-checked against the target wheel's own `.dist-info/METADATA`
+*before* anything is written: a mismatch is an `ERROR:` that aborts the
+embed (exit 1, nothing written); pass `--allow-mismatch` to downgrade it
+to a `WARNING:` and embed anyway (useful for CI/automation that wants
+best-effort embedding). A Pitloom-generated SBOM (no `--sbom`) is never
+checked -- it's built from the same wheel metadata, so it can't diverge.
+
 `--sbom-basename NAME` overrides the embedded file's basename (default:
 derived from the wheel's own name/version, `<name>-<version>.spdx3.json`).
 `-o`/`--output` names the modified wheel's own output path and is
 rejected with an `ERROR:` when more than one wheel is passed -- ambiguous
 without a per-wheel naming scheme; omit it to modify each wheel in place.
+
+Check a wheel's embedded SBOM is at the correct PEP 770 location
+(`.dist-info/sboms/`), uses its format's recommended extension, and its
+declared subject name/version (PEP 503/440-normalised) match the wheel's
+own `.dist-info/METADATA`:
+
+```bash
+loom verify-wheel dist/*.whl
+loom verify-wheel dist/mypackage-1.0.0-py3-none-any.whl --sbom-filename mypackage-1.0.0.spdx3.json
+loom verify-wheel dist/*.whl --fail-on-mismatch
+```
+
+A missing SBOM is an `ERROR:` (exit 1); a present-but-non-conventional
+extension is a `WARNING:` only -- not fatal, still exit 0. Multiple
+`sboms/` entries need `--sbom-filename` to pick one, else it's an
+`ERROR:`. A name/version mismatch is a `WARNING:` by default (exit 0);
+pass `--fail-on-mismatch` to make it an `ERROR:` (exit 1) instead. When
+the SBOM's subject name/version can't be extracted at all (unsupported
+format, or SPDX3 with an unexpected graph shape), the cross-check is
+skipped with a `WARNING:` naming why, regardless of `--fail-on-mismatch`.
+
+Validate a wheel's embedded SBOM content against its format's schema and
+SHACL rules (currently SPDX3 JSON-LD only, via the same `spdx3-validate`
+library used by [`loom fragment validate`](#validate-fragments) --
+needs `pip install "pitloom[validate]"`):
+
+```bash
+loom validate-wheel dist/*.whl
+```
+
+An embedded file in an unrecognised format prints a `WARNING:` and skips
+validation (exit 0) rather than failing -- unsupported isn't the same as
+invalid. `embed-wheel` itself takes `--verify`/`--validate` as convenience
+flags that run these same checks against the wheel just embedded:
+
+```bash
+loom embed-wheel dist/*.whl --project-dir . --verify --validate
+```
+
+Embedding and the post-embed check are independent steps -- a `--verify`/
+`--validate` failure is reported and affects the exit code, but the
+embed itself isn't rolled back.
 
 Or use `--embed` directly on `loom wheel`:
 
@@ -174,6 +235,14 @@ Register the fragment under `[tool.pitloom.fragment]` and re-run
 > base SBOM generated by an older Pitloom version, regenerate that base
 > SBOM first -- otherwise the fragment's element references won't match
 > the base document's ids, and the merge fails outright (see below).
+>
+> The same applies to `--use-lockfile`/`--no-use-lockfile` (see
+> [Generate an SBOM](#generate-an-sbom) above): the document identity
+> also depends on whether the lock-file cascade ran. `loom enrich
+> --project-dir DIR` auto-matches *DIR*'s own `[tool.pitloom] use-lockfile`
+> config when no explicit flag is given, so only pass one here if the
+> base SBOM's own generation used an explicit CLI-flag override that
+> disagreed with that config.
 
 For prose-reading enrichment (an AI agent reading the actual README text,
 not just its frontmatter), see the [Agent Skills](agent-skills.md) page
@@ -191,11 +260,56 @@ id absent from the merge -- most commonly a fragment merged against a
 stale base SBOM (see the note above). Regenerate the base SBOM and
 re-run the fragment-producing step before merging again.
 
-`merge` and `ids` each take only their own small flag set, not the
-common options below -- e.g. `--offline`/`-v`/`--registry`/`--enrich`
-don't apply to either. `merge`'s own `--pretty` also defaults to `True`
-(pretty-printed), the opposite of every other subcommand's compact
-default.
+`merge`, `fragment`, and `ids` each take only their own small flag set,
+not the common options below -- e.g. `--offline`/`-v`/`--registry`/
+`--enrich` don't apply to any of them. `merge`'s own `--pretty` also
+defaults to `True` (pretty-printed), the opposite of every other
+subcommand's compact default.
+
+### Validate fragments
+
+```bash
+loom fragment validate combined.spdx3.json
+loom fragment validate base.spdx3.json fragment.spdx3.json  # + merged-graph check
+```
+
+Checks JSON Schema and SHACL conformance via
+[`spdx3-validate`](https://pypi.org/project/spdx3-validate/)'s library
+API (requires the `validate` extra above). Works on any SPDX 3 JSON
+document, not just Pitloom's own output. Passing more than one path also
+validates the graph formed by merging them, which catches type errors
+across `ExternalMap` references -- pass `--no-merge` to skip that and
+check each document only in isolation. Non-zero exit reports every
+finding to stderr with every line `ERROR:`-tagged -- a SHACL violation's
+Severity/Source Shape/Focus Node breakdown spans several `ERROR:` lines,
+not just one.
+
+### List configured fragments
+
+```bash
+loom fragment list
+loom fragment list --project-dir path/to/project
+```
+
+Reads `[tool.pitloom.fragment]` from that directory's `pyproject.toml`
+(default: cwd) and prints one line per configured fragment:
+
+```text
+PATH=fragments/model.spdx3.json ROLE=ai_model REQUIRED=false EXISTS=true ELEMENTS=42 SHA256=match MODIFIED=2026-09-10T12:00:00+00:00
+```
+
+`ELEMENTS` is the fragment's `@graph` entry count -- `0` for valid JSON
+with no `@graph` key (a real, valid empty fragment), `-` if the file is
+missing, unreadable, or not valid JSON at all; `SHA256` is
+`-`/`unknown`/`match`/`mismatch` depending on whether a `sha256` is
+configured and, if so, whether the file could be checked -- display
+only, not yet enforced before merge.
+A missing or broken fragment logs the same `WARNING:` wording a real
+build would log for it. Exits non-zero only when a `required = true`
+fragment is missing, unreadable, or fails to parse as valid SPDX3
+JSON-LD -- the same conditions that would also fail an actual build
+(see [Merge fragments](#merge-fragments) above); a non-required missing
+fragment or a `SHA256` mismatch is informational only.
 
 ### Pin ids across fragments
 
@@ -204,8 +318,8 @@ would normally get a different `spdxId` in each run. Pin ids ahead of
 time, or reuse ids already present in an SBOM:
 
 ```bash
-pitloom ids generate data src --entity model      # pin ids before running
-pitloom ids import existing-sbom.spdx3.json       # or reuse ids from an SBOM
+loom ids generate data src --entity model      # pin ids before running
+loom ids import existing-sbom.spdx3.json       # or reuse ids from an SBOM
 ```
 
 `ids generate [PATH...]` flags: `-o`/`--registry FILE` (registry file to
@@ -223,12 +337,17 @@ for what's excluded (`ai_AIPackage`, `dataset_DatasetPackage`) and why.
 ## Useful flags
 
 Available on `project`/`generate`/`model`/`wheel`/`embed-wheel`/`env`
-(not `merge`/`ids`, see above), unless noted otherwise:
+(not `merge`/`fragment`/`ids`, see above), unless noted otherwise:
 
 - `-o FILE` / `--output FILE` -- explicit output path.
 - `--pretty` -- indent the JSON for human reading (default: compact).
 - `--offline` -- forbid network access (PyPI/Hugging Face lookups).
   Not on `enrich` either.
+- `--use-lockfile` / `--no-use-lockfile` -- only on `project`/`generate` (not
+  `model`/`wheel`/`embed-wheel`/`env`, which never read a lock file) and
+  `enrich` (for `--project-dir` document identity matching, see
+  [Enrich an SBOM](#enrich-an-sbom)). On by default; see
+  [Dependency sources and precedence](dependency-sources.md).
 - `-v` / `--verbose` -- print effective options and where each came from.
 - `--registry FILE` -- Loom ID registry file path, overriding the
   auto-resolved default -- see [Pin ids across
@@ -242,7 +361,10 @@ Available on `project`/`generate`/`model`/`wheel`/`embed-wheel`/`env`
   `magika` errors immediately if the `magika` package isn't installed,
   `extension` skips magika entirely (stdlib-only).
 
-See [Enrich an SBOM](#enrich-an-sbom) above for `--enrich`/`--no-enrich`.
+See [Enrich an SBOM](#enrich-an-sbom) above for `--enrich`/`--no-enrich`,
+and [Building a project to discover its file list](#building-a-project-to-discover-its-file-list---allow-build)
+below for `--allow-build`/`--no-build-isolation` (only on
+`project`/`generate`/`embed-wheel`).
 
 Every subcommand that writes an SBOM (`project`, `model`, `env`, `wheel`,
 `embed-wheel`) prints `PITLOOM_SBOM_OUTPUT_PATH=<path>` to stdout after
@@ -250,6 +372,88 @@ writing it -- the resolved path, including when a command's own
 default-naming logic picked it rather than an explicit `-o`. Scripts and
 CI can parse this line instead of re-deriving the default-naming logic
 themselves.
+
+## Building a project to discover its file list (`--allow-build`)
+
+Available on `project`/`generate`/`embed-wheel` only (not `wheel`/`enrich`/
+`env`/`model`, which never rescan a project directory).
+
+By default, Pitloom's file discovery is a **static read** of a project's
+build-backend config (Hatchling, setuptools, Poetry, PDM, Flit) -- it
+never executes the project's own build. For a backend with no static
+introspection at all (currently: uv_build), or when a supported
+backend's own static discovery fails on a given project, Pitloom falls
+back to a Hatchling-based heuristic and prints a `WARNING:` -- the file
+list may be inaccurate in that case.
+
+`--allow-build` opts into a more accurate but heavier alternative:
+Pitloom actually invokes the project's own [PEP
+517](https://peps.python.org/pep-0517/) build backend (in a subprocess,
+via [`build`](https://pypi.org/project/build/)) and reads the resulting
+wheel's real file list. This is a **security-relevant** decision --
+it executes third-party build-time code from the project being scanned
+-- so:
+
+- It's off by default and must be passed explicitly every time; there is
+  **no** `[tool.pitloom]` config-file equivalent, unlike every other flag
+  in this guide. A target project's own `pyproject.toml` must never be
+  able to silently opt itself into code execution for whoever scans it.
+- Only enable it for a project whose build script you trust.
+- Requires the optional `pitloom[build]` extra (`pip install
+  pitloom[build]`).
+- By default, the build runs in an isolated temporary environment
+  (installs the project's own `[build-system] requires`, may hit the
+  network -- reuses pip's normal cache across runs). `--no-build-isolation`
+  skips this and uses the current environment's already-installed
+  backend instead (faster, no network); it has no effect without
+  `--allow-build` (logs a `WARNING:` if passed alone).
+- On any failure (network unavailable, backend not installed, build
+  script error), Pitloom falls back to the same Hatchling-heuristic
+  path used without the flag -- `--allow-build`'s worst case is never
+  worse than leaving it off.
+- On `generate`, both flags parse for every target (`generate`
+  auto-detects env/wheel/model-file/Hugging-Face/project targets from
+  one shared parser) but only take effect when the target resolves to a
+  project *directory* -- for any other target, including an sdist
+  archive (whose file list comes from the archive's own listing, not a
+  build), they're a no-op and Pitloom prints a `WARNING:` saying so.
+  The same applies to `embed-wheel` when it can't resolve a project
+  directory to rescan (no `--project-dir` and no `pyproject.toml` in
+  the current directory) or when `--sbom` supplies an
+  already-generated SBOM to embed verbatim.
+
+```bash
+loom project . --allow-build -o sbom.json
+loom project . --allow-build --no-build-isolation -o sbom.json
+```
+
+## Debugging
+
+`--debug` is global -- unlike the flags above, it works before *any*
+subcommand, including `merge`/`fragment`/`ids`:
+
+```bash
+loom --debug project .
+```
+
+Surfaces `DEBUG:`-level diagnostics on stderr (e.g. why a metadata
+extraction step was skipped) that are otherwise suppressed. Setting the
+`PITLOOM_DEBUG` environment variable (`1`/`true`/`yes`/`on`,
+case-insensitive) has the same effect and also covers entry points that
+don't parse this flag themselves: the Hatchling build hook and every
+public library-API function (`generate_project_sbom()`, etc.).
+
+`--no-debug` overrides an ambient `PITLOOM_DEBUG=1` back off for this
+invocation -- useful when it's set globally (a shell profile, CI) and a
+specific invocation should stay quiet. Omitting `--debug` entirely
+(neither flag given) leaves `PITLOOM_DEBUG` as found, ambient or not.
+Under the hood, `--no-debug` sets `PITLOOM_DEBUG=0` in the process
+environment for the rest of the run; this only looks scoped to "one
+run" because the CLI process exits afterward. A script embedding
+Pitloom's library API and calling it more than once in one long-lived
+process should not rely on `--no-debug`/`apply_debug_override(False)`
+to reset itself between calls -- see `apply_debug_override()`'s
+docstring in `pitloom/logging_config.py`.
 
 ## Configuration
 
@@ -316,6 +520,8 @@ does and worked examples.
 
 ## See also
 
+- [Dependency sources and precedence](dependency-sources.md) -- how
+  resolved lock files feed into Source SBOM dependencies.
 - [Python API](python-api.md) -- calling Pitloom from Python code instead
   of the shell.
 - [Hatchling build hook](hatchling-build-hook.md) -- generate the SBOM

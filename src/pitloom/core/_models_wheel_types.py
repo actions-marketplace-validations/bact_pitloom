@@ -5,15 +5,29 @@
 
 """Shared types for per-backend wheel file discovery.
 
-See also: :mod:`pitloom.core._models_wheel` (dispatch facade),
+See also: :mod:`pitloom.core._models_wheel_dispatch` (dispatch facade),
 :mod:`pitloom.core._models_wheel_hatchling`,
 :mod:`pitloom.core._models_wheel_setuptools`.
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import NamedTuple, Protocol, TypedDict
+from typing import TYPE_CHECKING, NamedTuple, Protocol, TypedDict
+
+from pitloom.core.content_type_config import ContentTypeOverride
+
+if TYPE_CHECKING:
+    from pitloom.extract._file_headers import FileHeaderMetadata
+
+BUILD_LOG_PREFIX = "Build: "
+"""Shared ``WARNING:`` sub-prefix for every ``--allow-build``/build-and-
+read-related log message (CLAUDE.md's "CLI output" convention: a shared,
+literal sub-prefix so a subsystem's own messages are easy to grep/compare
+as a group, matching the existing ``"Registry: "`` precedent). One
+constant instead of a hand-copied literal at each call site -- see
+CLAUDE.md's "a pattern hand-copied across 3+ call sites drifts" rule."""
 
 
 class IncludedFile(NamedTuple):
@@ -32,12 +46,13 @@ class IncludedFile(NamedTuple):
 # pylint: disable-next=too-few-public-methods
 class BackendDiscoverer(Protocol):
     """Call signature every backend discovery module's ``discover()`` must
-    share, so the dispatch registry in :mod:`pitloom.core._models_wheel`
-    can call any of them uniformly -- adding a new backend is then one
+    share, so the dispatch registry in
+    :mod:`pitloom.core._models_wheel_dispatch` can call any of them
+    uniformly -- adding a new backend is then one
     module implementing this signature plus one registry entry, never a
     special case at the call site. *pyproject_data*, when given, is the
     already-parsed ``pyproject.toml`` (see
-    :func:`pitloom.extract._setuptools.read_pyproject_toml`); a backend
+    :func:`pitloom.extract.project.setuptools.read_pyproject_toml`); a backend
     that doesn't need it (e.g. Hatchling, which re-reads config itself via
     ``WheelBuilder``) still accepts and ignores the keyword."""
 
@@ -59,13 +74,115 @@ def has_resolvable_pyproject_config(
 
     Shared by :mod:`pitloom.core._models_wheel_setuptools` (deciding
     whether to attempt static discovery at all) and
-    :mod:`pitloom.core._models_wheel` (deciding what a failed
+    :mod:`pitloom.core._models_wheel_dispatch` (deciding what a failed
     discoverer's fallback ``WARNING:`` should say), so the two stay in
     sync rather than re-deriving the same check independently."""
     tool = pyproject_data.get("tool", {})
     return "project" in pyproject_data or (
         backend in tool if isinstance(tool, dict) else False
     )
+
+
+_UV_BUILD_FILE_FILTER_KEYS = ("wheel-exclude", "wheel-include")
+"""``[tool.uv.build-backend]`` keys that actually filter which files
+reach the wheel -- deliberately narrower than every key that table can
+hold. ``module-name``/``module-root``/``namespace`` change *where*
+uv_build looks for the package, not which of its files it keeps, and
+empirically make no difference to the resolved file set (the langfuse
+fixture declares ``module-root`` and still matches the Hatchling
+heuristic exactly -- see the validation round cited below); including
+them here would warn on projects where the heuristic is already
+correct, same false-positive-warning failure mode this check exists to
+avoid on the *file list* itself."""
+
+
+def has_uv_build_backend_overrides(pyproject_data: dict[str, object]) -> bool:
+    """Whether the parsed ``pyproject.toml`` declares one of
+    ``[tool.uv.build-backend]``'s file-filtering keys
+    (:data:`_UV_BUILD_FILE_FILTER_KEYS`) with a non-empty value --
+    uv_build-specific include/exclude directives that only uv_build
+    itself understands.
+
+    uv_build has no static discovery module of its own (see
+    :mod:`pitloom.core._models_wheel_dispatch`), so the Hatchling-based
+    heuristic fallback used in its place has no way to honor these --
+    it can only see files that physically exist on disk, not a
+    directive telling it to exclude some of them. Confirmed empirically
+    (``working-docs/implementation/backend-file-discovery-validation.md``'s
+    "``--allow-build`` build-and-read" round, 2026-09-15): a project
+    with ``wheel-exclude`` populated is exactly the case where the
+    fallback's file list diverges from the real wheel's (over-inclusion
+    only, in the one case tested -- see that round's findings).
+
+    Used only to sharpen the fallback's own ``WARNING:`` wording with a
+    concrete pointer to ``--allow-build`` when this specific, known
+    divergence risk is present -- never to change dispatch behavior
+    itself, and never consulted for any backend other than uv_build."""
+    tool = pyproject_data.get("tool")
+    if not isinstance(tool, dict):
+        return False
+    uv = tool.get("uv")
+    if not isinstance(uv, dict):
+        return False
+    build_backend = uv.get("build-backend")
+    if not isinstance(build_backend, dict):
+        return False
+    return any(build_backend.get(key) for key in _UV_BUILD_FILE_FILTER_KEYS)
+
+
+def is_dist_info_path(distribution_path: str) -> bool:
+    """Whether *distribution_path* falls under a wheel's own
+    ``<name>-<version>.dist-info/`` directory -- build-generated,
+    never a project source file.
+
+    No existing static backend module needs this: each one's underlying
+    library (``recurse_included_files()``, ``find_files_to_add()``,
+    ``WheelBuilder.get_files()``, ``Module.iter_files()``, setuptools'
+    ``build_py``) never surfaces ``.dist-info`` paths from its own
+    file-discovery entry point in the first place. This is the first
+    consumer -- :mod:`pitloom.core._models_wheel_build_and_read`, which
+    reads an already-built wheel's real zip contents (which genuinely
+    does contain ``.dist-info``) and must filter it back out to match
+    every other backend's ``IncludedFile`` contract of pre-build source
+    files only.
+
+    *distribution_path* MUST already be POSIX-normalized (see
+    :func:`to_posix_distribution_path`) -- this function does no
+    normalization of its own and will not recognize a
+    backslash-separated path as a ``.dist-info`` path.
+    """
+    return "/" in distribution_path and distribution_path.split("/", 1)[0].endswith(
+        ".dist-info"
+    )
+
+
+def to_posix_distribution_path(path: str) -> str:
+    """Normalize *path* to forward-slash separators for use as an
+    ``IncludedFile.distribution_path`` -- a wheel's internal paths are
+    always ``/``-separated regardless of the platform Pitloom runs on.
+
+    Shared so this one-line normalization doesn't keep getting
+    hand-copied per backend discovery module (setuptools, Hatchling,
+    Poetry, Flit each needed it independently) -- see CLAUDE.md's note
+    that a pattern repeated across 3+ call sites drifts."""
+    return path.replace("\\", "/")
+
+
+class FileScanConfig(NamedTuple):
+    """Optional per-file header/content-type scanner config, bundled so
+    it threads through :mod:`pitloom.core._models_wheel`'s per-file
+    helpers as one object instead of four separate parameters each.
+
+    ``parse_header``/``detect_content`` are ``None`` when their
+    respective scan (``scan_file_headers``/``detect_content_type``) is
+    off -- see :func:`~pitloom.core._models_wheel._resolve_file_header_extras`,
+    the sole consumer.
+    """
+
+    parse_header: Callable[[bytes], FileHeaderMetadata | None] | None
+    detect_content: Callable[[bytes, str, str], tuple[str | None, str | None]] | None
+    content_type_overrides: tuple[ContentTypeOverride, ...]
+    content_type_method: str
 
 
 class FileHeaderExtras(TypedDict):

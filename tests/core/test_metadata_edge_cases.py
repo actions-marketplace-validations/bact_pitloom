@@ -19,7 +19,7 @@ from unittest.mock import patch
 
 import pytest
 
-from pitloom.extract._pyproject import read_pyproject
+from pitloom.extract.project.pyproject import read_pyproject
 
 
 def test_extract_pitloom_creation_tool_missing_name_raises() -> None:

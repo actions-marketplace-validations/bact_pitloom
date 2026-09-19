@@ -1,6 +1,6 @@
 ---
 Created: 2026-08-14
-Last-Modified: 2026-08-14
+Last-Modified: 2026-09-08
 SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 SPDX-FileType: DOCUMENTATION
 SPDX-License-Identifier: CC0-1.0
@@ -26,7 +26,7 @@ extension.
 
 | Format | Extension(s) | Install extra |
 | :----- | :----------- | :------------- |
-| fastText | `.ftz`, `.bin` | `pip install fasttext` |
+| fastText | `.ftz`, `.bin` | `pip install fasttext-community` |
 | GGUF | `.gguf` | `pip install gguf` |
 | HDF5 / Keras v1-v2 | `.h5`, `.hdf5` | `pip install h5py` |
 | Keras v3 | `.keras` | (none -- stdlib only) |

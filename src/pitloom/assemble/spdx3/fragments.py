@@ -10,6 +10,7 @@ See also: :mod:`pitloom.assemble.spdx3._fragments_unify` for internal unificatio
 
 from __future__ import annotations
 
+import errno
 import logging
 from pathlib import Path
 from typing import Any
@@ -23,6 +24,7 @@ from pitloom.assemble.spdx3._fragments_unify import (
     _SKIP_MERGE_PROPS,
     _STRUCTURAL_TYPES,
     _as_element,
+    _canonical_merge_key,
     _class_properties,
     _is_empty,
     _merge_comment,
@@ -38,12 +40,13 @@ from pitloom.assemble.spdx3._fragments_unify import (
     _remap_object_refs,
     _sha256_hash,
     _signature,
-    _stable_key,
     _UnificationEvents,
     _warn_if_same_name_different_hash,
 )
 from pitloom.assemble.spdx3.provenance import build_unification_annotation
+from pitloom.core.config import FragmentConfig
 from pitloom.export.spdx3_json import Spdx3JsonExporter, require_spdx_id
+from pitloom.logging_config import configure_logging
 
 log = logging.getLogger(__name__)
 
@@ -67,8 +70,11 @@ __all__ = [
     "_find_dangling_references",
     "_find_fragment_document_id",
     "_find_main_document",
+    "_fragment_is_missing",
+    "_fragment_read_failure_message",
     "_is_dangling",
     "_is_empty",
+    "_is_missing_errno",
     "_merge_comment",
     "_merge_dictionary_entries",
     "_merge_fragment_set",
@@ -76,6 +82,7 @@ __all__ = [
     "_merge_properties",
     "_merge_scalar",
     "_mint_extra_id",
+    "_missing_fragment_message",
     "_normalize_value",
     "_paths_suffix_match",
     "_raise_on_dangling_references",
@@ -83,7 +90,7 @@ __all__ = [
     "_remap_object_refs",
     "_sha256_hash",
     "_signature",
-    "_stable_key",
+    "_canonical_merge_key",
     "_update_profile_conformance",
     "_warn_if_same_name_different_hash",
     "FragmentMergeError",
@@ -99,6 +106,51 @@ class FragmentMergeError(ValueError):
     :func:`_raise_on_dangling_references`."""
 
 
+#: errno values Path.exists()/is_file() themselves treat as "this path
+#: doesn't apply" rather than a real failure (POSIX).
+_STAT_MISSING_ERRNOS = frozenset(
+    {errno.ENOENT, errno.ENOTDIR, errno.EBADF, errno.ELOOP}
+)
+#: Windows counterparts of the same errno set, per CPython's
+#: pathlib._ignore_error().
+_STAT_MISSING_WINERRORS = frozenset({21, 123, 1921})
+
+
+def _is_missing_errno(exc: OSError) -> bool:
+    """True when *exc* (raised by a ``stat()``/``exists()``-style call)
+    represents a genuinely missing path, using the same errno (POSIX) or
+    ``winerror`` (Windows) classification ``Path.exists()`` uses
+    internally -- any other ``OSError`` (e.g. permission denied) means the
+    path is present but inaccessible, not missing.
+
+    Checks both unconditionally (``or``, not "prefer winerror when set"):
+    a real Windows ``FileNotFoundError`` carries *both* ``errno=ENOENT``
+    and a ``winerror`` that ``_STAT_MISSING_WINERRORS`` doesn't cover
+    (winerror 2/3, not 21/123/1921) -- short-circuiting on ``winerror is
+    not None`` would misclassify that as "not missing". Matches CPython's
+    own ``pathlib._ignore_error()``:
+    ``errno in _IGNORED_ERRNOS or winerror in _IGNORED_WINERRORS``.
+    """
+    return (
+        exc.errno in _STAT_MISSING_ERRNOS
+        or getattr(exc, "winerror", None) in _STAT_MISSING_WINERRORS
+    )
+
+
+def _fragment_is_missing(fragment_path: Path) -> bool:
+    """Return True when *fragment_path* is genuinely absent, matching
+    ``Path.exists()``'s own classification -- unlike a bare
+    ``Path.exists()`` call, a permission-denied or other real access
+    failure is reported as *not* missing (the caller's own read attempt
+    then reports that failure accurately) rather than propagating an
+    uncaught ``OSError``."""
+    try:
+        fragment_path.stat()
+    except OSError as exc:
+        return _is_missing_errno(exc)
+    return False
+
+
 def _endpoint_id(value: str | spdx3.Element | None) -> str | None:
     """Return a ``Relationship`` endpoint's id."""
     if value is None or isinstance(value, str):
@@ -111,7 +163,7 @@ def _dedupe_relationships(exporter: Spdx3JsonExporter) -> None:
     seen: set[tuple[Any, Any, frozenset[Any]]] = set()
     duplicates: list[spdx3.Relationship] = []
 
-    for obj in sorted(exporter.object_set.objects, key=_stable_key):
+    for obj in sorted(exporter.object_set.objects, key=_canonical_merge_key):
         if not isinstance(obj, spdx3.Relationship):
             continue
         from_id = _endpoint_id(obj.from_)
@@ -348,29 +400,58 @@ def _add_model_sbom(main_doc: spdx3.SpdxDocument, exporter: Spdx3JsonExporter) -
     main_doc.rootElement = root_elements
 
 
+def _missing_fragment_message(fragment_path: Path, *, required: bool) -> str:
+    """Wording for a configured fragment file that doesn't exist on disk --
+    shared by the real merge and ``pitloom fragment list``'s diagnostic
+    pass, so the same condition reads identically on both surfaces."""
+    if required:
+        return f"Required SBOM fragment {fragment_path} not found -- merge will fail."
+    return f"Configured SBOM fragment {fragment_path} not found."
+
+
+def _fragment_read_failure_message(
+    fragment_path: Path, exc: Exception, *, required: bool
+) -> str:
+    """Wording for a fragment file that exists but couldn't be read/parsed
+    -- shared the same way as :func:`_missing_fragment_message`. Says
+    "read", not "ingest": accurate for both the real merge (which parses
+    the file as SPDX 3 JSON-LD) and ``fragment list`` (which only needs a
+    plain JSON parse for an element count) -- the file's problem is the
+    same regardless of which caller noticed it."""
+    suffix = " -- merge will fail." if required else ""
+    return f"Failed to read SBOM fragment {fragment_path}: {exc}{suffix}"
+
+
 def merge_fragments(
     project_dir: Path,
-    fragment_files: list[str],
+    fragments: list[FragmentConfig],
     exporter: Spdx3JsonExporter,
 ) -> None:
     """Load SPDX 3 JSON-LD fragment files and merge them into the exporter.
 
-    Raises :class:`FragmentMergeError` if the merge leaves the graph
-    referentially broken (see :func:`_raise_on_dangling_references`) --
-    skipped when *fragment_files* is empty or none of it could be
-    ingested, since there is then nothing new whose references could be
-    dangling.
+    Raises :class:`FragmentMergeError` if any ``required=True`` fragment
+    (see :class:`~pitloom.core.config.FragmentConfig`) is missing or
+    couldn't be read, or if the merge leaves the graph referentially
+    broken (see :func:`_raise_on_dangling_references`) -- the latter is
+    skipped when *fragments* is empty or none of it could be ingested,
+    since there is then nothing new whose references could be dangling.
     """
+    configure_logging()
     index = _MergeIndex(exporter)
     events: _UnificationEvents = {}
     fragment_imports: list[spdx3.ExternalMap] = []
     seen_import_ids: set[str] = set()
     merged_any = False
+    unmet_required: list[str] = []
 
-    for fragment_file in fragment_files:
-        fragment_path = project_dir / fragment_file
-        if not fragment_path.exists():
-            log.warning("Configured SBOM fragment %s not found.", fragment_path)
+    for frag in fragments:
+        fragment_path = project_dir / frag.path
+        if _fragment_is_missing(fragment_path):
+            log.warning(
+                _missing_fragment_message(fragment_path, required=frag.required)
+            )
+            if frag.required:
+                unmet_required.append(frag.path)
             continue
         try:
             with open(fragment_path, "rb") as f:
@@ -378,7 +459,13 @@ def merge_fragments(
                 spdx3.JSONLDDeserializer().read(f, fragment_set)
         # pylint: disable=broad-exception-caught
         except Exception as exc:
-            log.warning("Failed to ingest SBOM fragment %s: %s", fragment_path, exc)
+            log.warning(
+                _fragment_read_failure_message(
+                    fragment_path, exc, required=frag.required
+                )
+            )
+            if frag.required:
+                unmet_required.append(frag.path)
             continue
 
         frag_doc_id = _find_fragment_document_id(fragment_set)
@@ -387,11 +474,11 @@ def merge_fragments(
             fragment_imports.append(
                 spdx3.ExternalMap(
                     externalSpdxId=frag_doc_id,
-                    locationHint=fragment_file,
+                    locationHint=frag.path,
                 )
             )
 
-        _merge_fragment_set(fragment_set, index, fragment_file, events)
+        _merge_fragment_set(fragment_set, index, frag.path, events)
         merged_any = True
 
     _dedupe_relationships(exporter)
@@ -402,6 +489,23 @@ def merge_fragments(
         _add_fragment_imports(main_doc, fragment_imports)
         _emit_unification_annotations(events, main_doc, exporter)
         _add_model_sbom(main_doc, exporter)
+
+    # Checked unconditionally -- NOT gated by `merged_any`. A required
+    # fragment that's missing is exactly the scenario most likely to leave
+    # merged_any False (nothing else may have merged either), so gating
+    # this on merged_any would silently suppress the one case it exists to
+    # catch. Checked before the dangling-references raise below: a missing
+    # required fragment is usually the *root cause* of any dangling
+    # references the rest of the graph would otherwise show (other
+    # fragments' relationships pointing at elements the missing required
+    # fragment was supposed to supply) -- report the root cause, not the
+    # downstream symptom, when both would otherwise fire in the same run.
+    if unmet_required:
+        raise FragmentMergeError(
+            f"{len(unmet_required)} required fragment(s) could not be "
+            f"merged: {', '.join(unmet_required)} -- check the configured "
+            "path(s) under [tool.pitloom.fragment]"
+        )
 
     if merged_any:
         _raise_on_dangling_references(exporter)

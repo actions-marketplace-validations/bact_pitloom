@@ -16,8 +16,11 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 from urllib.parse import quote as url_quote
 
+from packaging.utils import canonicalize_name
+
 from pitloom.assemble.spdx3.deps_originator import _extract_name_email_pairs
 from pitloom.extract._extract_utils import fetch_json
+from pitloom.extract.lock._hash_selection import select_sha256_hash
 
 # Best-effort PyPI JSON API fetch timeout -- short enough that a blocked or
 # slow network doesn't meaningfully stall a build; see _fetch_pypi_release_info.
@@ -104,25 +107,55 @@ def _fetch_pypi_release_info(name: str, version: str | None) -> dict[str, Any] |
 
 
 def _extract_release_hash(release_info: dict[str, Any]) -> str | None:
-    """Return the hex SHA-256 digest of the release's wheel (preferred) or
-    sdist artifact from a PyPI JSON API response, or ``None``."""
-    urls = release_info.get("urls") or []
-    by_type = {u.get("packagetype"): u for u in urls if isinstance(u, dict)}
-    entry = by_type.get("bdist_wheel") or by_type.get("sdist")
-    if entry is None and urls:
-        entry = urls[0]
-    if entry is None:
-        return None
-    digest = (entry.get("digests") or {}).get("sha256")
-    return digest or None
+    """Return the hex SHA-256 digest of the release's wheel (preferred),
+    else sdist, else any other artifact, from a PyPI JSON API response --
+    or ``None``.
+
+    A release commonly ships several ``bdist_wheel`` entries (one per
+    platform/ABI tag); picking one deterministically among artifacts of
+    the same preference tier is
+    :func:`~pitloom.extract.lock._hash_selection.select_sha256_hash`'s job --
+    shared with every lock-file hash extractor so a package's selected
+    hash follows the same tie-break rule regardless of source. The tiering
+    itself is decided here via PyPI's own authoritative ``packagetype``
+    field (``bdist_wheel`` > ``sdist`` > anything else), not the shared
+    helper's filename-suffix heuristic (which lock files must fall back
+    to, having no ``packagetype`` of their own) -- a wheel URL entry
+    missing its ``filename`` would otherwise go undetected as a wheel.
+    """
+    urls = [u for u in (release_info.get("urls") or []) if isinstance(u, dict)]
+    wheel_candidates: list[tuple[str | None, str]] = []
+    sdist_candidates: list[tuple[str | None, str]] = []
+    other_candidates: list[tuple[str | None, str]] = []
+    for url_entry in urls:
+        digests = url_entry.get("digests")
+        if not isinstance(digests, dict):
+            continue
+        digest = digests.get("sha256")
+        if not isinstance(digest, str):
+            continue
+        filename = url_entry.get("filename")
+        candidate = (filename if isinstance(filename, str) else None, digest)
+        packagetype = url_entry.get("packagetype")
+        if packagetype == "bdist_wheel":
+            wheel_candidates.append(candidate)
+        elif packagetype == "sdist":
+            sdist_candidates.append(candidate)
+        else:
+            other_candidates.append(candidate)
+    return (
+        select_sha256_hash(wheel_candidates)
+        or select_sha256_hash(sdist_candidates)
+        or select_sha256_hash(other_candidates)
+    )
 
 
 def _prefetch_pypi_release_infos(
     name_versions: Iterable[tuple[str, str]],
 ) -> dict[tuple[str, str | None], dict[str, Any] | None]:
     """Concurrently fetch PyPI JSON API release info for each distinct
-    ``(name, version)`` pair, so N dependencies cost roughly one network
-    round-trip's worth of wall time instead of N sequential ones (each
+    ``(canonicalize_name(name), version)`` pair, so N dependencies cost roughly
+    one network round-trip's worth of wall time instead of N sequential ones (each
     with its own TCP+TLS handshake and up to a
     :data:`_PYPI_TIMEOUT_SECONDS` timeout on failure).
 
@@ -131,20 +164,27 @@ def _prefetch_pypi_release_infos(
     semantics -- so two dependencies that both have an unresolved version
     share a single fetch instead of one per occurrence.
     """
-    keys = {
-        (name, version if version != "unknown" else None)
+    canon_keys: set[tuple[str, str | None]] = {
+        (str(canonicalize_name(name)), version if version != "unknown" else None)
         for name, version in name_versions
     }
-    if not keys:
+    if not canon_keys:
         return {}
     results: dict[tuple[str, str | None], dict[str, Any] | None] = {}
     with ThreadPoolExecutor(
-        max_workers=min(_PYPI_MAX_CONCURRENT_FETCHES, len(keys))
+        max_workers=min(_PYPI_MAX_CONCURRENT_FETCHES, len(canon_keys))
     ) as pool:
         futures = {
-            pool.submit(_fetch_pypi_release_info, name, version): (name, version)
-            for name, version in keys
+            pool.submit(_fetch_pypi_release_info, canon_name, norm_ver): (
+                canon_name,
+                norm_ver,
+            )
+            for canon_name, norm_ver in canon_keys
         }
-        for future, key in futures.items():
-            results[key] = future.result()
+        for future, k in futures.items():
+            try:
+                results[k] = future.result()
+            # pylint: disable-next=broad-exception-caught
+            except Exception:
+                results[k] = None
     return results

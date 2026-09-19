@@ -1,6 +1,6 @@
 ---
 Created: 2026-03-24
-Last-Modified: 2026-08-29
+Last-Modified: 2026-09-01
 SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 SPDX-FileType: DOCUMENTATION
 SPDX-License-Identifier: CC0-1.0
@@ -11,7 +11,10 @@ SPDX-License-Identifier: CC0-1.0
 See also: [sbom-lifecycle-stages.md](sbom-lifecycle-stages.md) for why
 wheel file discovery below stays a static-config read (never executes
 `setup.py`), and how this compares to the Hatchling backend and to
-`loom wheel`/`embed-wheel`'s build-stage path.
+`loom wheel`/`embed-wheel`'s build-stage path; [poetry-support.md](poetry-support.md)
+for the sibling Poetry backend's wheel-file discovery, which delegates
+to poetry-core's own builder instead of hand-rolling static-config
+resolution the way this file's setuptools discovery has to.
 
 ## Motivation
 
@@ -25,17 +28,17 @@ initial setuptools support added in the `setuptools-support` branch.
 
 | File | Role |
 | :--- | :--- |
-| `src/pitloom/extract/_setuptools.py` | Extraction facade and backend detection |
-| `src/pitloom/extract/_setuptools_cfg.py` | `setup.cfg` metadata and `[tool:pitloom]` parser (split from `_setuptools.py`) |
-| `src/pitloom/extract/_setuptools_py.py` | `setup.py` AST metadata parser (split from `_setuptools.py`) |
-| `src/pitloom/extract/project.py` | Shared resolver (`read_project()`) used by both the CLI and `generate_project_sbom()` |
+| `src/pitloom/extract/project/setuptools.py` | Extraction facade and backend detection |
+| `src/pitloom/extract/project/setuptools_cfg.py` | `setup.cfg` metadata and `[tool:pitloom]` parser (split from `setuptools.py`) |
+| `src/pitloom/extract/project/setuptools_py.py` | `setup.py` AST metadata parser (split from `setuptools.py`) |
+| `src/pitloom/extract/project/reader.py` | Shared resolver (`read_project()`) used by both the CLI and `generate_project_sbom()` |
 | `src/pitloom/cli/` | CLI updated to accept projects without `pyproject.toml` (originally in `__main__.py`, since split into `cli/` -- see `cli-test-coverage-roadmap.md`) |
-| `tests/extract/test_setuptools_cfg.py`, `test_setuptools_cfg_config.py`, `test_setuptools_py.py`, `test_setuptools_integration.py` | Unit and integration tests (originally `tests/test_setuptools.py`, later split into these modular suites -- see `cli-test-coverage-roadmap.md`) |
+| `tests/extract/project/test_setuptools_cfg.py`, `test_setuptools_cfg_backend.py`, `test_setuptools_cfg_config.py`, `test_setuptools_py.py`, `test_setuptools_integration.py` | Unit and integration tests (originally `tests/test_setuptools.py`, later split into these modular suites -- see `cli-test-coverage-roadmap.md`) |
 | `tests/fixtures/projects/sampleproject-setuptools/` | Transitional-layout fixture project |
 | `src/pitloom/core/_models_wheel.py` | Backend-dispatch facade for wheel file discovery (`get_wheel_files()`), shared per-file hashing/header loop |
 | `src/pitloom/core/_models_wheel_setuptools.py` | Setuptools wheel file discovery -- static config only, see below |
 | `src/pitloom/core/_models_wheel_hatchling.py`, `_models_wheel_types.py` | Hatchling discovery module and shared types, siblings of the facade above |
-| `tests/core/test_models_wheel_setuptools.py`, `test_models_wheel_dispatch.py` | Wheel file discovery tests (setuptools-specific, and facade dispatch/fallback) |
+| `tests/core/models_wheel/test_models_wheel_setuptools.py`, `test_models_wheel_dispatch.py` (same directory) | Wheel file discovery tests (setuptools-specific, and facade dispatch/fallback) |
 | `tests/fixtures/projects/sampleproject-setuptools-data/` | `package_data`/`include_package_data`/`MANIFEST.in` fixture for the manifest-analysis discovery path |
 
 ## Extraction functions

@@ -15,6 +15,11 @@ from typing import Any
 import rfc8785
 from spdx_python_model.bindings import v3_0_1 as spdx3
 
+# Pitloom's own file-naming convention for this exporter's output -- SPDX 3
+# itself doesn't mandate an extension. Canonical home for every module that
+# needs to name or recognize an SPDX3 JSON-LD SBOM file.
+SPDX3_JSONLD_EXTENSION = ".spdx3.json"
+
 # Lower value = earlier in @graph. Types not listed here get priority 4.
 # Order rationale:
 #   0 CreationInfo  -- blank node referenced by every element; must resolve first
@@ -57,7 +62,7 @@ def sha256_hash(hex_digest: str, *, comment: str | None = None) -> spdx3.Hash:
     only needs fixing in one place.
     """
     hash_element = spdx3.Hash(
-        algorithm=spdx3.HashAlgorithm.sha256, hashValue=hex_digest
+        algorithm=spdx3.HashAlgorithm.sha256, hashValue=hex_digest.lower()
     )
     if comment:
         hash_element.comment = comment
@@ -311,6 +316,11 @@ class Spdx3JsonExporter:
             license_id: The license text value to look up (e.g. ``"Apache-2.0"``).
         """
         return self._license_index.get(license_id)
+
+    @property
+    def has_licenses(self) -> bool:
+        """Return True if any real (non-NOASSERTION) license text has been added."""
+        return any(k != "NOASSERTION" for k in self._license_index)
 
     def add_license(
         self, simple_licensing_text: spdx3.simplelicensing_SimpleLicensingText

@@ -43,8 +43,20 @@ def _class_properties(obj: spdx3.SHACLObject) -> Iterable[str]:
     return [k[0] for k in obj.property_keys() if k[0] is not None]
 
 
-def _stable_key(obj: spdx3.SHACLObject) -> tuple[Any, ...]:
-    """Deterministic sort key for iterating a ``SHACLObjectSet``."""
+def _canonical_merge_key(obj: spdx3.SHACLObject) -> tuple[Any, ...]:
+    """Deterministic sort key for iterating a ``SHACLObjectSet`` during
+    fragment unification.
+
+    Canonical: this order drives :class:`_MergeIndex` construction and
+    :func:`_merge_fragment_set`'s iteration, which decides which
+    duplicate element survives when
+    :meth:`_MergeIndex.find_structural_duplicate` returns the first
+    match -- i.e. it determines which object's properties become the
+    merged, canonical ones in SBOM output, not just iteration order.
+    Changing this key changes SBOM output content; re-verify
+    ``test_graph_element_ordering`` and
+    ``test_combined_output_is_deterministic`` after any change here.
+    """
     # pylint: disable=protected-access
     obj_id: str = getattr(obj, "_id", None) or ""
     return (type(obj).__name__, obj_id, _signature(obj))
@@ -99,11 +111,12 @@ def _remap_object_refs(
             if replacement is not None:
                 setattr(obj, pyname, replacement)
         elif isinstance(value, spdx3.ListProxy):
-            for i, item in enumerate(value):
+            items = cast(list[Any], value)
+            for i, item in enumerate(items):
                 if isinstance(item, spdx3.SHACLObject):
                     replacement = remap.get(item)
                     if replacement is not None:
-                        cast(list[Any], value)[i] = replacement
+                        items[i] = replacement
 
 
 def _is_empty(value: Any) -> bool:
@@ -265,7 +278,7 @@ class _MergeIndex:
         self.exporter = exporter
         self.by_hash: dict[tuple[str, str], spdx3.Element] = {}
         self.structural: dict[type, list[spdx3.SHACLObject]] = {}
-        for obj in sorted(exporter.object_set.objects, key=_stable_key):
+        for obj in sorted(exporter.object_set.objects, key=_canonical_merge_key):
             self._index(obj)
 
     def _index(self, obj: spdx3.SHACLObject) -> None:
@@ -326,7 +339,7 @@ def _merge_fragment_set(
     remap: dict[spdx3.SHACLObject, str] = {}
     kept: list[spdx3.SHACLObject] = []
 
-    for obj in sorted(fragment_set.objects, key=_stable_key):
+    for obj in sorted(fragment_set.objects, key=_canonical_merge_key):
         if isinstance(obj, _ENVELOPE_TYPES):
             continue
 

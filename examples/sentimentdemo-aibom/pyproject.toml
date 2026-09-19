@@ -4,7 +4,7 @@
 [build-system]
 # Pitloom is listed as a build requirement so that the Hatchling build
 # back-end can load Pitloom's hatch hook at build time.
-requires = ["hatchling>=1.32.0", "pitloom"]
+requires = ["hatchling>=1.29.0", "pitloom"]
 build-backend = "hatchling.build"
 
 [project]
@@ -24,8 +24,12 @@ classifiers = [
 ]
 # Real runtime dependencies of the trained model.  These are picked up by
 # Pitloom from [project.dependencies] during the build step.
+# fasttext-community is a drop-in replacement (still `import fasttext`) with
+# prebuilt Windows/macOS/Linux wheels, unlike fasttext==0.9.3 which has no
+# Windows wheel -- see pitloom's own pyproject.toml for the identical
+# rationale.
 dependencies = [
-    "fasttext>=0.9.3",
+    "fasttext-community>=0.11.8",
     "stav>=0.4.1",
 ]
 

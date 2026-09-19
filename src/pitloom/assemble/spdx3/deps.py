@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from packaging.utils import canonicalize_name
 from spdx_python_model.bindings import v3_0_1 as spdx3
 
 from pitloom.assemble.spdx3.deps_installed import (
@@ -23,7 +24,9 @@ from pitloom.assemble.spdx3.deps_installed import (
     _VERSION_OPERATORS,
     _enrich_from_installed,
     _parse_dep_name,
+    _resolve_dependency_with_conflict,
     _resolve_version,
+    merge_conflict_candidates,
 )
 from pitloom.assemble.spdx3.deps_license import _add_license_noassertion, _apply_license
 from pitloom.assemble.spdx3.deps_originator import (
@@ -37,11 +40,17 @@ from pitloom.assemble.spdx3.deps_pypi import (
     _fetch_pypi_release_info,
     _prefetch_pypi_release_infos,
 )
-from pitloom.assemble.spdx3.provenance import ProvenanceEncoder, emit_provenance
+from pitloom.assemble.spdx3.provenance import (
+    ConflictCandidate,
+    ProvenanceEncoder,
+    build_conflict_annotation,
+    emit_provenance,
+)
 from pitloom.core.models import build_pypi_purl, build_relationship, generate_spdx_id
 from pitloom.core.project import PhantomDependency
 from pitloom.core.provenance import ProvenanceConfig
 from pitloom.export.spdx3_json import Spdx3JsonExporter, require_spdx_id, sha256_hash
+from pitloom.extract.lock._common import is_same_version
 
 __all__ = [
     "_DOWNLOAD_LABELS",
@@ -77,9 +86,12 @@ def _enrich_from_pypi(
     content_type_method: str = "auto",
 ) -> set[str]:
     """Best-effort PyPI JSON API fallback for originator, license, and hash."""
+    if {"originator", "license", "hash"}.issubset(already_filled):
+        return set()
+
     version = dep_version if dep_version != "unknown" else None
     release_info = (
-        release_info_cache.get((dep_name, version))
+        release_info_cache.get((canonicalize_name(dep_name), version))
         if release_info_cache is not None
         else _fetch_pypi_release_info(dep_name, version)
     )
@@ -133,7 +145,7 @@ def _enrich_from_pypi(
         ):
             filled.add("license")
 
-    if version is not None:
+    if "hash" not in already_filled and version is not None:
         digest = _extract_release_hash(release_info)
         if digest:
             dep_package.verifiedUsing = [sha256_hash(digest)]
@@ -158,6 +170,8 @@ def _finish_dependency_enrichment(
     provenance_config: ProvenanceConfig | None = None,
     encoder: ProvenanceEncoder | None = None,
     content_type_method: str = "auto",
+    locked_hashes: dict[str, str] | None = None,
+    locked_versions: dict[str, str] | None = None,
 ) -> None:
     """Apply the shared dependency-package completeness policy."""
     dep_package.software_packageUrl = build_pypi_purl(
@@ -171,11 +185,36 @@ def _finish_dependency_enrichment(
         doc_name,
         doc_uuid,
         exporter,
+        expected_version=dep_version,
         provenance_config=provenance_config,
         encoder=encoder,
         offline=offline,
         content_type_method=content_type_method,
     )
+
+    if "hash" not in filled and locked_hashes:
+        canon_name = canonicalize_name(dep_name)
+        # locked_versions is None for the lock-resolved-transitive-only
+        # call (dep_version there *is* the lock's own version already, by
+        # construction -- no separate declared pin can conflict with it),
+        # so the hash is trusted unconditionally. For the direct-dependency
+        # call, locked_versions is always a (possibly empty) dict: a
+        # canonical name absent from it means either the dependency isn't
+        # lock-resolved at all, or it was excluded there as a genuine
+        # name/version conflict (see _dedup_and_locked_versions) -- either
+        # way locked_hashes must not be trusted for it. And when it *is*
+        # present, dep_version (the "explicit pin beats lock" resolved
+        # version) must PEP 440-equal it, or the hash would describe a
+        # different artifact than the one this package claims to be.
+        version_ok = locked_versions is None or (
+            (locked_version := locked_versions.get(canon_name)) is not None
+            and is_same_version(dep_version, locked_version)
+        )
+        if version_ok:
+            digest = locked_hashes.get(canon_name)
+            if digest:
+                dep_package.verifiedUsing = [sha256_hash(digest)]
+                filled.add("hash")
 
     if not offline:
         filled |= _enrich_from_pypi(
@@ -223,36 +262,119 @@ def add_dependencies(
     provenance_config: ProvenanceConfig | None = None,
     encoder: ProvenanceEncoder | None = None,
     content_type_method: str = "auto",
+    completeness: str | None = None,
+    release_info_cache: dict[tuple[str, str | None], dict[str, Any] | None]
+    | None = None,
+    locked_versions: dict[str, str] | None = None,
+    locked_provenance: str | None = None,
+    locked_hashes: dict[str, str] | None = None,
 ) -> None:
     """Build SPDX ``software_Package`` and ``Relationship`` elements for
     dependencies.
 
     Multiple declared dependency strings that resolve to the same
-    ``(name, version)`` -- e.g. the same package listed under more than one
-    ``pyproject.toml`` extra, each split by a ``python_version`` marker --
-    collapse into a single ``software_Package`` node. Their raw declared
-    strings are preserved together in that node's provenance comment.
+    package -- same PEP 503-canonicalized name (``Django``/``django``) and
+    the same PEP 440 version (``"1.0"``/``"1.0.0"``), e.g. the same
+    package listed under more than one ``pyproject.toml`` extra, each
+    split by a ``python_version`` marker -- collapse into a single
+    ``software_Package`` node, keeping the first-seen literal name for
+    display. Their raw declared strings are preserved together in that
+    node's provenance comment.
+
+    *completeness*, when given (e.g. ``spdx3.RelationshipCompleteness.complete``
+    for a lock-resolved transitive-dependency call), is set on every
+    ``dependsOn`` relationship this call creates. Omitted (the default)
+    leaves the relationship's ``completeness`` unset, unchanged from
+    before this parameter existed.
+
+    *release_info_cache*, when given, is used as-is instead of prefetching
+    PyPI release info for this call's own *dependencies* -- callers that
+    invoke :func:`add_dependencies` more than once for the same document
+    (e.g. direct dependencies, then lock-resolved transitive-only ones)
+    can prefetch a single combined batch up front and share it across
+    every call, instead of paying for one PyPI network round-trip per
+    call.
+
+    *locked_versions*, when given, maps PEP 503-canonicalized package names
+    to exact version strings resolved from a project lock file. A direct
+    dependency declared with a version range (e.g. ``requests>=2.0``)
+    resolves to this locked version rather than falling back to host
+    environment introspection.
+
+    *locked_provenance*, when given, is the provenance string recorded as
+    the locked-side G2 candidate's ``source`` when a declared dependency's
+    version genuinely conflicts with its locked-resolved version (see
+    :func:`~pitloom.assemble.spdx3.deps_installed.build_dependency_version_conflict`).
+    Only meaningful when *locked_versions* is also given -- the
+    transitive-only call passes neither. Defaults to
+    :data:`~pitloom.assemble.spdx3.deps_installed._DEFAULT_LOCKED_PROVENANCE`
+    when *locked_versions* resolves a version but no real provenance string
+    was supplied.
+
+    *locked_hashes*, when given, maps PEP 503-canonicalized package names
+    to a hex SHA-256 digest parsed from a project lock file
+    (:attr:`~pitloom.core.project.ProjectMetadata.locked_dependency_hashes`).
+    Always takes priority over a PyPI JSON API-looked-up hash when both are
+    available -- the lock file names the exact resolved artifact, more
+    authoritative than a PyPI lookup that may resolve to a different
+    release build -- and, unlike PyPI enrichment, is applied in both
+    online and offline mode. When *locked_versions* is also given (the
+    direct-dependency call), a lock hash is only trusted for a name whose
+    resolved *dep_version* PEP 440-equals *locked_versions*' entry for it --
+    guarding both the "explicit pin beats lock" case (a declared exact pin
+    overrides a conflicting locked version, so the lock's hash would
+    describe a different artifact) and a name excluded from *locked_versions*
+    entirely as a genuine locked-version conflict. The transitive-only call
+    passes no *locked_versions*, since its own *dependencies* strings already
+    carry the lock's version verbatim.
     """
-    resolved = []
-    for dep in dependencies:
-        dep_name = _parse_dep_name(dep)
-        dep_version, version_note = _resolve_version(dep_name, dep)
-        resolved.append((dep, dep_name, dep_version, version_note))
-    release_info_cache = (
-        None
-        if offline
-        else _prefetch_pypi_release_infos(
-            (dep_name, dep_version) for _dep, dep_name, dep_version, _note in resolved
+    resolved = [
+        _resolve_dependency_with_conflict(
+            dep, locked_versions, dep_provenance, locked_provenance
         )
-    )
+        for dep in dependencies
+    ]
+    if release_info_cache is None and not offline:
+        release_info_cache = _prefetch_pypi_release_infos(
+            (dep_name, dep_version)
+            for _dep, dep_name, dep_version, _note, _conflict in resolved
+        )
 
-    grouped: dict[tuple[str, str], list[tuple[str, str | None]]] = {}
-    for dep, dep_name, dep_version, version_note in resolved:
-        grouped.setdefault((dep_name, dep_version), []).append((dep, version_note))
+    grouped: dict[
+        tuple[str, str],
+        list[tuple[str, str, str | None, list[ConflictCandidate] | None]],
+    ] = {}
+    for dep, dep_name, dep_version, version_note, conflict_candidates in resolved:
+        canon_name = canonicalize_name(dep_name)
+        matched_key = next(
+            (
+                (k_name, k_ver)
+                for k_name, k_ver in grouped
+                if k_name == canon_name and is_same_version(k_ver, dep_version)
+            ),
+            None,
+        )
+        canon_key = (
+            matched_key if matched_key is not None else (canon_name, dep_version)
+        )
+        grouped.setdefault(canon_key, []).append(
+            (dep, dep_name, version_note, conflict_candidates)
+        )
 
-    for (dep_name, dep_version), declared in grouped.items():
-        declared_constraints = [dep for dep, _note in declared]
-        version_note = next((note for _dep, note in declared if note), None)
+    for (_canon_name, dep_version), declared in grouped.items():
+        display_dep_name = declared[0][1]
+        declared_constraints = [dep for dep, _raw_name, _note, _conflict in declared]
+        version_note = next(
+            (note for _dep, _raw_name, note, _conflict in declared if note), None
+        )
+        # Merge, not just take the first: >1 raw declared string can collapse
+        # into this group (e.g. two extras with different version ranges
+        # resolving to the same locked version), each with its own
+        # independently-conflicting declared value -- see
+        # multi-source-conflict.md.
+        group_conflict_candidates = merge_conflict_candidates(
+            c for _dep, _raw_name, _note, c in declared
+        )
         dep_provenance_fields: dict[str, str] = {
             "dependencies": dep_provenance,
             "declared_constraint": " | ".join(declared_constraints),
@@ -262,14 +384,14 @@ def add_dependencies(
 
         dep_package = spdx3.software_Package(
             spdxId=generate_spdx_id("Package", doc_name=doc_name, doc_uuid=doc_uuid),
-            name=dep_name,
+            name=display_dep_name,
             creationInfo=creation_info,
         )
         dep_package.software_packageVersion = dep_version
         dep_package.software_primaryPurpose = spdx3.software_SoftwarePurpose.library
 
         _finish_dependency_enrichment(
-            dep_name,
+            display_dep_name,
             dep_version,
             dep_package,
             creation_info,
@@ -281,9 +403,23 @@ def add_dependencies(
             provenance_config=provenance_config,
             encoder=encoder,
             content_type_method=content_type_method,
+            locked_hashes=locked_hashes,
+            locked_versions=locked_versions,
         )
 
         exporter.add_package(dep_package)
+        if group_conflict_candidates is not None:
+            exporter.add_annotation(
+                build_conflict_annotation(
+                    subject_spdx_id=require_spdx_id(dep_package),
+                    field="dependency_version",
+                    candidates=group_conflict_candidates,
+                    creation_info=creation_info,
+                    annotation_spdx_id=generate_spdx_id(
+                        "Annotation", doc_name=doc_name, doc_uuid=doc_uuid
+                    ),
+                )
+            )
         emit_provenance(
             subject=dep_package,
             provenance=dep_provenance_fields,
@@ -295,6 +431,9 @@ def add_dependencies(
             encoder=encoder,
         )
 
+        rel_kwargs: dict[str, Any] = {}
+        if completeness is not None:
+            rel_kwargs["completeness"] = completeness
         dep_rel = build_relationship(
             from_id=main_package_spdx_id,
             to_ids=[require_spdx_id(dep_package)],
@@ -302,6 +441,7 @@ def add_dependencies(
             doc_name=doc_name,
             doc_uuid=doc_uuid,
             creation_info=creation_info,
+            **rel_kwargs,
         )
         if dep_rel:
             exporter.add_relationship(dep_rel)

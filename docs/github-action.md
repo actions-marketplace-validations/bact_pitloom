@@ -1,6 +1,6 @@
 ---
 Created: 2026-08-11
-Last-Modified: 2026-08-29
+Last-Modified: 2026-09-18
 SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 SPDX-FileType: DOCUMENTATION
 SPDX-License-Identifier: CC0-1.0
@@ -9,8 +9,8 @@ SPDX-License-Identifier: CC0-1.0
 # GitHub Action
 
 Use this when your project isn't Hatchling-based, or you just want CI to
-produce an SBOM artifact or embed PEP 770 SBOMs into built wheels with
-one `uses:` line -- for any Python build backend, not just Hatchling.
+produce an SBOM artifact or embed PEP 770 SBOMs into built wheels, for any
+Python build backend.
 
 The action can create a standalone SBOM file on the runner, or embed the
 generated SBOM directly into built `.whl` files via `embed-wheel: "dist/*.whl"`.
@@ -20,13 +20,19 @@ generated SBOM directly into built `.whl` files via `embed-wheel: "dist/*.whl"`.
 Standalone SBOM artifact:
 
 ```yaml
-- uses: bact/pitloom@v0.17.0
+- uses: actions/setup-python@v7
+  with:
+    python-version: "3.x"
+- uses: bact/pitloom@v0.19.0
 ```
+
+Set up Python first: the action uses the Python on `PATH`. See
+[Python selection](#python-selection).
 
 Generate and embed PEP 770 SBOM into built wheels:
 
 ```yaml
-- uses: bact/pitloom@v0.17.0
+- uses: bact/pitloom@v0.19.0
   with:
     embed-wheel: "dist/*.whl"
 ```
@@ -41,11 +47,38 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: bact/pitloom@v0.17.0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.x"
+      - uses: bact/pitloom@v0.19.0
 ```
 
-Pin to a specific release tag (`@v0.17.0`) rather than a branch, the same
-as any third-party action.
+Pin a release tag (`@v0.19.0`) or a full commit SHA (`@<sha> # v0.19.0`),
+not a branch. The pin also selects the Pitloom version: see
+[What the pin covers](#what-the-pin-covers).
+
+## What the pin covers
+
+- **Pitloom version:** with `pitloom-version` empty, the action installs the
+  version carried by the pinned ref (tag or SHA) from PyPI. `@v0.19.0` and that
+  tag's commit SHA both give 0.19.0. It fails if the version is not on PyPI: an
+  unreleased commit, a branch between a version bump and its release, or a tag
+  pushed before the upload finishes.
+- **`pitloom-version`** overrides it: a version (`0.19.0`) or a specifier
+  (`>=0.19,<1.0`).
+- Pitloom's own dependencies are resolved by pip at run time, not pinned.
+
+## Python selection
+
+With `python-version` empty, the action uses the `python` on `PATH` and
+installs Pitloom into it. To keep Pitloom apart from your project's packages,
+run the action in its own job.
+
+If that Python is missing, older than 3.10, externally managed (PEP 668), or
+otherwise cannot install packages, the action warns and installs Python 3.x
+with `setup-python`, which changes `PATH` for later steps.
+
+Set `python-version` to always run `setup-python` with that version.
 
 ## Usage details
 
@@ -57,7 +90,7 @@ logic `loom project` uses directly). Point it at an AI model instead of a
 project directory with `model:`:
 
 ```yaml
-- uses: bact/pitloom@v0.17.0
+- uses: bact/pitloom@v0.19.0
   with:
     model: path/to/model.safetensors
 ```
@@ -66,7 +99,7 @@ Embed the SBOM into built wheels (PEP 770) for any build backend
 (`flit`, `setuptools`, `poetry-core`, `maturin`, etc.):
 
 ```yaml
-- uses: bact/pitloom@v0.17.0
+- uses: bact/pitloom@v0.19.0
   with:
     embed-wheel: "dist/*.whl"
 ```
@@ -75,7 +108,7 @@ Pass extra raw CLI flags through with `args:` (shell-quoted, e.g. for
 [creator/creation metadata](creation-metadata.md)):
 
 ```yaml
-- uses: bact/pitloom@v0.17.0
+- uses: bact/pitloom@v0.19.0
   with:
     args: '--creator-name "CI Bot" --creator-type software-agent'
 ```
@@ -88,7 +121,7 @@ GitHub Actions annotations -- `::notice::`/`::warning::`/`::error::` --
 so they show up in the PR "Checks" tab and job summary, not just buried
 in the raw log. A failing `loom` invocation still fails the step/job
 (its `ERROR:` line is annotated first); this doesn't change the action's
-exit behavior.
+exit behaviour.
 
 ## Persisting the Loom ID registry in CI
 
@@ -134,17 +167,20 @@ jobs:
       contents: write  # EndBug/add-and-commit needs write to push loom-ids.json
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v6
-      - run: pip install pitloom
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.x"
+      # Same release as the action below, which installs its own pinned version.
+      - run: pip install pitloom==0.19.0
 
       # Extras-free, stem-keyed -- the only path that keeps ai_AIPackage
       # spdxIds stable regardless of whether "ai" extras are installed
       # (auto-harvest excludes AI packages -- see below). Omit this step
       # if the project has no AI model files.
       - name: Seed/refresh AI model registry entries
-        run: pitloom ids generate
+        run: loom ids generate
 
-      - uses: bact/pitloom@v0.17.0
+      - uses: bact/pitloom@v0.19.0
         with:
           project-path: .
           # Optional: richer ai_AIPackage metadata (architecture,
@@ -166,7 +202,7 @@ Two things worth calling out about that snippet:
   auto-harvest at all.** `ai_AIPackage` elements are deliberately excluded
   from auto-harvest, because their correct registry key is the model
   file's stem -- which only ever comes from the extras-free
-  `pitloom ids generate` step above. `extras: "ai"` only affects metadata
+  `loom ids generate` step above. `extras: "ai"` only affects metadata
   richness (architecture, hyperparameters, etc.), not which spdxId a model
   gets.
 - **Race conditions**: this workflow never competes with the publish
@@ -198,9 +234,14 @@ Inputs (all optional):
 | `extract-file-header` | *(empty)* | `true`/`false` to force per-file SPDX header scanning on or off; empty defers to `[tool.pitloom] extract-file-header` (on by default). |
 | `content-type` | *(empty)* | `true`/`false` to force per-file content-type detection on or off; empty defers to `[tool.pitloom.content-type] enabled` (off by default). |
 | `content-type-method` | *(empty)* | `auto`/`magika`/`extension` -- which detector resolves content-type values; empty defers to `[tool.pitloom.content-type] method` (`auto` by default). |
-| `args` | *(empty)* | Extra raw flags passed through to the `loom` command. |
-| `pitloom-version` | *(empty)* | Pitloom version/specifier to install, e.g. `0.17.0` or `>=0.13,<1.0`. Empty installs the latest release. |
-| `python-version` | `3.x` | Python version passed to `actions/setup-python`. |
+| `max-source-metadata-bytes` | *(empty)* | Cap the artifact-metadata preservation Annotation's serialised size to this many UTF-8 bytes, truncating the largest entries first when exceeded; empty defers to `[tool.pitloom.provenance] max-source-metadata-bytes` (unbounded by default). |
+| `offline` | *(empty)* | `true`/`false` to force network access (PyPI/Hugging Face lookups) off or on; empty defers to `[tool.pitloom] offline` (off by default). |
+| `use-lockfile` | *(empty)* | `true`/`false` to force the lock/pin file cascade off or on; empty defers to `[tool.pitloom] use-lockfile` (on by default). Only applies in project mode -- a no-op in model/embed-wheel mode, since neither reads a lock file. See [Dependency sources and precedence](dependency-sources.md). |
+| `allow-build` | `false` | **SECURITY:** `"true"` lets Pitloom invoke the scanned project's own PEP 517 build backend (subprocess; may install build-requires from the network) to discover a wheel's real file list. Executes third-party build-time code from the project being scanned -- only enable for a project whose build script you trust. No `[tool.pitloom]` equivalent; defaults to `"false"`, not empty, since there's no config layer to defer to. Applies in project/embed-wheel mode, not model mode. See [`--allow-build`](cli.md#building-a-project-to-discover-its-file-list---allow-build). |
+| `no-build-isolation` | `false` | With `allow-build: "true"`, skip creating an isolated build environment and use the runner's already-installed build backend instead. No effect without `allow-build`. |
+| `args` | *(empty)* | Extra raw flags passed through to the `loom` command, e.g. `--verify --validate` when `embed-wheel` is set. |
+| `pitloom-version` | *(empty)* | Pitloom version or specifier, e.g. `0.19.0` or `>=0.19,<1.0`. Empty installs the version of the pinned ref; see [What the pin covers](#what-the-pin-covers). |
+| `python-version` | *(empty)* | Passed to `actions/setup-python`. Empty uses the Python on `PATH`, falling back to `3.x` with a warning; see [Python selection](#python-selection). |
 | `install` | `true` | Set `false` to skip installing Python/Pitloom and assume `loom` is already on `PATH`. |
 | `upload-artifact` | `true` | Upload the generated SBOM via `actions/upload-artifact`. |
 | `artifact-name` | `sbom` | Artifact name used when `upload-artifact` is `true`. |
@@ -222,13 +263,17 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.x"
+
       # 1. Build wheel using ANY build backend (Flit, Setuptools, Maturin, etc.)
       - name: Build wheel
         run: python -m build --wheel
 
       # 2. Generate and embed PEP 770 SBOM into built wheels
       - name: Embed PEP 770 SBOM
-        uses: bact/pitloom@v0.17.0
+        uses: bact/pitloom@v0.19.0
         with:
           embed-wheel: "dist/*.whl"
 

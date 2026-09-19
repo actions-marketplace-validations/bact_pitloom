@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from hatchling.builders.config import BuilderConfig
 from hatchling.builders.hooks.plugin.interface import BuildHookInterface
@@ -31,15 +31,16 @@ from pitloom.core.document import DocumentModel
 from pitloom.core.models import get_wheel_files
 from pitloom.enrich import run_enrichers_for_models
 from pitloom.enrich.base import EnrichmentResult
+from pitloom.export.spdx3_json import SPDX3_JSONLD_EXTENSION
+from pitloom.extract._license import resolve_license_file_entries
 from pitloom.extract.binary import find_phantom_dependencies
-from pitloom.extract.hatchling import metadata_from_hatchling
+from pitloom.extract.project.hatchling import metadata_from_hatchling
 from pitloom.extract.scanner import scan_project_for_ai_models
 from pitloom.ids import resolve_registry
 from pitloom.logging_config import configure_logging
 
 log = logging.getLogger(__name__)
 
-_SPDX3_JSON_EXT = ".spdx3.json"
 
 #: Hatchling only started reading build_data["sbom_files"] -- the mechanism
 #: this hook relies on to place a build-time-generated SBOM at
@@ -144,7 +145,11 @@ def _build_document_model(
     """
     metadata = metadata_from_hatchling(hatch_metadata, project_dir)
     creation_metadata = _build_creation_metadata(pitloom_config)
-    merkle_root, project_files = get_wheel_files(
+    # allow_build stays at its default False here (this is the Hatchling
+    # build hook -- the backend is Hatchling by construction, never a
+    # build-and-read candidate), so the returned cleanup is always a
+    # no-op; call it immediately rather than threading it further.
+    merkle_root, project_files, _cleanup = get_wheel_files(
         project_dir,
         scan_file_headers=pitloom_config.extract_file_header,
         detect_content_type=pitloom_config.content_type.enabled,
@@ -155,6 +160,14 @@ def _build_document_model(
         # backend-detection get_wheel_files would otherwise do to figure
         # out what this call site already knows.
         assume_backend="hatchling",
+    )
+    _cleanup()
+    # Same static-walk-vs-real-build gap as generate_project_sbom() (see
+    # pitloom.assemble._generators) -- get_wheel_files() never reproduces
+    # the `.dist-info/licenses/...` entries a real build's
+    # WheelBuilder.add_licenses() would add for `[project.license-files]`.
+    project_files = project_files + resolve_license_file_entries(
+        project_dir, metadata.name, metadata.version, metadata.license_files
     )
     metadata.files = project_files
     ai_models = scan_project_for_ai_models(project_dir, project_files)
@@ -198,7 +211,48 @@ def _stage_sbom_file(
     return staging_dir, staging_path
 
 
-class PitloomBuildHook(BuildHookInterface[BuilderConfig]):
+if TYPE_CHECKING:
+    # Static shape for type checkers only -- must match the installed
+    # Hatchling's actual BuildHookInterface arity. See
+    # _resolve_build_hook_base() below for the real, version-agnostic
+    # base used at runtime.
+    from hatchling.plugin.manager import PluginManager
+
+    class _PitloomBuildHookBase(
+        BuildHookInterface[BuilderConfig[PluginManager], PluginManager]
+    ):
+        """Static shape for type checkers -- see :func:`_resolve_build_hook_base`."""
+
+else:
+    from hatchling.plugin.manager import PluginManager
+
+    def _resolve_build_hook_base() -> type:
+        """Pick the Hatchling ``BuildHookInterface`` base matching the
+        installed Hatchling's actual generic arity (see
+        working-docs/implementation/hatchling-build-hook.md for why this
+        varies by version). ``__parameters__`` is a side-effect-free
+        tuple read, so detecting the arity this way can't itself trigger
+        the subscription ``TypeError`` it works around.
+
+        Raises:
+            RuntimeError: If the arity is neither 1 nor 2.
+        """
+        param_count = len(BuildHookInterface.__parameters__)
+        if param_count == 1:
+            return BuildHookInterface[BuilderConfig]
+        if param_count == 2:
+            return BuildHookInterface[BuilderConfig, PluginManager]
+        raise RuntimeError(
+            f"{_HATCHLING_ERROR_PREFIX} BuildHookInterface has an "
+            f"unexpected number of type parameters ({param_count}); "
+            "Pitloom's Hatchling build hook may need updating for this "
+            "Hatchling version."
+        )
+
+    _PitloomBuildHookBase = _resolve_build_hook_base()
+
+
+class PitloomBuildHook(_PitloomBuildHookBase):
     """Hatchling build hook that embeds an SPDX 3 SBOM in the wheel.
 
     Activated by adding ``[tool.hatch.build.hooks.pitloom]`` to the project's
@@ -221,7 +275,11 @@ class PitloomBuildHook(BuildHookInterface[BuilderConfig]):
     ``[tool.pitloom]`` / ``[tool.pitloom.creation]`` -- the same settings the
     CLI uses -- so there is one place to configure them for both.  The hook
     always emits compact, RFC 8785 (JCS) canonical JSON, ignoring
-    ``[tool.pitloom] pretty``.
+    ``[tool.pitloom] pretty``.  It also ignores ``[tool.pitloom]
+    use-lockfile``: lock/pin files are source-stage-only and already excluded
+    from the build hook's output (see
+    ``hatchling.py::_poetry_fallback_metadata``'s
+    ``include_locked_dependencies=False``).
     """
 
     PLUGIN_NAME = "pitloom"
@@ -230,7 +288,7 @@ class PitloomBuildHook(BuildHookInterface[BuilderConfig]):
         super().__init__(*args, **kwargs)
         self._staging_dir: tempfile.TemporaryDirectory[str] | None = None
         self._sbom_staging_path: Path | None = None
-        self._sbom_filename: str = f"sbom{_SPDX3_JSON_EXT}"
+        self._sbom_filename: str = f"sbom{SPDX3_JSONLD_EXTENSION}"
 
     def initialize(self, version: str, build_data: dict[str, Any]) -> None:
         """Generate the SBOM and register it for injection into the wheel.
@@ -251,6 +309,11 @@ class PitloomBuildHook(BuildHookInterface[BuilderConfig]):
         Raises:
             ValueError: If a hook configuration value has an invalid type
                 or is otherwise invalid.
+            FragmentMergeError: If a ``required = true`` SBOM fragment
+                (``[tool.pitloom.fragment]``) is missing or unreadable --
+                a `ValueError` subclass, propagated uncaught like the
+                other config-validation errors above (see
+                :func:`pitloom.assemble.spdx3.fragments.merge_fragments`).
             FileNotFoundError: If ``pyproject.toml`` is absent from the
                 project root.
             RuntimeError: If the installed Hatchling's version can't be
@@ -290,7 +353,7 @@ class PitloomBuildHook(BuildHookInterface[BuilderConfig]):
         sbom_basename = pitloom_config.sbom_basename or _default_sbom_basename(
             self.metadata
         )
-        sbom_filename: str = f"{sbom_basename}{_SPDX3_JSON_EXT}"
+        sbom_filename: str = f"{sbom_basename}{SPDX3_JSONLD_EXTENSION}"
 
         document, merkle_root, enrichment_results_by_model = _build_document_model(
             project_dir, self.metadata, pitloom_config
@@ -305,6 +368,7 @@ class PitloomBuildHook(BuildHookInterface[BuilderConfig]):
             provenance=pitloom_config.provenance,
             enrichment_results_by_model=enrichment_results_by_model,
             offline=pitloom_config.offline,
+            content_type_method=pitloom_config.content_type.method,
         )
         merge_fragments(project_dir, pitloom_config.fragments, exporter)
 
@@ -314,21 +378,31 @@ class PitloomBuildHook(BuildHookInterface[BuilderConfig]):
         # the SPDX JSON Serialization Scheme.
         sbom_json = exporter.to_json(pretty=False)
 
+        staging_dir, sbom_staging_path = _stage_sbom_file(sbom_json, sbom_filename)
+        try:
+            # Hatchling 1.29.0+ places each path in sbom_files at
+            # .dist-info/sboms/<basename> inside the wheel (PEP 770).
+            build_data.setdefault("sbom_files", []).append(str(sbom_staging_path))
+
+            log.info(
+                "Pitloom: staged SBOM %s (%d fragment(s)); "
+                "Hatchling will inject it into .dist-info/sboms/ in the wheel.",
+                sbom_filename,
+                len(pitloom_config.fragments),
+            )
+        except Exception:
+            # self._staging_dir is assigned only once every step below has
+            # succeeded (see finalize()) -- if Hatchling failed to accept
+            # build_data or a log handler raised, clean up here ourselves
+            # rather than depend on finalize() being called after a failed
+            # initialize(), which Hatchling's own hook contract doesn't
+            # guarantee.
+            staging_dir.cleanup()
+            raise
+
         self._sbom_filename = sbom_filename
-        self._staging_dir, self._sbom_staging_path = _stage_sbom_file(
-            sbom_json, sbom_filename
-        )
-
-        # Hatchling 1.29.0+ places each path in sbom_files at
-        # .dist-info/sboms/<basename> inside the wheel (PEP 770).
-        build_data.setdefault("sbom_files", []).append(str(self._sbom_staging_path))
-
-        log.info(
-            "Pitloom: staged SBOM %s (%d fragment(s)); "
-            "Hatchling will inject it into .dist-info/sboms/ in the wheel.",
-            sbom_filename,
-            len(pitloom_config.fragments),
-        )
+        self._staging_dir = staging_dir
+        self._sbom_staging_path = sbom_staging_path
 
     def finalize(
         self,

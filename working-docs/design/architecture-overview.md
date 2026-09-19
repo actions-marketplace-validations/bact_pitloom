@@ -213,8 +213,8 @@ standards, and the roadmap for new integrations.
 
 | Source | Extractor / mechanism | What it contributes |
 | :---- | :---- | :---- |
-| `pyproject.toml` | `pitloom.extract._pyproject` | Package identity, version, license, dependencies, authors |
-| `setup.cfg` / `setup.py` | `pitloom.extract._setuptools` | Package identity, version, license, dependencies, authors |
+| `pyproject.toml` | `pitloom.extract.project.pyproject` | Package identity, version, license, dependencies, authors |
+| `setup.cfg` / `setup.py` | `pitloom.extract.project.setuptools` | Package identity, version, license, dependencies, authors |
 | Python environment | `pitloom.extract.env` | Deployed environment dependency graph |
 | Built wheel (`.whl`) | `pitloom.extract.wheel` / `binary` | Analyzed wheel metadata, files, and phantom dependencies |
 | AI model files (GGUF, ONNX, SafeTensors, etc.) | `pitloom.extract.ai_model` | Model architecture, format, hyperparameters, framework |
@@ -288,11 +288,16 @@ See `working-docs/design/sbom-fragments/fragment-merge-design.md`.
 
 ### Data flow: extraction -> document model -> assembly
 
+See [end-to-end-flow.md](../implementation/end-to-end-flow.md) for a
+generic, stage-level version of this diagram -- the version here is the fuller,
+more implementation/integration-specific picture, including the still-planned
+pieces.
+
 ```text
 Information sources
 ───────────────────
-pyproject.toml            -> ProjectMetadata           (pitloom.extract._pyproject)
-setup.cfg / setup.py      -> ProjectMetadata           (pitloom.extract._setuptools)
+pyproject.toml            -> ProjectMetadata           (pitloom.extract.project.pyproject)
+setup.cfg / setup.py      -> ProjectMetadata           (pitloom.extract.project.setuptools)
 model.onnx / .gguf / …    -> AiModelMetadata           (pitloom.extract.ai_model)
 dataset.croissant.json    -> DatasetMetadata           (pitloom.extract.dataset)
 MLflow run                -> SPDX AI fragment          (pitloom.extract.mlflow)  [planned]

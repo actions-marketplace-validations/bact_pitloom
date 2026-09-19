@@ -1,0 +1,31 @@
+# SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
+# SPDX-License-Identifier: Apache-2.0
+
+name: Set up Python for Pitloom CI
+description: >
+  Runs actions/setup-python with Pitloom CI's shared version/cache config.
+  Does NOT check out the repo: a local composite action can only be loaded
+  after checkout already happened in the caller's own job, so every caller
+  must keep its own actions/checkout step before this one. Does NOT
+  upgrade pip either -- every caller follows this with
+  ./.github/actions/install-pitloom, which already does that as its own
+  first step.
+
+inputs:
+  python-version:
+    description: Python version passed to actions/setup-python.
+    required: true
+  cache-pip:
+    description: Whether to enable pip dependency caching.
+    required: false
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Python ${{ inputs.python-version }}
+      uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      with:
+        python-version: ${{ inputs.python-version }}
+        cache: ${{ inputs.cache-pip == 'true' && 'pip' || '' }}
+        cache-dependency-path: pyproject.toml

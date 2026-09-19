@@ -5,8 +5,8 @@
 
 """Tests for SPDX 3 core models.
 
-See also: tests/core/test_models_wheel_files.py for get_wheel_files()
-file-header scanning and content-type detection tests.
+See also: tests/core/models_wheel/test_models_wheel_files.py for
+get_wheel_files() file-header scanning and content-type detection tests.
 """
 
 from collections.abc import Callable, Iterator
@@ -50,7 +50,7 @@ def test_normalize_dep_pep503() -> None:
     """PEP 503 name normalization leaves version/marker portion untouched."""
     assert _normalize_dep("Foo_Bar>=1.0") == "foo-bar>=1.0"
     assert _normalize_dep("PyProject.Metadata") == "pyproject-metadata"
-    assert _normalize_dep("hatchling>=1.32.0") == "hatchling>=1.32.0"
+    assert _normalize_dep("hatchling>=1.29.0") == "hatchling>=1.29.0"
     assert _normalize_dep("  tomli>=2.0; python_version<'3.11'  ") == (
         "tomli>=2.0; python_version<'3.11'"
     )
@@ -185,12 +185,12 @@ def test_get_wheel_files_normalizes_windows_style_distribution_path(
         return _fake_recurse
 
     monkeypatch.setattr(WheelBuilder, "recurse_included_files", _make_fake_recurse("/"))
-    posix_root, posix_files = get_wheel_files(tmp_path)
+    posix_root, posix_files, _ = get_wheel_files(tmp_path)
 
     monkeypatch.setattr(
         WheelBuilder, "recurse_included_files", _make_fake_recurse("\\")
     )
-    windows_root, windows_files = get_wheel_files(tmp_path)
+    windows_root, windows_files, _ = get_wheel_files(tmp_path)
 
     assert posix_root is not None
     assert posix_root == windows_root, (

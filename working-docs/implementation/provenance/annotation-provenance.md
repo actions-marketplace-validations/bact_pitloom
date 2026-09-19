@@ -60,7 +60,7 @@ Spec references:
 **Historical snapshot.** §2.1-2.4 describe the pre-migration
 `comment`-string state as it stood on 2026-07-20, before this plan's own
 Annotation migration (§5.5) landed and before the later 4-file source
-split (`deps.py`, `document.py`, `_huggingface.py`, `loom.py` each broken
+split (`deps.py`, `document.py`, `remote/huggingface.py`, `loom.py` each broken
 into a smaller facade plus siblings). Paths/lines have been updated below
 to point at where the equivalent code lives today, but the described
 mechanism (writing directly into `comment`) is itself superseded by the
@@ -80,9 +80,9 @@ keyed by SBOM field name, value already semi-structured as pipe-delimited
 
 Example values produced by extractors:
 
-- `"Source: pyproject.toml | Field: project.name"` — [`src/pitloom/extract/_pyproject.py:83`](../../../src/pitloom/extract/_pyproject.py)
-- `"Source: Hugging Face Hub | Field: model card"` — [`src/pitloom/extract/_huggingface_fields.py:134`](../../../src/pitloom/extract/_huggingface_fields.py)
-- `f"{source} | Field: extra/name"` — [`src/pitloom/extract/_pytorch_pt2.py:132`](../../../src/pitloom/extract/_pytorch_pt2.py)
+- `"Source: pyproject.toml | Field: project.name"` — [`src/pitloom/extract/project/pyproject.py:83`](../../../src/pitloom/extract/project/pyproject.py)
+- `"Source: Hugging Face Hub | Field: model card"` — [`src/pitloom/extract/remote/huggingface_field.py:134`](../../../src/pitloom/extract/remote/huggingface_field.py)
+- `f"{source} | Field: extra/name"` — [`src/pitloom/extract/ai_model/pytorch_pt2.py:132`](../../../src/pitloom/extract/ai_model/pytorch_pt2.py)
 
 The pipe/`Key: value` convention is consistent enough to parse. Anything that
 does not fit `Key: value` must be preserved (see parser rules in §5.1).
@@ -557,7 +557,7 @@ opaque to SPARQL except as text (accepted tradeoff, decision §3.2).
   - **SLSA provenance / in-toto attestations** — build/supply-chain focused;
     strong for "how was this produced" attestation.
   - **Croissant** provenance fields — already partly consumed for datasets
-    ([`src/pitloom/extract/_croissant.py`](../../../src/pitloom/extract/_croissant.py));
+    ([`src/pitloom/extract/dataset/croissant.py`](../../../src/pitloom/extract/dataset/croissant.py));
     natural fit for dataset subjects.
   - **Hugging Face model-card / model-index** metadata as a first-class
     encoder for AI subjects (source SHA, author, repo URL).
@@ -672,8 +672,8 @@ found and fixed two real gaps:
   `source = f"Source: {model_path.name}"` construction site (the filename) --
   the first fix (key-only) was caught as incomplete by a follow-up
   adversarial audit before this file was updated.
-  **Scope boundary, not fixed:** `_croissant.py`/`pyproject.py`/
-  `setuptools.py`/`_license.py` build `"Source: {path}"` strings with the
+  **Scope boundary, not fixed:** `dataset/croissant.py`/`project/pyproject.py`/
+  `project/setuptools.py`/`_license.py` build `"Source: {path}"` strings with the
   identical unescaped pattern, but never call `record_dict_field_provenance`
   and were outside the audited AI-extractor scope; their inputs (project-local
   paths, PEP 621 field values) are a different, generally lower trust

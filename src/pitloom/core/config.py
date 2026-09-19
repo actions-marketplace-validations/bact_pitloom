@@ -33,12 +33,14 @@ from pitloom.core._config_parse import (
     _read_offline_setting,
     _read_provenance_settings,
     _read_tools,
+    _read_use_lockfile_setting,
     parse_pitloom_config,
     read_pitloom_config,
 )
 from pitloom.core._config_types import (
     _DEFAULT_PROVENANCE_SCHEMA,
     VALID_CONTENT_TYPE_METHODS,
+    FragmentConfig,
     PitloomConfig,
 )
 from pitloom.core.content_type_config import ContentTypeConfig, ContentTypeOverride
@@ -52,6 +54,7 @@ __all__ = [
     "CreationMetadata",
     "Creator",
     "EnrichConfig",
+    "FragmentConfig",
     "PitloomConfig",
     "ProvenanceConfig",
     "Tool",
@@ -75,6 +78,7 @@ __all__ = [
     "_read_offline_setting",
     "_read_provenance_settings",
     "_read_tools",
+    "_read_use_lockfile_setting",
     "parse_pitloom_config",
     "read_pitloom_config",
 ]

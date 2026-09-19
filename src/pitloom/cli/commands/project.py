@@ -20,12 +20,16 @@ from pitloom.cli.commands.utils import (
     resolve_effective_provenance,
 )
 from pitloom.cli.options import (
-    _resolve_creation_metadata,
     _resolve_output_path,
+    _resolve_project_generation_settings,
     _resolve_project_paths,
+    add_allow_build_argument,
+    add_no_build_isolation_argument,
+    add_offline_argument,
+    add_use_lockfile_argument,
+    warn_if_no_build_isolation_without_allow_build,
 )
 from pitloom.cli.verbose import _print_verbose
-from pitloom.extract.project import read_project
 
 
 @cli_error_handler("SBOM generation failed")
@@ -34,15 +38,16 @@ def _run_project_command(args: argparse.Namespace) -> int:
     project_dir, config_path = _resolve_project_paths(args)
     if project_dir is None:
         return 1
+    warn_if_no_build_isolation_without_allow_build(args, project_dir)
 
-    project_metadata, pitloom_config, config_path = read_project(project_dir)
-    creation = _resolve_creation_metadata(args, pitloom_config)
-    effective_pretty = pitloom_config.pretty if args.pretty is None else args.pretty
-    effective_describe_relationship = (
-        pitloom_config.describe_relationship
-        if args.describe_relationship is None
-        else args.describe_relationship
-    )
+    (
+        project_metadata,
+        pitloom_config,
+        config_path,
+        creation,
+        effective_pretty,
+        effective_describe_relationship,
+    ) = _resolve_project_generation_settings(args, project_dir)
 
     output_path = _resolve_output_path(args.output, project_metadata, pitloom_config)
 
@@ -68,10 +73,12 @@ def _run_project_command(args: argparse.Namespace) -> int:
         update_registry=args.update_registry,
         provenance=resolve_effective_provenance(pitloom_config, args),
         enrich=args.enrich,
-        offline=args.offline or None,
+        offline=args.offline,
         extract_file_header=args.extract_file_header,
         content_type=args.content_type,
         content_type_method=args.content_type_method,
+        allow_build=args.allow_build,
+        no_build_isolation=args.no_build_isolation,
     )
     _print_sbom_output_path(output_path)
     return 0
@@ -93,12 +100,16 @@ def add_parser(subparsers: Any, parent_parser: argparse.ArgumentParser) -> None:
         default=Path.cwd(),
         help="Path to project directory or sdist archive (.tar.gz, .zip).",
     )
-    proj_parser.add_argument(
-        "--offline",
-        action="store_true",
-        help=(
-            "Forbid network access -- skip PyPI lookup, no error "
-            "(local metadata already covers what it can)."
-        ),
+    add_offline_argument(
+        proj_parser,
+        " -- skip PyPI lookup, no error (local metadata already covers what it can).",
     )
+    add_use_lockfile_argument(
+        proj_parser,
+        " -- fall back to direct dependencies + environment introspection "
+        "only (no-op for an sdist archive target: no lock-file concept "
+        "applies there)",
+    )
+    add_allow_build_argument(proj_parser)
+    add_no_build_isolation_argument(proj_parser)
     proj_parser.set_defaults(func=_run_project_command)

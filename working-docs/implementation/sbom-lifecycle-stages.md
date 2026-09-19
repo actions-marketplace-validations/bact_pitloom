@@ -1,6 +1,6 @@
 ---
 Created: 2026-08-27
-Last-Modified: 2026-08-27
+Last-Modified: 2026-09-15
 SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 SPDX-FileType: DOCUMENTATION
 SPDX-License-Identifier: CC0-1.0
@@ -8,10 +8,11 @@ SPDX-License-Identifier: CC0-1.0
 
 # Source SBOM vs. build SBOM: lifecycle stages and per-backend mechanism
 
-See also: [setuptools-support.md](setuptools-support.md) for the
-setuptools-specific discovery implementation this doc justifies the
-scope of; `working-docs/design/roadmap.md`'s "Non-Hatchling file
-discovery" section for the backend-priority table this decision feeds.
+See also: [setuptools-support.md](setuptools-support.md) and
+[poetry-support.md](poetry-support.md) for the backend-specific
+discovery implementations this doc justifies the scope of;
+`working-docs/design/roadmap.md`'s "Non-Hatchling file discovery"
+section for the backend-priority table this decision feeds.
 
 ## Source SBOM vs. build SBOM
 
@@ -36,7 +37,10 @@ wheel-file-discovery paths map directly onto this:
 | `loom project`/`loom generate` (directory) | source tree | `get_wheel_files()` -> backend-specific in-process introspection | Source |
 | ...Hatchling backend | -- | `WheelBuilder.recurse_included_files()` (`src/pitloom/core/_models_wheel_hatchling.py`) -- a method distinct from `WheelBuilder.build()`; walks static `[tool.hatch.build...]` config only | Source |
 | ...setuptools backend | -- | `Distribution`/`build_py` introspection via `apply_configuration()` + `find_all_modules()`/`_get_data_files()` (`src/pitloom/core/_models_wheel_setuptools.py`) -- static config only, no `setup.py` execution | Source |
-| ...any other backend (Poetry, PDM, Flit-core, `uv_build`, ... until each lands) | -- | Falls back to the Hatchling heuristic, with a logged warning that the result may be inaccurate for that backend | Source (approximated) |
+| ...Poetry backend | -- | `poetry.core.masonry.builders.wheel.WheelBuilder.find_files_to_add()` (`src/pitloom/core/_models_wheel_poetry.py`) -- delegates to poetry-core's own declarative config resolution, no `[tool.poetry.build].script` execution; see [poetry-support.md](poetry-support.md)'s "Wheel file discovery" section | Source |
+| ...PDM-backend | -- | `Builder.get_files()` (via `WheelBuilder`'s overridden `_collect_files()` for `src/`-layout prefix-stripping) + `_get_wheel_data()` (`src/pitloom/core/_models_wheel_pdm.py`) -- static config only; never calls `initialize()`/`_get_metadata_files()`, both of which write to disk as a pdm-backend side effect | Source |
+| ...Flit-core backend | -- | `flit_core.common.Module.iter_files()` + `walk_data_dir()` (`src/pitloom/core/_models_wheel_flit.py`) -- static config only; a dynamic `version`/`description` is resolved via an AST-only scan (`get_docstring_and_version_via_ast()`), never by importing the target module | Source |
+| ...any other backend (`uv_build`, ... until it lands) | -- | Falls back to the Hatchling heuristic, with a logged warning that the result may be inaccurate for that backend | Source (approximated) |
 | `loom wheel` | built `.whl` file | `read_wheel()` reads the real artifact directly, backend-agnostic | Build |
 | `embed-wheel` (wheel-merge step) | built `.whl` file | Same `read_wheel()` path; `_merge_file_extras` treats it as ground truth, discarding `get_wheel_files()`'s own Merkle root in favor of one computed from the real wheel's hashes | Build |
 
@@ -86,6 +90,24 @@ The static source-stage path this doc's mechanism table describes
 specifically serves the pre-build case: no wheel built yet (e.g. early
 CI, before a build step runs), or someone who wants an SBOM without
 building at all.
+
+## Build-and-read: a deliberate, opt-in exception
+
+`--allow-build` (shipped in PR #215 for `uv_build`, and any other
+backend with no static discovery module or whose static discovery
+fails) is a narrow, explicit exception to "never a build" for wheel
+*file discovery* specifically -- never for metadata, and never the
+default. It differs from the rejected `setup.py`-execution idea above
+in one deciding respect: the code executed is the target project's own
+*declared, standard* PEP 517 build backend (`uv_build`, `maturin`,
+...), not arbitrary `setup.py` code -- a materially smaller and more
+predictable risk surface, though the determinism, build-dependency, and
+network-access costs above still apply, which is exactly why it stays
+opt-in rather than a transparent upgrade to the static path. See
+[`docs/cli.md`](../../docs/cli.md#building-a-project-to-discover-its-file-list---allow-build)
+for the flag itself and
+[`non-hatchling-file-discovery.md`](../design/non-hatchling-file-discovery.md)
+for the full design/history.
 
 ## Why `setup.py` execution is out of scope (not just "not done yet")
 

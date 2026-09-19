@@ -1,0 +1,18 @@
+# SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
+# SPDX-License-Identifier: CC0-1.0
+
+# PEP 440-equivalent version/Requires-Python between this pyproject.toml
+# and the in-tree egg-info byproduct -- neither should be flagged as a
+# conflict (tests is_same_version()/SpecifierSet equality reuse, not raw
+# string comparison).
+
+[project]
+name = "sampleproject-installed-agree"
+version = "1.0"
+requires-python = ">=3.9"
+description = "Static description, always wins over Summary."
+keywords = ["static-keyword"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"

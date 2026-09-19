@@ -1,6 +1,6 @@
 ---
 Created: 2026-08-11
-Last-Modified: 2026-08-29
+Last-Modified: 2026-09-11
 SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 SPDX-FileType: DOCUMENTATION
 SPDX-License-Identifier: CC0-1.0
@@ -82,6 +82,31 @@ generate_project_sbom(
 )
 ```
 
+When a supported lock file (`pylock.toml`, `uv.lock`, `poetry.lock`,
+`pdm.lock`, `Pipfile.lock`, or pinned `requirements.txt`) is present
+next to `pyproject.toml`, project generation automatically resolves and
+includes its exact transitive dependencies -- see
+[Dependency sources and precedence](dependency-sources.md). Pass
+`use_lockfile=False` to `generate()`/`generate_project_sbom()` to opt out
+(on by default; same as the CLI's `--no-use-lockfile`). Has no effect if
+pre-resolved `project_metadata`/`pitloom_config` are BOTH also passed in
+-- the cascade decision was already made when that metadata was
+produced. Passing only one of the two is not a supported combination:
+both are discarded and re-resolved from the target instead, with a
+`WARNING:` explaining why.
+
+Pass `allow_build=True` (plus optionally `no_build_isolation=True`) to
+`generate()`/`generate_project_sbom()` to let Pitloom invoke a project's
+own PEP 517 build backend to discover its real file list, when static
+discovery has no module for the backend (e.g. `uv_build`) or a supported
+backend's own static discovery fails -- see the CLI's
+[`--allow-build`](cli.md#building-a-project-to-discover-its-file-list---allow-build)
+for the full security rationale, which applies identically here. Unlike
+`use_lockfile` above, both default to plain `False` with **no**
+`[tool.pitloom]` config-file equivalent and must be passed explicitly
+every call -- there is no config layer for a scanned project to silently
+opt itself into.
+
 `pitloom.assemble` also exposes `generate_wheel_sbom()`,
 `generate_model_sbom()`, and `generate_env_sbom()` -- the same target
 kinds the [CLI](cli.md)'s `loom wheel` / `loom model` / `loom env`
@@ -101,9 +126,19 @@ modified_wheel, arcname, sbom_json, removed, floored = embed_wheel_sbom(
     wheel_path=Path("dist/mypackage-1.0.0-py3-none-any.whl"),
     project_dir=Path("."),
     overrides=ConfigOverrides(offline=True),  # optional
+    # ConfigOverrides also accepts allow_build/no_build_isolation (both
+    # default False, no [tool.pitloom] equivalent) -- see the
+    # --allow-build docs above.
 )
 
-# 2. Or embed arbitrary pre-generated SBOM content
+# 2. Or embed an externally-generated, pre-written SBOM file (checked)
+modified_wheel, arcname, sbom_json, removed, floored = embed_wheel_sbom(
+    wheel_path=Path("dist/mypackage-1.0.0-py3-none-any.whl"),
+    sbom_path=Path("sbom.spdx3.json"),
+    allow_mismatch=False,  # default: raise ValueError on a name/version mismatch
+)
+
+# 3. Or embed arbitrary pre-generated SBOM content (unchecked, lower-level)
 modified_wheel, arcname, removed, floored = embed_sbom_in_wheel(
     wheel_path=Path("dist/mypackage-1.0.0-py3-none-any.whl"),
     sbom_content=sbom_json_string,
@@ -114,6 +149,18 @@ modified_wheel, arcname, removed, floored = embed_sbom_in_wheel(
 `removed` lists any prior Pitloom-embedded SBOM entries cleaned up as part
 of the embed; `floored` is `True` when the wheel's ZIP entry timestamp had
 to be floored to 1980-01-01 (see [Configuration](configuration.md#toolpitloomcreation)).
+
+With `sbom_path=` (form 2, the equivalent of the CLI's `embed-wheel --sbom`),
+the SBOM's declared subject name/version (PEP 503/440-normalised) is
+cross-checked against the wheel's own `.dist-info/METADATA` *before*
+anything is written: a mismatch raises `ValueError` and nothing is
+written, unless `allow_mismatch=True` downgrades it to a `WARNING:` log
+and lets the embed proceed. Form 1 (a Pitloom-generated SBOM) is never
+checked -- it's built from the same wheel metadata, so it can't diverge.
+Form 3, `embed_sbom_in_wheel()`, is the lower-level, unchecked archive
+primitive both forms 1 and 2 converge on -- calling it directly (bypassing
+`embed_wheel_sbom()`) skips the cross-check entirely, same as it skips
+SBOM *generation*.
 
 ### Config
 
@@ -145,12 +192,18 @@ Pass `project_target=` when merging into a project-level (not
 single-model) base SBOM -- see the equivalent `--project-dir` note on the
 [Command line](cli.md#enrich-an-sbom) page: `--project-dir`'s document
 identity is derived from the resolved file list, so it changes whenever
-that file list changes for the same project. Pass `registry=` (a path, or
-an already-loaded `IdRegistry`) to reference a pinned entity id instead of
-one freshly computed from the model's own identity. Raises `ValueError`
-for a Hugging Face Hub source -- Hugging Face model cards are already
-parsed natively when generating the SBOM, so local enrichment doesn't
-apply there.
+that file list changes for the same project. The same applies to
+`use_lockfile=`: it must match whatever produced the base SBOM's
+identity, or the fragment references the wrong document -- omit it (the
+default, `None`) to auto-match `project_target`'s own
+`[tool.pitloom] use-lockfile` config; pass it explicitly only when the
+base SBOM's generation used an explicit override that disagreed with
+that config.
+Pass `registry=` (a path, or an already-loaded `IdRegistry`) to reference
+a pinned entity id instead of one freshly computed from the model's own
+identity. Raises `ValueError` for a Hugging Face Hub source -- Hugging
+Face model cards are already parsed natively when generating the SBOM,
+so local enrichment doesn't apply there.
 
 ## Tracking decorator
 
@@ -251,6 +304,8 @@ merging again. See [API reference](api.md#fragment-merging).
 ## See also
 
 - [Command line](cli.md) -- the same generation targets, from a shell.
+- [Dependency sources and precedence](dependency-sources.md) -- how
+  resolved lock files feed into Source SBOM dependencies.
 - [Hatchling build hook](hatchling-build-hook.md) -- how registered
   fragments get merged automatically at build time.
 - [Creation metadata](creation-metadata.md) and [Metadata

@@ -60,34 +60,32 @@ jobs:
         shell: bash
     strategy:
       matrix:
-        os: [ubuntu-latest]
-        python-version: ["3.10", "3.14"]
-        # python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
-        # include:
-        #   - os: windows-latest
-        #     python-version: "3.10"
-        #   - os: macos-latest
-        #     python-version: "3.10"
+        include:
+          - os: ubuntu-latest
+            python-version: "3.10"
+          - os: windows-latest
+            python-version: "3.11"
+          - os: macos-latest
+            python-version: "3.12"
+          - os: ubuntu-latest
+            python-version: "3.14"
       fail-fast: true
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      - uses: ./.github/actions/setup-python
         with:
           python-version: ${{ matrix.python-version }}
-          cache: pip
-          cache-dependency-path: pyproject.toml
-
-      - name: Install build dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install build==1.5.0
 
       - name: Install Pitloom from checkout
-        run: |
-          pip install -e .
+        # HATCH_BUILD_NO_HOOKS only scopes to this step -- "Build wheel"
+        # below still runs the hook.
+        uses: ./.github/actions/install-pitloom
+        with:
+          extra-packages: editables build==1.6.1 spdx3-validate==0.0.7
+          package-spec: "."
+          editable: "true"
 
       - name: Build wheel
         id: build
@@ -116,35 +114,29 @@ jobs:
         id: verify_wheel_sbom
         if: steps.build.outcome == 'success'
         run: |
-          python << 'EOF'
-          import sys
-          import zipfile
-          from pathlib import Path
-
-          wheels = list(Path("dist").glob("*.whl"))
-          if not wheels:
-              print("::error title=No Wheel Found::No .whl file found in dist/")
-              sys.exit(1)
-
-          wheel_path = wheels[0]
-          with zipfile.ZipFile(wheel_path) as zf:
-              sbom_entries = [n for n in zf.namelist()
-                              if "/sboms/" in n and n.endswith(".spdx3.json")]
-
-          if not sbom_entries:
-              print(f"::error title=SBOM Missing::No .spdx3.json found under "
-                    f".dist-info/sboms/ in {wheel_path.name}")
-              sys.exit(1)
-
-          for entry in sbom_entries:
-              print(f"::notice title=SBOM Embedded::Found {entry} in {wheel_path.name}")
-          EOF
+          loom verify-wheel --fail-on-mismatch "dist/${{ steps.build.outputs.wheel_name }}"
         continue-on-error: true
 
       - name: Display wheel SBOM verification error
         if: steps.build.outcome == 'success' && steps.verify_wheel_sbom.outcome == 'failure'
         run: |
-          echo "::error title=Embedded SBOM Missing::The wheel was built but does not contain an SBOM in .dist-info/sboms/. Check that the Pitloom build hook ran correctly."
+          echo "::error title=Embedded SBOM Verification Failed::loom verify-wheel rejected the wheel's embedded SBOM (missing, ambiguous, misplaced, or a name/version mismatch against the wheel's own METADATA). See the 'Verify SBOM embedded in wheel' step's log for the exact reason."
+
+      - name: Validate embedded wheel SBOM
+        # Schema/SHACL check on the SBOM the build hook actually embedded
+        # -- distinct from "Validate SBOM with spdx3-validate" below,
+        # which checks a separately generated standalone SBOM from a
+        # different code path (see CLAUDE.md's "Usage surfaces").
+        id: validate_wheel_sbom
+        if: steps.verify_wheel_sbom.outcome == 'success'
+        run: |
+          loom validate-wheel "dist/${{ steps.build.outputs.wheel_name }}"
+        continue-on-error: true
+
+      - name: Display embedded wheel SBOM validation error
+        if: steps.verify_wheel_sbom.outcome == 'success' && steps.validate_wheel_sbom.outcome == 'failure'
+        run: |
+          echo "::error title=Embedded SBOM Validation Failed::loom validate-wheel rejected the wheel's embedded SBOM content (schema/SHACL). See the 'Validate embedded wheel SBOM' step's log for the exact reason."
 
       - name: Generate SBOM
         id: sbom
@@ -166,11 +158,6 @@ jobs:
         if: steps.build.outcome == 'success' && steps.sbom.outcome == 'failure'
         run: |
           echo "::error title=SBOM Generation Failed::SBOM generation failed for Python ${{ matrix.python-version }}. Verify that the project structure is correct."
-
-      - name: Install spdx3-validate
-        if: steps.sbom.outcome == 'success'
-        run: |
-          pip install spdx3-validate==0.0.7
 
       - name: Validate SBOM with spdx3-validate
         id: validate
@@ -228,7 +215,13 @@ jobs:
 
       - name: Extract SBOM metadata for summary
         id: metadata
-        if: steps.validate.outcome == 'success'
+        # Gates on the embedded-wheel checks too, not just spdx3-validate
+        # -- otherwise this and "Create failure summary" could both fire,
+        # producing a self-contradictory step summary.
+        if: |
+          steps.validate.outcome == 'success' &&
+          steps.verify_wheel_sbom.outcome == 'success' &&
+          steps.validate_wheel_sbom.outcome == 'success'
         run: |
           python << 'EOF'
           import json
@@ -283,7 +276,10 @@ jobs:
           EOF
 
       - name: Create Job Summary
-        if: steps.validate.outcome == 'success'
+        if: |
+          steps.validate.outcome == 'success' &&
+          steps.verify_wheel_sbom.outcome == 'success' &&
+          steps.validate_wheel_sbom.outcome == 'success'
         run: |
           # Determine which URLs were used based on SPDX version
           SPDX_VER="${{ env.SPDX_VERSION }}"
@@ -341,7 +337,11 @@ jobs:
           EOF
 
       - name: Create failure summary
-        if: always() && (steps.build.outcome == 'failure' || steps.verify_wheel_sbom.outcome == 'failure' || steps.sbom.outcome == 'failure' || steps.validate.outcome == 'failure')
+        if: |
+          always() && (steps.build.outcome == 'failure' ||
+          steps.verify_wheel_sbom.outcome == 'failure' ||
+          steps.validate_wheel_sbom.outcome == 'failure' ||
+          steps.sbom.outcome == 'failure' || steps.validate.outcome == 'failure')
         run: |
           cat >> "$GITHUB_STEP_SUMMARY" << EOF
           ## ❌ Build Failed - Python ${{ matrix.python-version }}
@@ -350,7 +350,8 @@ jobs:
           | Step | Status | Description |
           | :--- | :--- | :--- |
           | Build Wheel | ${{ steps.build.outcome == 'failure' && '❌ Failed' || '✅ Passed' }} | ${{ steps.build.outcome == 'failure' && 'Wheel build failed. Check build logs above.' || 'Successfully built wheel.' }} |
-          | SBOM Embedded in Wheel | ${{ steps.verify_wheel_sbom.outcome == 'failure' && '❌ Failed' || steps.verify_wheel_sbom.outcome == 'success' && '✅ Passed' || '⊘ Skipped' }} | ${{ steps.verify_wheel_sbom.outcome == 'failure' && 'SBOM not found inside wheel. Pitloom build hook may not have run.' || steps.verify_wheel_sbom.outcome == 'success' && 'SBOM found in .dist-info/sboms/.' || 'Skipped due to build failure.' }} |
+          | SBOM Embedded in Wheel | ${{ steps.verify_wheel_sbom.outcome == 'failure' && '❌ Failed' || steps.verify_wheel_sbom.outcome == 'success' && '✅ Passed' || '⊘ Skipped' }} | ${{ steps.verify_wheel_sbom.outcome == 'failure' && 'loom verify-wheel rejected the SBOM (missing, ambiguous, misplaced, or a name/version mismatch) -- see its log for the reason.' || steps.verify_wheel_sbom.outcome == 'success' && 'SBOM found in .dist-info/sboms/, name/version match the wheel.' || 'Skipped due to build failure.' }} |
+          | Embedded SBOM Content Valid | ${{ steps.validate_wheel_sbom.outcome == 'failure' && '❌ Failed' || steps.validate_wheel_sbom.outcome == 'success' && '✅ Passed' || '⊘ Skipped' }} | ${{ steps.validate_wheel_sbom.outcome == 'failure' && 'loom validate-wheel rejected the embedded SBOM content (schema/SHACL) -- see its log for the reason.' || steps.validate_wheel_sbom.outcome == 'success' && 'Embedded SBOM content validated.' || 'Skipped due to a previous failure.' }} |
           | Generate SBOM (standalone) | ${{ steps.sbom.outcome == 'failure' && '❌ Failed' || steps.sbom.outcome == 'success' && '✅ Passed' || '⊘ Skipped' }} | ${{ steps.sbom.outcome == 'failure' && 'SBOM generation failed. Verify project structure.' || steps.sbom.outcome == 'success' && 'Successfully generated SBOM.' || 'Skipped due to build failure.' }} |
           | Validate SBOM (spdx3-validate) | ${{ steps.validate.outcome == 'failure' && '❌ Failed' || steps.validate.outcome == 'success' && '✅ Passed' || '⊘ Skipped' }} | ${{ steps.validate.outcome == 'failure' && 'SBOM validation failed. SBOM does not conform to SPDX spec.' || steps.validate.outcome == 'success' && 'Successfully validated SBOM.' || 'Skipped due to previous failure.' }} |
 
@@ -405,11 +406,13 @@ jobs:
 
           BUILD_STATUS="${{ steps.build.outcome }}"
           VERIFY_WHEEL_SBOM_STATUS="${{ steps.verify_wheel_sbom.outcome }}"
+          VALIDATE_WHEEL_SBOM_STATUS="${{ steps.validate_wheel_sbom.outcome }}"
           SBOM_STATUS="${{ steps.sbom.outcome }}"
           VALIDATE_STATUS="${{ steps.validate.outcome }}"
 
           echo "Build: ${BUILD_STATUS}"
           echo "Verify SBOM in wheel: ${VERIFY_WHEEL_SBOM_STATUS}"
+          echo "Validate embedded SBOM content: ${VALIDATE_WHEEL_SBOM_STATUS}"
           echo "SBOM (standalone): ${SBOM_STATUS}"
           echo "spdx3-validate: ${VALIDATE_STATUS}"
           echo ""
@@ -421,6 +424,10 @@ jobs:
           fi
           if [ "$VERIFY_WHEEL_SBOM_STATUS" != "success" ]; then
             echo "::error title=Workflow Failed::Embedded SBOM verification failed for Python ${{ matrix.python-version }}"
+            exit 1
+          fi
+          if [ "$VALIDATE_WHEEL_SBOM_STATUS" != "success" ]; then
+            echo "::error title=Workflow Failed::Embedded SBOM content validation failed for Python ${{ matrix.python-version }}"
             exit 1
           fi
           if [ "$SBOM_STATUS" != "success" ]; then

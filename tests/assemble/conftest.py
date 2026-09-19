@@ -11,6 +11,9 @@ this directory:
 
 - ``_FakeMetadata`` -- from ``test_deps_enrichment.py``.
 - ``_make_dummy_wheel`` / ``_SAMPLE_SPDX3_JSON`` -- from ``test_embed.py``.
+- ``_embed_sbom_entry`` -- previously near-identical ``_embed_sbom``/
+  ``_embed_raw`` helpers in ``test_verify_wheel_cli.py`` and
+  ``test_validate_wheel_cli.py``.
 - ``_DOC_NAME`` / ``_DOC_UUID`` / ``_make_ci`` -- previously byte-for-byte
   duplicated (bar one comment) between ``test_annotation_provenance.py``
   and ``test_spdx3_dataset.py``.
@@ -23,6 +26,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import os
 import zipfile
 from collections.abc import Iterator
 from datetime import datetime, timezone
@@ -31,6 +35,7 @@ from typing import Any, cast
 
 from spdx_python_model.bindings import v3_0_1 as spdx3
 
+from pitloom._wheel_sbom_location import _find_dist_info_prefix
 from pitloom.core.dataset_metadata import DatasetMetadata
 from pitloom.core.models import compute_doc_uuid, generate_spdx_id
 from pitloom.export.spdx3_json import Spdx3JsonExporter, require_spdx_id
@@ -147,6 +152,94 @@ _SAMPLE_SPDX3_JSON = json.dumps(
 )
 
 
+def _spdx3_json_with_subject(
+    name: str | None, version: str | None, *, subject_type: str = "software_Package"
+) -> str:
+    """Render a minimal valid SPDX3 JSON-LD ``SpdxDocument`` ->
+    ``software_Sbom`` -> subject-package id-chain, with a controllable
+    subject *name*/*version* -- unlike `_SAMPLE_SPDX3_JSON`, which is
+    hardcoded to ``demo_pkg``/``1.0.0``. Used by
+    `test_verify_wheel_cli.py`'s name/version cross-check tests.
+
+    *name*/*version* of ``None`` omit that field from the subject node
+    entirely (e.g. to model an `ai_AIPackage`-shaped subject with no
+    `software_packageVersion`).
+    """
+    subject: dict[str, Any] = {
+        "type": subject_type,
+        "spdxId": "https://spdx.org/spdxdocs/sample-doc-123/subject",
+    }
+    if name is not None:
+        subject["name"] = name
+    if version is not None:
+        subject["software_packageVersion"] = version
+    return json.dumps(
+        {
+            "@context": "https://spdx.org/rdf/3.0.1/spdx-context.jsonld",
+            "@graph": [
+                {
+                    "type": "SpdxDocument",
+                    "spdxId": "https://spdx.org/spdxdocs/sample-doc-123",
+                    "rootElement": ["https://spdx.org/spdxdocs/sample-doc-123/sbom"],
+                },
+                {
+                    "type": "software_Sbom",
+                    "spdxId": "https://spdx.org/spdxdocs/sample-doc-123/sbom",
+                    "rootElement": [subject["spdxId"]],
+                },
+                subject,
+            ],
+        }
+    )
+
+
+def _resolve_zip_time() -> tuple[int, int, int, int, int, int]:
+    """Return a deterministic (year, month, day, hour, min, sec) for ZipInfo.
+
+    Honours SOURCE_DATE_EPOCH when set, clamping pre-1980 timestamps to the
+    ZIP-format minimum (1980, 1, 1, 0, 0, 0).
+    """
+    raw_epoch = os.environ.get("SOURCE_DATE_EPOCH")
+    if raw_epoch:
+        try:
+            ts = int(raw_epoch)
+            dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+            if dt.year >= 1980:
+                return (dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second)
+            return (1980, 1, 1, 0, 0, 0)
+        except (ValueError, OverflowError, OSError):
+            pass
+    return (2026, 1, 1, 0, 0, 0)
+
+
+def _embed_sbom_entry(
+    wheel_path: Path, sbom_basename: str, content: str = _SAMPLE_SPDX3_JSON
+) -> None:
+    """Add a ``.dist-info/sboms/<sbom_basename>`` entry to *wheel_path*
+    with arbitrary *content* (defaults to the standard sample fixture).
+
+    Unlike `embed-wheel` itself (which always appends `.spdx3.json`), this
+    writes whatever basename/content is given verbatim -- needed by
+    `test_verify_wheel_cli.py`/`test_validate_wheel_cli.py` to construct
+    deliberately non-conventional-extension or invalid-content fixtures
+    that `embed-wheel`'s own self-correction makes otherwise unreachable.
+
+    Reuses production's own `_find_dist_info_prefix` (rather than a
+    second, test-only dist-info-detection algorithm) so this fixture
+    can't silently diverge from what `find_embedded_sbom` actually looks
+    for -- a single append-mode ZipFile handle can both read the
+    existing namelist and write the new entry.
+    """
+    with zipfile.ZipFile(wheel_path, "a") as zf:
+        dist_info = _find_dist_info_prefix(zf, wheel_path)
+        zinfo = zipfile.ZipInfo(
+            f"{dist_info}sboms/{sbom_basename}", date_time=_resolve_zip_time()
+        )
+        zinfo.compress_type = zipfile.ZIP_DEFLATED
+        zinfo.external_attr = 0o600 << 16
+        zf.writestr(zinfo, content)
+
+
 def _make_dummy_wheel(
     directory: Path,
     name: str = "demo_pkg",
@@ -181,11 +274,18 @@ def _make_dummy_wheel(
         f"{dist_info}/RECORD,,",
     ]
     record_content = "\n".join(records).encode("utf-8") + b"\n"
+    fixed_time = _resolve_zip_time()
 
     with zipfile.ZipFile(wheel_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr(f"{name}/__init__.py", init_code)
-        zf.writestr(f"{dist_info}/METADATA", metadata_content)
-        zf.writestr(f"{dist_info}/WHEEL", wheel_content)
-        zf.writestr(f"{dist_info}/RECORD", record_content)
+        for arcname, payload in (
+            (f"{name}/__init__.py", init_code),
+            (f"{dist_info}/METADATA", metadata_content),
+            (f"{dist_info}/WHEEL", wheel_content),
+            (f"{dist_info}/RECORD", record_content),
+        ):
+            zinfo = zipfile.ZipInfo(arcname, date_time=fixed_time)
+            zinfo.compress_type = zipfile.ZIP_DEFLATED
+            zinfo.external_attr = 0o600 << 16
+            zf.writestr(zinfo, payload)
 
     return wheel_path

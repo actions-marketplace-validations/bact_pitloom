@@ -12,7 +12,9 @@ import hashlib
 import zipfile
 from pathlib import Path
 
+from pitloom._wheel_sbom_location import name_version_from_email_message
 from pitloom.core.project import ProjectFile, ProjectMetadata
+from pitloom.extract._core_metadata import parse_project_urls
 
 
 def _hash_wheel_entry(zf: zipfile.ZipFile, info: zipfile.ZipInfo) -> ProjectFile:
@@ -45,17 +47,7 @@ def _parse_metadata_authors(msg: email.message.Message) -> list[dict[str, str]]:
 
 def _parse_metadata_urls(msg: email.message.Message) -> dict[str, str]:
     """Extract URLs from email METADATA message."""
-    urls: dict[str, str] = {}
-    if msg.get("Home-page"):
-        urls["Homepage"] = msg["Home-page"]
-    if msg.get("Download-URL"):
-        urls["Download"] = msg["Download-URL"]
-    project_url_entries = msg.get_all("Project-URL") or []
-    for entry in project_url_entries:
-        if "," in entry:
-            label, url = entry.split(",", 1)
-            urls[label.strip()] = url.strip()
-    return urls
+    return parse_project_urls(msg, include_download=True)
 
 
 def _populate_metadata_from_email(
@@ -65,11 +57,12 @@ def _populate_metadata_from_email(
     source: str,
 ) -> None:
     """Populate ProjectMetadata and provenance from parsed METADATA msg."""
-    if msg.get("Name"):
-        metadata.name = msg["Name"]
+    name, version = name_version_from_email_message(msg)
+    if name:
+        metadata.name = name
         provenance["name"] = source
-    if msg.get("Version"):
-        metadata.version = msg["Version"]
+    if version:
+        metadata.version = version
         provenance["version"] = source
     if msg.get("Summary"):
         metadata.description = msg["Summary"]

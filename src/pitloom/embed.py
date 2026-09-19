@@ -11,19 +11,18 @@ See also: :mod:`pitloom._embed_wheel` for ZIP archive manipulation and RECORD up
 from __future__ import annotations
 
 import dataclasses
+import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from spdx_python_model.bindings import v3_0_1 as spdx3
 
 from pitloom._embed_wheel import (
     _DEFAULT_FILE_ATTR,
     _INVALID_FILENAME_CHARS,
-    _SPDX3_JSON_EXT,
     _ZIP_EPOCH_FLOOR,
     _calculate_record_hash,
     _derive_wheel_sbom_filename,
-    _find_dist_info_prefix,
     _looks_like_pitloom_sbom,
     _plan_embed,
     _resolve_zip_timestamp,
@@ -31,6 +30,18 @@ from pitloom._embed_wheel import (
     _update_record_lines,
     _validate_sbom_filename,
     embed_sbom_in_wheel,
+)
+from pitloom._sbom_format import (
+    RECOMMENDED_EXTENSIONS,
+    VALIDATED_FORMATS,
+    check_spdx3_name_version,
+    detect_sbom_format,
+    format_name_version_mismatch,
+)
+from pitloom._wheel_sbom_location import (
+    EmbeddedSbomLocation,
+    _find_dist_info_prefix,
+    find_embedded_sbom,
 )
 from pitloom.assemble.spdx3.document import build as assemble_spdx3
 from pitloom.assemble.spdx3.fragments import merge_fragments
@@ -41,23 +52,30 @@ from pitloom.core.models import _build_merkle_tree, get_wheel_files
 from pitloom.core.project import ProjectFile, ProjectMetadata
 from pitloom.core.provenance import ProvenanceConfig
 from pitloom.enrich import run_enrichers_for_models
+from pitloom.export.spdx3_json import SPDX3_JSONLD_EXTENSION
 from pitloom.extract.binary import find_phantom_dependencies
-from pitloom.extract.project import read_project
+from pitloom.extract.project import read_project, warn_allow_build_no_effect
 from pitloom.extract.scanner import scan_project_for_ai_models
 from pitloom.extract.wheel import read_wheel
 from pitloom.ids import IdRegistry, resolve_registry
+from pitloom.logging_config import configure_logging
+
+log = logging.getLogger(__name__)
 
 __all__ = [
     "ConfigOverrides",
+    "EmbeddedSbomLocation",
     "_DEFAULT_FILE_ATTR",
     "_INVALID_FILENAME_CHARS",
-    "_SPDX3_JSON_EXT",
+    "RECOMMENDED_EXTENSIONS",
+    "VALIDATED_FORMATS",
     "_ZIP_EPOCH_FLOOR",
     "_apply_config_overrides",
     "_build_sbom_from_project_and_wheel",
     "_build_sbom_standalone_wheel",
     "_calculate_record_hash",
     "_derive_wheel_sbom_filename",
+    "detect_sbom_format",
     "_find_dist_info_prefix",
     "_generate_embed_sbom_json",
     "_looks_like_pitloom_sbom",
@@ -68,6 +86,7 @@ __all__ = [
     "_validate_sbom_filename",
     "embed_sbom_in_wheel",
     "embed_wheel_sbom",
+    "find_embedded_sbom",
 ]
 
 
@@ -119,45 +138,89 @@ def _compute_wheel_merkle_root(files: list[ProjectFile]) -> str | None:
     if not files:
         return None
     ordered = sorted(files, key=lambda f: f.distribution_path)
-    leaf_hashes = [bytes.fromhex(f.digest_sha256) for f in ordered]
+    # ProjectFile.digest_sha256 is Optional to accommodate
+    # get_wheel_files(skip_merkle_root=True), but `files` here is always
+    # _merge_file_extras()'s output, which inherits every entry's digest
+    # from wheel_metadata.files (the wheel's own real hashes) -- never
+    # from the skip-hashing rescan -- so it's always populated.
+    leaf_hashes = [bytes.fromhex(cast(str, f.digest_sha256)) for f in ordered]
     return _build_merkle_tree(leaf_hashes)
 
 
+# pylint: disable-next=too-many-arguments
 def _build_sbom_from_project_and_wheel(
     project_dir: Path,
     wheel_metadata: ProjectMetadata,
     pitloom_config: PitloomConfig,
     registry: IdRegistry | None,
     creation_metadata: CreationMetadata | None,
+    *,
+    allow_build: bool = False,
+    no_build_isolation: bool = False,
 ) -> str:
-    """Generate a canonical Build SBOM from project sources and wheel files."""
+    """Generate a canonical Build SBOM from project sources and wheel files.
+
+    ``allow_build``/``no_build_isolation`` are taken as plain parameters,
+    not read off ``pitloom_config``: unlike every other rescan setting
+    here, they deliberately have no ``[tool.pitloom]`` cascade (see
+    ``ConfigOverrides.allow_build``'s docstring) -- the caller must
+    thread its own ``ConfigOverrides`` values through explicitly. See
+    that same docstring for why ``allow_build=True`` here can mean a
+    full real build purely to sharpen this rescan's content-type/
+    file-header extras, not to learn the file list itself.
+    """
     # merkle_root (the rescan's own, over project_dir's on-disk bytes) is
     # deliberately discarded here -- see _compute_wheel_merkle_root below,
     # which recomputes it from the wheel's own (post-merge) file hashes so
-    # it can't diverge from what merged_files actually reports.
-    _, project_files = get_wheel_files(
+    # it can't diverge from what merged_files actually reports. Per-file
+    # digest_sha256 is skipped for the same reason: _merge_file_extras
+    # below only adopts project_files' content-type/header extras, never
+    # its digest, so hashing every file here would be wasted I/O too.
+    _, project_files, cleanup_discovery = get_wheel_files(
         project_dir,
         scan_file_headers=pitloom_config.extract_file_header,
         detect_content_type=pitloom_config.content_type.enabled,
         content_type_method=pitloom_config.content_type.method,
         content_type_overrides=pitloom_config.content_type.overrides,
+        skip_merkle_root=True,
+        allow_build=allow_build,
+        no_build_isolation=no_build_isolation,
     )
-    # Layer content-type/file-header extras onto the wheel's own file
-    # records rather than replacing them outright: replacing would drop
-    # .dist-info entries and any build-hook-injected files (e.g. compiled
-    # extensions, auditwheel-repaired shared libraries) that read_wheel()
-    # found in the actual wheel but that a source-tree rescan can't see.
-    merged_files = _merge_file_extras(wheel_metadata.files, project_files)
-    # dataclasses.replace, not an in-place `.files =` assignment, so the
-    # caller's wheel_metadata (e.g. embed_wheel_sbom's read_wheel() result)
-    # isn't silently mutated as a side effect of building this SBOM.
-    project_metadata = dataclasses.replace(wheel_metadata, files=merged_files)
-    merkle_root = _compute_wheel_merkle_root(merged_files)
-    ai_models = scan_project_for_ai_models(project_dir, project_files)
+    # cleanup_discovery (a no-op unless allow_build's build-and-read
+    # sourced project_files) must stay alive -- and this whole block
+    # must run inside its try -- through every step below that either
+    # re-reads a ProjectFile's bytes from disk via physical_path (AI-
+    # model scanning, enrichment) or could itself raise before reaching
+    # them (the file-extras merge, the fresh-containers copy): any of
+    # these raising before cleanup_discovery() runs would leak the
+    # build-and-read temp directory.
+    try:
+        # Layer content-type/file-header extras onto the wheel's own
+        # file records rather than replacing them outright: replacing
+        # would drop .dist-info entries and any build-hook-injected
+        # files (e.g. compiled extensions, auditwheel-repaired shared
+        # libraries) that read_wheel() found in the actual wheel but
+        # that a source-tree rescan can't see.
+        merged_files = _merge_file_extras(wheel_metadata.files, project_files)
+        # replace_with_fresh_containers(), not a bare
+        # dataclasses.replace() or an in-place `.files =` assignment:
+        # every dict/list field NOT given here (provenance,
+        # field_conflicts, etc.) also gets its own fresh copy, so the
+        # caller's wheel_metadata (e.g. embed_wheel_sbom's
+        # read_wheel() result) can never be silently mutated as a
+        # side effect of anything downstream mutating this SBOM's own
+        # project_metadata.
+        project_metadata = wheel_metadata.replace_with_fresh_containers(
+            files=merged_files
+        )
+        merkle_root = _compute_wheel_merkle_root(merged_files)
+        ai_models = scan_project_for_ai_models(project_dir, project_files)
+        enrichment_results = run_enrichers_for_models(
+            ai_models, pitloom_config.enrich, project_dir
+        )
+    finally:
+        cleanup_discovery()
     phantom_deps = find_phantom_dependencies(merged_files)
-    enrichment_results = run_enrichers_for_models(
-        ai_models, pitloom_config.enrich, project_dir
-    )
 
     doc = DocumentModel(
         project=project_metadata,
@@ -180,7 +243,28 @@ def _build_sbom_from_project_and_wheel(
 
 @dataclasses.dataclass(frozen=True)
 class ConfigOverrides:
-    """Per-run overrides layered onto a project's ``[tool.pitloom]`` config."""
+    """Per-run overrides layered onto a project's ``[tool.pitloom]`` config.
+
+    Attributes:
+        allow_build: Plain ``bool`` (default ``False``), unlike every
+            other field here -- deliberately has no ``[tool.pitloom]``
+            cascade to defer to (see ``generate_project_sbom()``'s
+            identical parameter docstring for why). Threaded into
+            ``_build_sbom_from_project_and_wheel()``'s own project-dir
+            rescan, whose only use for the resulting file list is
+            layering content-type/file-header extras onto the wheel's
+            already-known files (see that function's own comment on
+            discarding the rescan's ``merkle_root``/digests) -- so on a
+            project whose backend has no static discovery module (or
+            whose static discovery fails), enabling this runs a full,
+            real, potentially slow PEP 517 build *purely* to compute
+            those extras more accurately, not to learn the file list
+            itself (the wheel's own ``read_wheel()`` result already has
+            that). Deliberate: this is the only way ``embed-wheel``
+            avoids silently staying stuck on the Hatchling-heuristic
+            rescan for such a project's content-type/header extras.
+        no_build_isolation: See ``allow_build`` above; no effect without it.
+    """
 
     provenance: ProvenanceConfig | None = None
     enrich: bool | None = None
@@ -188,6 +272,54 @@ class ConfigOverrides:
     content_type: bool | None = None
     content_type_method: str | None = None
     offline: bool | None = None
+    allow_build: bool = False
+    no_build_isolation: bool = False
+
+
+def _enforce_sbom_name_version(
+    wheel_filename: str,
+    wheel_name: str | None,
+    wheel_version: str | None,
+    sbom_json: str,
+    *,
+    allow_mismatch: bool,
+) -> None:
+    """Cross-check an externally-supplied ``--sbom``'s declared subject
+    name/version against the target wheel's own METADATA, *before*
+    anything is written to the wheel.
+
+    Raises ``ValueError`` on a genuine mismatch unless *allow_mismatch* --
+    the embed is refused outright rather than writing a known-wrong SBOM
+    and relying on a later `verify-wheel`/`--verify` to catch it, since
+    nothing is on disk yet to roll back. *allow_mismatch* downgrades a
+    mismatch to a `WARNING:` and lets the embed proceed (for CI/automation
+    that wants best-effort embedding). Extraction failures (unsupported
+    format, unexpected graph shape) are always a non-fatal `WARNING:`,
+    regardless of *allow_mismatch* -- "couldn't check" is never escalated
+    to "refused."
+
+    Fatal-by-default here, unlike `verify-wheel`'s own WARNING-by-default
+    (:func:`pitloom.cli.commands.verify_wheel._check_name_version`) --
+    intentional, not an inconsistency: this runs *before* a wheel is
+    written, so refusing is cheap (nothing to roll back), whereas
+    verify-wheel inspects an already-built wheel after the fact.
+    """
+    sbom_data = sbom_json.encode("utf-8")
+    sbom_format = detect_sbom_format(sbom_data)
+    mismatches, warnings = check_spdx3_name_version(
+        wheel_name, wheel_version, sbom_data, sbom_format
+    )
+    for warning in warnings:
+        log.warning("%s: %s", wheel_filename, warning)
+
+    if not mismatches:
+        return
+
+    message = format_name_version_mismatch(wheel_filename, mismatches)
+    if allow_mismatch:
+        log.warning(message)
+        return
+    raise ValueError(message)
 
 
 # pylint: disable=too-many-arguments
@@ -203,8 +335,19 @@ def embed_wheel_sbom(
     creation_metadata: CreationMetadata | None = None,
     registry: str | Path | IdRegistry | None = None,
     overrides: ConfigOverrides | None = None,
+    allow_mismatch: bool = False,
 ) -> tuple[Path, str, str, tuple[str, ...], bool]:
-    """Generate and embed a PEP 770 SBOM into a built Python wheel."""
+    """Generate and embed a PEP 770 SBOM into a built Python wheel.
+
+    When *sbom_path* supplies an externally-generated SBOM, its declared
+    subject name/version is cross-checked against the wheel's own
+    ``.dist-info/METADATA`` before anything is written -- see
+    :func:`_enforce_sbom_name_version`. A genuine mismatch raises
+    ``ValueError`` unless *allow_mismatch*. A Pitloom-generated SBOM
+    (*sbom_path* unset) is never checked -- it's built from this same
+    *wheel_metadata*, so it can't diverge.
+    """
+    configure_logging()
     wheel_obj = Path(wheel_path).resolve()
     wheel_metadata, _ = read_wheel(wheel_obj)
     eff_overrides = overrides if overrides is not None else ConfigOverrides()
@@ -219,8 +362,31 @@ def embed_wheel_sbom(
         registry=registry,
         overrides=eff_overrides,
     )
+    if sbom_path is not None:
+        # wheel_metadata.name defaults to the sentinel "unknown" (never
+        # None) when METADATA has no Name header -- comparing that
+        # placeholder against the SBOM would either report a bogus
+        # mismatch or silently "match" an SBOM literally named "unknown".
+        # `provenance` only gains a "name"/"version" key when a real
+        # header was found (see `_populate_metadata_from_email`), so it's
+        # the correct signal for "was this field actually present" --
+        # the same real-None-on-missing semantics `read_wheel_name_version`
+        # (verify-wheel's own path) already has.
+        wheel_name = (
+            wheel_metadata.name if "name" in wheel_metadata.provenance else None
+        )
+        wheel_version = (
+            wheel_metadata.version if "version" in wheel_metadata.provenance else None
+        )
+        _enforce_sbom_name_version(
+            wheel_obj.name,
+            wheel_name,
+            wheel_version,
+            sbom_json,
+            allow_mismatch=allow_mismatch,
+        )
     target_filename = (
-        f"{eff_basename.removesuffix(_SPDX3_JSON_EXT)}{_SPDX3_JSON_EXT}"
+        f"{eff_basename.removesuffix(SPDX3_JSONLD_EXTENSION)}{SPDX3_JSONLD_EXTENSION}"
         if eff_basename
         else None
     )
@@ -249,9 +415,21 @@ def _generate_embed_sbom_json(
 ) -> tuple[str, str | None]:
     """Resolve the SBOM JSON to embed and its effective basename."""
     if sbom_path is not None:
+        if overrides.allow_build or overrides.no_build_isolation:
+            warn_allow_build_no_effect(
+                wheel_metadata.name,
+                "for an externally-supplied --sbom (embedded verbatim, "
+                "never rescanned)",
+            )
         return Path(sbom_path).read_text(encoding="utf-8"), sbom_basename
 
     if project_dir is None:
+        if overrides.allow_build or overrides.no_build_isolation:
+            warn_allow_build_no_effect(
+                wheel_metadata.name,
+                "with no project directory to rescan (no --project-dir "
+                "and no pyproject.toml in the current directory)",
+            )
         sbom_json = _build_sbom_standalone_wheel(
             wheel_metadata,
             creation_metadata,
@@ -263,7 +441,16 @@ def _generate_embed_sbom_json(
 
     proj_root = Path(project_dir).resolve()
     if pitloom_config is None:
-        _, cfg, _ = read_project(proj_root)
+        # Only [tool.pitloom] config is used here -- skip the lock/pin
+        # cascade (embed-wheel is build-stage; a source-stage lock file's
+        # resolved dependencies must never leak into an embedded SBOM) and
+        # skip in-tree installed-metadata resolution (same build-stage
+        # rationale, and this caller discards the metadata anyway).
+        _, cfg, _ = read_project(
+            proj_root,
+            include_locked_dependencies=False,
+            include_installed_metadata=False,
+        )
     else:
         cfg = pitloom_config
 
@@ -271,7 +458,13 @@ def _generate_embed_sbom_json(
     eff_registry = registry if registry is not None else cfg.ids_file
     reg = resolve_registry(proj_root, eff_registry)
     sbom_json = _build_sbom_from_project_and_wheel(
-        proj_root, wheel_metadata, cfg, reg, creation_metadata or cfg.creation_metadata
+        proj_root,
+        wheel_metadata,
+        cfg,
+        reg,
+        creation_metadata or cfg.creation_metadata,
+        allow_build=overrides.allow_build,
+        no_build_isolation=overrides.no_build_isolation,
     )
     return sbom_json, sbom_basename or cfg.sbom_basename
 

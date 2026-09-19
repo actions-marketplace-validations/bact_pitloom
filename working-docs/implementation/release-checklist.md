@@ -1,6 +1,6 @@
 ---
 Created: 2026-08-11
-Last-Modified: 2026-08-18
+Last-Modified: 2026-09-19
 SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 SPDX-FileType: DOCUMENTATION
 SPDX-License-Identifier: CC0-1.0
@@ -14,6 +14,18 @@ the release-cutting process itself, run once per version bump.
 
 ## 1. Pre-tag verification (local)
 
+CI already covers most of this list on the release PR -- check the green
+run before repeating it locally. Job-name map (`gh pr checks` shows job
+names, not workflow names): pytest = `Test on Python ...`; mypy/pyright/
+pyrefly = `Type checking`; ruff, **pylint and flake8** = one job, `Ruff
+(Lint & Format)`; plugin validation = `claude plugin validate`; version
+fields = `Check version fields agree`; `python -m build --wheel` + PEP 770
+embed + `verify-wheel`/`validate-wheel` on Pitloom's own wheel =
+`Python X on <os>` (`build.yml`, ubuntu/windows/macos); the hook against
+the Hatchling floor and latest = `Hook on Python X / Hatchling Y`
+(`hatch-integration.yml`). Docs-only commits skip most workflows via
+`paths-ignore`.
+
 - [ ] `pytest tests/ -q` -- 0 failed.
 - [ ] `mypy examples/ src/ tests/` -- clean.
 - [ ] `ruff check examples/ src/ tests/` and `ruff format --check
@@ -21,19 +33,30 @@ the release-cutting process itself, run once per version bump.
 - [ ] `pylint src/ tests/ examples/` -- 10.00/10 (`--ignore-paths` any
       stray local `.venv` under `examples/` -- see
       [summary.md](summary.md) for why one can exist untracked).
+- [ ] `scripts/` is not linted by CI: run ruff, mypy, pylint, flake8,
+      `shellcheck -x scripts/action/*.sh` and `actionlint` on it by hand
+      when it changed since the last tag.
 - [ ] `claude plugin validate .claude-plugin/plugin.json` and
       `.../marketplace.json` -- both pass.
 - [ ] Version string consistent across every file that carries one:
       `pyproject.toml`, `src/pitloom/__about__.py`,
       `.claude-plugin/plugin.json`, `CITATION.cff`, `codemeta.json`,
-      `README.md`, `action.yml`, `docs/index.md`. Check with
+      `README.md`, `action.yml`, `docs/index.md`, `docs/github-action.md`
+      (also `pip install pitloom==<version>` in its registry recipe),
+      `working-docs/implementation/github-action.md`. Check with
       `grep -rn "<old-version>"` across those files -- anything left
-      over is a missed bump.
+      over is a missed bump. Dependency floors (e.g. `hatchling>=`) are
+      *not* covered by `scripts/check_version_consistency.py`: grep them by
+      hand across `pyproject.toml`, README, `docs/`, examples, CI matrix,
+      comments and test literals (see [recurring-bug-patterns.md](recurring-bug-patterns.md)).
 - [ ] `CHANGELOG.md`: every merged PR since the last tag either has an
       entry, or is a routine dependabot/CI-only/docs-only/test-only
       change that doesn't need one (cross-check `git log --oneline
       <last-tag>..HEAD | grep "Merge pull request"` against the
-      `[#NNN]:` link refs at the bottom of the file).
+      `[#NNN]:` link refs at the bottom of the file). Include the
+      version-bump PR itself when it carries more than version strings
+      (0.18.1's bump PR also lowered a dependency floor and changed the
+      skills, and had no entry until this check caught it).
 - [ ] `python -m build --wheel` succeeds locally; the built wheel embeds
       `<name>-<version>.dist-info/sboms/<name>-<version>.spdx3.json` (PEP 770).
 - [ ] Run the `Fuzz` workflow (`workflow_dispatch`, both targets) for a
@@ -44,7 +67,10 @@ the release-cutting process itself, run once per version bump.
 ## 2. Tag and publish
 
 - [ ] Tag the release, push the tag, publish to PyPI (however this
-      project's release automation does it -- not scripted here).
+      project's release automation does it -- not scripted here). The
+      GitHub Action installs the version its pinned ref carries, so
+      `uses: bact/pitloom@<new-tag>` fails until PyPI serves that
+      version; don't announce the tag before the publish completes.
 
 ## 3. Post-publish verification (the actual published artifact)
 
@@ -57,8 +83,10 @@ wheel directly:
       API publishes for that file.
 - [ ] Unzip it and inspect `pitloom-<version>.dist-info/sboms/pitloom-<version>.spdx3.json`
       directly -- the actual bytes a consumer gets, not a regenerated copy.
-- [ ] Confirm PEP 770 location, run schema + SHACL validation
-      (`spdx3_validate` or the `sbom-validate` Skill), recompute every
+- [ ] Confirm PEP 770 location and recommended extension
+      (`loom verify-wheel <downloaded.whl> --sbom-filename
+      pitloom-<version>.spdx3.json`), run schema + SHACL validation
+      (`loom validate-wheel <downloaded.whl>`), recompute every
       `software_File`'s SHA-256 from the extracted bytes and cross-check
       against the wheel's own `RECORD`, and confirm the main package's
       PURL/license relationships/creator identity are as expected.
@@ -67,6 +95,12 @@ wheel directly:
       its existing entries' format -- this is what makes each release's
       verification durable evidence instead of a one-off chat answer
       that disappears with the session that produced it.
+
+- [ ] Run a throwaway workflow with `uses: bact/pitloom@<new-tag>`
+      (and, for the SHA-pin path, `@<tag's commit SHA>`) against a small
+      project: it must install exactly `<version>` and emit no
+      warning annotation beyond the expected Python-selection one. See
+      [github-action.md](github-action.md).
 
 ## 4. GitHub Release
 

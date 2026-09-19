@@ -11,7 +11,6 @@ See also: :mod:`pitloom.core._config_types` and :mod:`pitloom.core.config`.
 from __future__ import annotations
 
 import re
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -22,16 +21,13 @@ from pitloom.core._config_legacy import (
 from pitloom.core._config_types import (
     _DEFAULT_PROVENANCE_SCHEMA,
     VALID_CONTENT_TYPE_METHODS,
+    FragmentConfig,
     PitloomConfig,
 )
 from pitloom.core.content_type_config import ContentTypeOverride
 from pitloom.core.creation import Creator, Tool
 from pitloom.core.provenance import normalize_max_source_metadata_bytes
-
-if sys.version_info >= (3, 11):
-    import tomllib
-else:
-    import tomli as tomllib
+from pitloom.extract._toml_io import load_toml_file
 
 _VALID_PROVENANCE_FORMATS: frozenset[str] = frozenset({"annotation", "comment", "both"})
 _VALID_PROVENANCE_DETAIL: frozenset[str] = frozenset({"minimal", "full"})
@@ -300,10 +296,89 @@ def _read_offline_setting(pitloom_data: dict[str, Any]) -> bool:
     return _read_bool_setting(pitloom_data, "offline", False)
 
 
-def _read_fragments(pitloom_data: dict[str, Any]) -> list[str]:
-    """Read ``[tool.pitloom.fragment] files``."""
+def _read_use_lockfile_setting(pitloom_data: dict[str, Any]) -> bool:
+    """Read ``[tool.pitloom] use-lockfile`` (on by default)."""
+    return _read_bool_setting(pitloom_data, "use-lockfile", True)
+
+
+def _read_fragments(pitloom_data: dict[str, Any]) -> list[FragmentConfig]:
+    """Read ``[tool.pitloom.fragment] files`` into ``FragmentConfig`` entries.
+
+    Each entry is either a plain path string (shorthand for
+    ``FragmentConfig(path=...)``) or an inline table with ``path`` plus any
+    of ``role``, ``description``, ``required``, ``sha256``, ``link-to-main``.
+    """
     raw = pitloom_data.get("fragment", {}).get("files", [])
-    return [str(f) for f in raw] if isinstance(raw, list) else []
+    if not isinstance(raw, list):
+        return []
+    fragments: list[FragmentConfig] = []
+    for entry in raw:
+        if isinstance(entry, str):
+            if not entry:
+                raise ValueError(
+                    "[tool.pitloom.fragment] 'files' entry must not be an empty string"
+                )
+            fragments.append(FragmentConfig(path=entry))
+        elif isinstance(entry, dict):
+            fragments.append(_read_fragment_entry(entry))
+        else:
+            raise ValueError(
+                "[tool.pitloom.fragment] 'files' entries must each be a "
+                f"string or table, got {type(entry).__name__}: {entry!r}"
+            )
+    return fragments
+
+
+def _read_fragment_entry(entry: dict[str, Any]) -> FragmentConfig:
+    """Parse one ``[tool.pitloom.fragment] files`` table entry.
+
+    Every field here raises ``ValueError`` on the wrong type, matching
+    every sibling ``_read_*``/entry-parser in this file (``_read_creators``,
+    ``_read_content_type_overrides``, ``_read_bool_setting``, ...) --
+    config errors are never silently coerced or defaulted around, only
+    genuinely-absent optional fields get a default.
+    """
+    path = entry.get("path")
+    if not isinstance(path, str) or not path:
+        raise ValueError(
+            "[tool.pitloom.fragment] 'files' table entry is missing a "
+            f"valid 'path' (got {path!r})"
+        )
+    role = entry.get("role")
+    if role is not None and not isinstance(role, str):
+        raise ValueError(
+            "[tool.pitloom.fragment] 'files' entry 'role' must be a "
+            f"string, got {type(role).__name__}: {role!r}"
+        )
+    description = entry.get("description")
+    if description is not None and not isinstance(description, str):
+        raise ValueError(
+            "[tool.pitloom.fragment] 'files' entry 'description' must be "
+            f"a string, got {type(description).__name__}: {description!r}"
+        )
+    required = _read_bool_setting(
+        entry, "required", False, table_path="[tool.pitloom.fragment] 'files' entry"
+    )
+    sha256 = entry.get("sha256")
+    if sha256 is not None and not isinstance(sha256, str):
+        raise ValueError(
+            "[tool.pitloom.fragment] 'files' entry 'sha256' must be a "
+            f"string, got {type(sha256).__name__}: {sha256!r}"
+        )
+    link_to_main = entry.get("link-to-main", entry.get("link_to_main"))
+    if link_to_main is not None and not isinstance(link_to_main, str):
+        raise ValueError(
+            "[tool.pitloom.fragment] 'files' entry 'link-to-main' must be "
+            f"a string, got {type(link_to_main).__name__}: {link_to_main!r}"
+        )
+    return FragmentConfig(
+        path=path,
+        role=role,
+        description=description,
+        required=required,
+        sha256=sha256,
+        link_to_main=link_to_main,
+    )
 
 
 def _apply_no_creation_tool(
@@ -371,6 +446,7 @@ def parse_pitloom_config(data: dict[str, Any]) -> PitloomConfig:
             )
     sbom_basename: str | None = pitloom_data.get("sbom-basename") or None
     offline = _read_offline_setting(pitloom_data)
+    use_lockfile = _read_use_lockfile_setting(pitloom_data)
 
     creators = _read_creators(pitloom_data)
     tools = _apply_no_creation_tool(creation_data, _read_tools(pitloom_data))
@@ -406,6 +482,7 @@ def parse_pitloom_config(data: dict[str, Any]) -> PitloomConfig:
         content_type_method=content_type_method,
         content_type_overrides=content_type_overrides,
         offline=offline,
+        use_lockfile=use_lockfile,
     )
 
 
@@ -414,7 +491,6 @@ def read_pitloom_config(pyproject_path: Path) -> PitloomConfig:
     if not pyproject_path.exists():
         raise FileNotFoundError(f"pyproject.toml not found at {pyproject_path}")
 
-    with open(pyproject_path, "rb") as f:
-        data: dict[str, Any] = tomllib.load(f)
+    data: dict[str, Any] = load_toml_file(pyproject_path)
 
     return parse_pitloom_config(data)

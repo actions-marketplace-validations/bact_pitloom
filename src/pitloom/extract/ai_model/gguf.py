@@ -1,0 +1,226 @@
+# SPDX-FileContributor: Arthit Suriyawongkul
+# SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
+# SPDX-FileType: SOURCE
+# SPDX-License-Identifier: Apache-2.0
+
+"""GGUF model metadata extractor."""
+
+from __future__ import annotations
+
+import logging
+import struct
+from pathlib import Path
+from typing import Any
+
+from pitloom.core.ai_metadata import AiModelFormat, AiModelFormatInfo, AiModelMetadata
+from pitloom.extract._extract_utils import (
+    record_dict_field_provenance,
+    sanitize_provenance_text,
+)
+
+log = logging.getLogger(__name__)
+
+# Standard GGUF general keys used for SPDX AI fields
+_GGUF_NAME_KEYS = ("general.name",)
+_GGUF_DESCRIPTION_KEYS = ("general.description",)
+_GGUF_ARCH_KEY = "general.architecture"
+_GGUF_VERSION_KEY = "general.version"
+_GGUF_FILE_TYPE_KEY = "general.file_type"
+
+# Hyperparameter key suffixes that are architecture-specific
+_GGUF_HYPERPARAM_SUFFIXES = (
+    ".context_length",
+    ".embedding_length",
+    ".feed_forward_length",
+    ".block_count",
+    ".attention.head_count",
+    ".attention.head_count_kv",
+    ".attention.layer_norm_rms_epsilon",
+    ".rope.freq_base",
+    ".rope.dimension_count",
+)
+
+
+def _resolve_quantization(file_type_value: Any) -> str | None:
+    """Resolve a GGUF ``general.file_type`` integer to a quantization name.
+
+    Uses the ``gguf`` library's ``GGMLQuantizationType`` enum when available,
+    otherwise returns the raw integer as a string.
+
+    Args:
+        file_type_value: The raw value extracted from the ``general.file_type``
+            GGUF field (an integer or a list containing one integer).
+
+    Returns:
+        Quantization name string (e.g. ``"Q4_K_M"``) or ``None``.
+    """
+    if file_type_value is None:
+        return None
+
+    try:
+        int_val = int(file_type_value)
+    except (TypeError, ValueError):
+        return None
+
+    try:
+        # pylint: disable=import-outside-toplevel
+
+        from gguf import GGMLQuantizationType
+
+        return str(GGMLQuantizationType(int_val).name)
+    # pylint: disable=broad-exception-caught
+    except Exception as exc:
+        log.debug(
+            "Failed to resolve GGUF quantization name for file_type=%r: %s",
+            file_type_value,
+            exc,
+        )
+        return str(int_val)
+
+
+def _read_gguf_format_version(model_path: Path, source: str) -> tuple[str | None, str]:
+    """Read GGUF format version from the binary header (uint32 at offset 4)."""
+    try:
+        with model_path.open("rb") as fh:
+            fh.seek(4)
+            ver_bytes = fh.read(4)
+        if len(ver_bytes) == 4:
+            format_version = str(struct.unpack("<I", ver_bytes)[0])
+            return format_version, f"{source} | Field: GGUF header version (bytes 4-7)"
+    except OSError:
+        pass
+    return None, ""
+
+
+def _field_value(gguf_field: Any) -> Any:
+    """Resolve GGUF field values to plain Python scalars."""
+    parts = gguf_field.parts
+    if not parts:
+        return None
+    last = parts[-1]
+    # String fields are stored as raw byte arrays; decode explicitly
+    if gguf_field.types and getattr(gguf_field.types[0], "name", "") == "STRING":
+        return last.tobytes().decode("utf-8")
+    if hasattr(last, "tolist"):
+        val = last.tolist()
+        return val[0] if isinstance(val, list) and len(val) == 1 else val
+    return last
+
+
+def _extract_gguf_core_fields(
+    fields: dict[str, Any], source: str, provenance: dict[str, str]
+) -> tuple[str | None, str | None, str | None, str | None, str | None]:
+    """Extract core model identification fields from GGUF fields dictionary."""
+    name: str | None = None
+    for key in _GGUF_NAME_KEYS:
+        if key in fields and fields[key] is not None:
+            name = str(fields[key])
+            provenance["name"] = f"{source} | Field: {key}"
+            break
+
+    description: str | None = None
+    for key in _GGUF_DESCRIPTION_KEYS:
+        if key in fields and fields[key] is not None:
+            description = str(fields[key])
+            provenance["description"] = f"{source} | Field: {key}"
+            break
+
+    architecture: str | None = fields.get(_GGUF_ARCH_KEY)
+    if architecture is not None:
+        architecture = str(architecture)
+        provenance["architecture"] = f"{source} | Field: {_GGUF_ARCH_KEY}"
+
+    version: str | None = None
+    if _GGUF_VERSION_KEY in fields and fields[_GGUF_VERSION_KEY] is not None:
+        version = str(fields[_GGUF_VERSION_KEY])
+        provenance["version"] = f"{source} | Field: {_GGUF_VERSION_KEY}"
+
+    quantization: str | None = None
+    if _GGUF_FILE_TYPE_KEY in fields:
+        quantization = _resolve_quantization(fields[_GGUF_FILE_TYPE_KEY])
+        if quantization:
+            provenance["quantization"] = f"{source} | Field: {_GGUF_FILE_TYPE_KEY}"
+
+    return name, description, architecture, version, quantization
+
+
+def _categorize_gguf_fields(
+    fields: dict[str, Any], source: str, provenance: dict[str, str]
+) -> tuple[dict[str, Any], dict[str, str]]:
+    """Separate hyperparameters from general properties and record provenance."""
+    hyperparameters: dict[str, Any] = {}
+    properties: dict[str, str] = {}
+    for key, value in fields.items():
+        if value is None:
+            continue
+        if any(key.endswith(suffix) for suffix in _GGUF_HYPERPARAM_SUFFIXES):
+            hyperparameters[key] = value
+        else:
+            properties[key] = str(value)
+
+    record_dict_field_provenance(provenance, "hyperparameters", hyperparameters, source)
+    record_dict_field_provenance(provenance, "properties", properties, source)
+    return hyperparameters, properties
+
+
+def read_gguf(model_path: Path) -> AiModelMetadata:
+    """Extract metadata from a GGUF model file.
+
+    Requires the ``gguf`` package (``pip install gguf``).
+    """
+    try:
+        # pylint: disable=import-outside-toplevel
+        from gguf import GGUFReader
+    except ImportError as exc:
+        raise ImportError(
+            "The 'gguf' package is required to extract GGUF model metadata. "
+            "Install it with: pip install gguf"
+        ) from exc
+
+    try:
+        reader = GGUFReader(str(model_path), mode="r")
+    # pylint: disable=broad-exception-caught
+    except Exception as exc:
+        log.debug("Failed to open GGUF file %s: %s", model_path, exc)
+        raise ValueError(f"Failed to read GGUF file {model_path}: {exc}") from exc
+
+    source = f"Source: {sanitize_provenance_text(model_path.name)}"
+    format_version, prov_ver = _read_gguf_format_version(model_path, source)
+    provenance: dict[str, str] = {}
+    if format_version:
+        provenance["format_version"] = prov_ver
+
+    fields: dict[str, Any] = {k: _field_value(v) for k, v in reader.fields.items()}
+    # GGUFReader (the gguf package) memory-maps the whole file and exposes
+    # no close()/context-manager protocol of its own -- drop the only
+    # reference to it as soon as every field we need is copied out, so the
+    # mapping is released deterministically here rather than implicitly
+    # whenever the interpreter next collects this function's frame.
+    del reader
+    (
+        name,
+        description,
+        architecture,
+        version,
+        quantization,
+    ) = _extract_gguf_core_fields(fields, source, provenance)
+
+    hyperparameters, properties = _categorize_gguf_fields(fields, source, provenance)
+
+    return AiModelMetadata(
+        format_info=AiModelFormatInfo(
+            file_name=model_path.name,
+            model_format=AiModelFormat.GGUF,
+            format_version=format_version,
+            framework="llama.cpp",
+        ),
+        name=name,
+        description=description,
+        version=version,
+        architecture=architecture,
+        quantization=quantization,
+        hyperparameters=hyperparameters,
+        properties=properties,
+        raw_metadata=dict(fields),
+        provenance=provenance,
+    )

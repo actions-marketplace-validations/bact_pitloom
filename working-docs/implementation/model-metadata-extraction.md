@@ -1,6 +1,6 @@
 ---
 Created: 2026-03-05
-Last-Modified: 2026-08-14
+Last-Modified: 2026-09-18
 SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 SPDX-FileType: DOCUMENTATION
 SPDX-License-Identifier: CC0-1.0
@@ -22,22 +22,22 @@ and record those metadata in the AI BOM.
 
 ## Implemented format extractors
 
-All extractors live in `pitloom.extract` and expose a
+All extractors live in `pitloom.extract.ai_model` and expose a
 `read_<format>(model_path: Path) -> AiModelMetadata` interface.
 Format detection is handled by
 `pitloom.extract.ai_model.detect_ai_model_format()` and `read_ai_model()`.
 
 | Format | Extension(s) | Module | Optional dependency | Extraction method |
 | :----- | :----------- | :----- | :------------------ | :----------------- |
-| fastText | `.ftz`, `.bin` | `_fasttext.py` | `pip install fasttext` | `model.f.getArgs()` via C++ binding; `model.get_labels()` for supervised class list |
-| GGUF | `.gguf` | `_gguf.py` | `pip install gguf` | `GGUFReader` to extract typed key-value pairs from the binary header |
-| HDF5 / Keras v1-v2 | `.h5`, `.hdf5` | `_hdf5.py` | `pip install h5py` | `h5py.File.attrs` for root attributes; JSON-encoded `model_config` and `training_config` |
-| Keras v3 | `.keras` | `_keras.py` | (stdlib only) | Inspect `config.json` inside the `.keras` ZIP archive; no model execution required |
-| NumPy | `.npy`, `.npz` | `_numpy.py` | `pip install numpy` | Memory-map header to read shape and dtype without loading tensor data |
-| ONNX | `.onnx` | `_onnx.py` | `pip install onnx` | `onnx.load()` to access graph properties and `metadata_props` dictionary |
-| PyTorch classic | `.pt`, `.pth` | `_pytorch.py` | `pip install fickling` (safe pickle inspection) | ZIP archive structure inspection; `fickling` for safe pickle AST inspection (never calls `pickle.load`) |
-| PyTorch PT2 / ExecuTorch | `.pt2` | `_pytorch_pt2.py` | (stdlib only) | ZIP archive structure; `extra/` metadata files; `models/model.json` graph inputs/outputs |
-| Safetensors | `.safetensors` | `_safetensors.py` | `pip install safetensors` | `safe_open()` reads the JSON header without loading multi-gigabyte weight tensors |
+| fastText | `.ftz`, `.bin` | `fasttext.py` | `pip install fasttext-community` | `model.f.getArgs()` via C++ binding; `model.get_labels()` for supervised class list |
+| GGUF | `.gguf` | `gguf.py` | `pip install gguf` | `GGUFReader` to extract typed key-value pairs from the binary header |
+| HDF5 / Keras v1-v2 | `.h5`, `.hdf5` | `hdf5.py` | `pip install h5py` | `h5py.File.attrs` for root attributes; JSON-encoded `model_config` and `training_config` |
+| Keras v3 | `.keras` | `keras.py` | (stdlib only) | Inspect `config.json` inside the `.keras` ZIP archive; no model execution required |
+| NumPy | `.npy`, `.npz` | `numpy.py` | `pip install numpy` | Memory-map header to read shape and dtype without loading tensor data |
+| ONNX | `.onnx` | `onnx.py` | `pip install onnx` | `onnx.load()` to access graph properties and `metadata_props` dictionary |
+| PyTorch classic | `.pt`, `.pth` | `pytorch.py` | `pip install fickling` (safe pickle inspection) | ZIP archive structure inspection; `fickling` for safe pickle AST inspection (never calls `pickle.load`) |
+| PyTorch PT2 / ExecuTorch | `.pt2` | `pytorch_pt2.py` | (stdlib only) | ZIP archive structure; `extra/` metadata files; `models/model.json` graph inputs/outputs |
+| Safetensors | `.safetensors` | `safetensors.py` | `pip install safetensors` | `safe_open()` reads the JSON header without loading multi-gigabyte weight tensors |
 
 ## Format reference tools and prior art
 

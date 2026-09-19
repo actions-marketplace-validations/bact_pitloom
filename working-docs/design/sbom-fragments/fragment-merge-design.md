@@ -153,7 +153,7 @@ to declare:
 > remapped, duplicate relationships removed, `profileConformance` updated,
 > and a second `software_Sbom` rooted at the merged `ai_AIPackage` added.
 > Cross-fragment id stability comes from the `loom-ids.json` registry
-> (`src/pitloom/ids.py`, `pitloom ids generate|import`), consulted by
+> (`src/pitloom/ids.py`, `loom ids generate|import`), consulted by
 > `pitloom.loom`, the build hook, and the CLI. `SpdxDocument.imports` is
 > now populated too (`_add_fragment_imports()`, one `ExternalMap` per
 > merged fragment's document id), and the merged graph's referential
@@ -180,72 +180,22 @@ The original gap description below is kept for context.
 - Does not produce any merge summary visible to the user (what was added,
   what was skipped, what failed).
 
-## Redesigned fragment configuration
+## Fragment configuration
 
-### Structured fragment declaration in `pyproject.toml`
+**Status: shipped.** Singular table **`[tool.pitloom.fragment]` with a
+`files` list** -- each entry is either a plain path string or an inline
+table adding `role`/`description`/`required`/`sha256`/`link-to-main`.
+`role` is a free-form, unvalidated pipeline-position label (not an
+SBOM-type/profile enum, and not the unrelated SPDX-`RelationshipType`-
+mapped `role` on `core.dataset_metadata.DatasetReference`). `required=True`
+is enforced (raises `FragmentMergeError`); `sha256`/`link-to-main` are
+stored and shown by `loom fragment list` but not yet enforced/acted on
+during merge.
 
-Replace the flat `list[str]` with a list of structured fragment descriptors:
-
-```toml
-# Minimal form -- backward-compatible; role defaults to "software"
-[tool.pitloom]
-fragments = ["fragments/legacy.spdx3.json"]
-
-# Recommended structured form
-[[tool.pitloom.fragments]]
-path = "fragments/model-bert-v3.spdx3.json"
-role = "ai"
-description = "BERT fine-tune training provenance from MLflow run bert-v3"
-required = false
-sha256 = "a3f1..."           # optional: verify integrity before merge
-link_to_main = "trainedOn"  # SPDX relationship type to the main package
-
-[[tool.pitloom.fragments]]
-path = "fragments/training-dataset.spdx3.json"
-role = "dataset"
-description = "Curated multilingual NLI dataset, assembled in notebook"
-required = false
-
-[[tool.pitloom.fragments]]
-path = "fragments/libssl-vendor.spdx3.json"
-role = "software"
-description = "Vendor-supplied SBOM for bundled libssl 3.2.1"
-required = true             # build fails if this fragment is missing
-sha256 = "b7e2..."
-```
-
-### Updated `PitloomConfig` data model
-
-```python
-@dataclass
-class FragmentConfig:
-    """Configuration for a single SBOM fragment source.
-
-    Attributes:
-        path: Path to the fragment file, relative to the project directory.
-        role: SBOM type this fragment covers. Maps to software_SbomType.
-            One of: "ai", "build", "dataset", "software", "source".
-            Defaults to "software".
-        description: Human-readable description of what the fragment covers.
-        required: If True, a missing fragment aborts the build.
-            Defaults to False (warning only).
-        sha256: Optional expected SHA-256 hex digest of the fragment file.
-            When set, Pitloom verifies integrity before merging.
-        link_to_main: Optional SPDX relationship type to emit between the
-            fragment's root element and the project's main package element.
-            E.g., "trainedOn", "usedBy", "contains", "dependsOn".
-    """
-
-    path: str
-    role: str = "software"
-    description: str | None = None
-    required: bool = False
-    sha256: str | None = None
-    link_to_main: str | None = None
-```
-
-A backward-compatible loader will accept both the old `list[str]` form
-(converting each string to `FragmentConfig(path=s)`) and the new table form.
+See `pitloom.core.config.FragmentConfig`'s docstring (source of truth)
+and `docs/configuration.md`'s `[tool.pitloom.fragment]` section
+(user-facing reference) for the current, correct definition -- don't
+reconstruct it from this file.
 
 ---
 
@@ -253,52 +203,42 @@ A backward-compatible loader will accept both the old `list[str]` form
 
 ### Merge protocol
 
-1. **Pre-merge validation** -- for each configured fragment:
-   - Check file existence; if missing and `required=True`, raise; if `False`,
-     log warning and skip.
-   - If `sha256` is set, verify the file hash matches.
-   - Parse the JSON-LD and validate it is a valid SPDX 3 document (using
-     `spdx3-validate`'s library API -- `spdx3_validate.validate()`,
-     available since `spdx3-validate` v0.0.7 -- or the built-in
-     `JSONLDDeserializer` + schema check).
-   - Log a structured merge summary entry (path, element count, validation
-     result).
+Current shipped behavior (steps 1-2), plus still-open, unbuilt items
+(steps 3-5, marked accordingly):
 
-2. **Namespace-aware element ingestion** -- for each element in the fragment:
-   - If the element's `spdxId` already exists in the main object set,
-     log a warning and skip (first-writer-wins). Future enhancement:
-     implement merge-by-identity using PURL or hash comparison.
-   - Otherwise, add the element to the main object set.
+1. **Pre-merge validation** -- for each configured fragment: check file
+   existence; if missing/unreadable and `required=True`, raise
+   `FragmentMergeError`; otherwise log a `WARNING:` and skip.
+2. **Element ingestion and dedup** -- elements are unified by `spdxId`,
+   then SHA-256, then structural equality (`_fragments_unify.py`), not a
+   naive first-writer-wins overwrite.
+
+**Not yet implemented:**
 
 3. **Fragment-to-main relationship** -- if `link_to_main` is set and the
    fragment contains a `software_Sbom` or a root element identifiable via
    the fragment's `rootElement` list, emit an SPDX `Relationship` from the
-   project's main package to the fragment's root element using the specified
-   relationship type.
+   project's main package to the fragment's root element using the
+   specified relationship type.
+4. **External document reference integrity checksum** -- for each
+   successfully merged fragment, record an integrity checksum on the
+   fragment's `ExternalMap` entry in `SpdxDocument.imports` (the entry
+   itself is already added by `_add_fragment_imports`; the checksum is
+   the missing piece).
+5. **Merge summary** -- after all fragments are processed, emit a
+   structured log entry (or write to a sidecar `.merge-report.json`)
+   listing: fragment path, role, element count, relationships added;
+   skipped element count and reason (duplicate IDs); failed fragments
+   and error messages.
 
-4. **External document reference** -- for each successfully merged fragment,
-   add an `ExternalMap` entry to `SpdxDocument.imports` recording the
-   fragment's namespace URI and integrity checksum.
-
-5. **Merge summary** -- after all fragments are processed, emit a structured
-   log entry (or write to a sidecar `.merge-report.json`) listing:
-   - Fragment path, role, element count, relationships added.
-   - Skipped element count and reason (duplicate IDs).
-   - Failed fragments and error messages.
-
-### Updated `merge_fragments` signature
+### `merge_fragments` signature
 
 ```python
 def merge_fragments(
     project_dir: Path,
-    fragments: list[FragmentConfig],  # replaces list[str]
+    fragments: list[FragmentConfig],
     exporter: Spdx3JsonExporter,
-    main_package_spdx_id: str,
-    spdx_document: spdx3.SpdxDocument,
-    creation_info: spdx3.CreationInfo,
-    doc_name: str,
-    doc_uuid: str,
-) -> list[FragmentMergeResult]:
+) -> None:
     """Load, validate, and merge SPDX 3 fragment files into the exporter."""
 ```
 
@@ -309,20 +249,20 @@ def merge_fragments(
 The Pitloom CLI (`python -m pitloom`) gains a `fragment` subcommand group:
 
 ```text
-pitloom fragment init   --role ai --output fragments/model.spdx3.json
-pitloom fragment validate  fragments/model.spdx3.json
-pitloom fragment merge  --dry-run          # preview merge without building
-pitloom fragment list                       # list configured fragments + status
-pitloom fragment sign   fragments/model.spdx3.json   # compute SHA-256 + write to config
+loom fragment init --role ai --output fragments/model.spdx3.json
+loom fragment validate fragments/model.spdx3.json
+loom fragment merge --dry-run            # preview merge without building
+loom fragment list                       # list configured fragments + status
+loom fragment sign fragments/model.spdx3.json   # compute SHA-256 + write to config
 ```
 
 | Command | Purpose |
 | :---- | :---- |
 | `fragment init` | Generate a skeleton fragment JSON-LD for the given role. Prompts for name, version, author. |
 | `fragment validate` | Validate a fragment file via `spdx3-validate`'s library API (`spdx3_validate.validate()`); report errors and warnings. |
-| `fragment merge --dry-run` | Simulate the full build-time merge without writing wheel output. Print the merge report. |
-| `fragment list` | Read `pyproject.toml`, list each configured fragment with: path, role, exists?, last-modified, element count (if parseable), sha256 match. |
-| `fragment sign` | Compute SHA-256 of a fragment file and write it back to the matching entry in `[tool.pitloom.fragments]`. |
+| `fragment merge --dry-run` | Simulate the full build-time merge without writing wheel output. Print the merge report. Still open -- not the same command as the already-shipped `loom merge FRAGMENTS_DIR` (directory-of-files, no config/dry-run/report). |
+| `fragment list` | **Shipped**, matches this description closely: reads `pyproject.toml`'s `[tool.pitloom.fragment]`, prints one `KEY=VALUE` line per configured fragment with path/role/required/exists/element-count/sha256-status/last-modified. See `docs/cli.md#list-configured-fragments`. |
+| `fragment sign` | Still open. Compute SHA-256 of a fragment file and write it back to the matching entry in `[tool.pitloom.fragment]`. |
 
 ---
 

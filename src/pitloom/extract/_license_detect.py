@@ -15,6 +15,8 @@ import json
 import re
 from pathlib import Path
 
+from pitloom.extract._json_io import load_json_bytes
+
 # Candidate filenames in priority order (no-extension first, then common suffixes)
 _LICENSE_STEMS = ("LICENSE", "LICENCE", "COPYING", "COPYRIGHT")
 _LICENSE_SUFFIXES = ("", ".txt", ".rst", ".md")
@@ -89,7 +91,7 @@ def _read_license_from_codemeta_json(project_dir: Path) -> str | None:
     if not codemeta_path.exists():
         return None
     try:
-        data = json.loads(codemeta_path.read_text(encoding="utf-8"))
+        _raw, data = load_json_bytes(codemeta_path)
     except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         return None
 

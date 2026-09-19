@@ -8,10 +8,10 @@
 Deliberately narrow: parses only the leading ``---\\n...\\n---`` YAML
 frontmatter block -- the de facto convention Hugging Face model cards
 popularized, already handled for *remote* HF models by
-:func:`pitloom.extract._huggingface_fetch._load_model_card`. This module closes
+:func:`pitloom.extract.remote.huggingface_fetch._load_model_card`. This module closes
 the equivalent gap for a *local* model file sitting next to a local
-``README.md``/``MODEL_CARD.md``, which no local-format extractor
-(``_gguf.py``, ``_safetensors.py``, ...) ever reads.
+``README.md``/``MODEL_CARD.md``, which no local-format extractor in
+:mod:`pitloom.extract.ai_model` (``gguf``, ``safetensors``, ...) reads.
 
 Not prose parsing -- no NLP, no regex-hunting through free text. Only
 structured YAML frontmatter fields are read, which keeps this
@@ -31,6 +31,7 @@ import yaml
 from pitloom.core.ai_metadata import AiModelMetadata
 from pitloom.core.dataset_metadata import DatasetMetadata, DatasetReference
 from pitloom.enrich.base import EnrichedField, EnrichmentResult
+from pitloom.logging_config import field_loss_suffix
 
 log = logging.getLogger(__name__)
 
@@ -66,7 +67,10 @@ def _parse_frontmatter(text: str) -> dict[str, Any] | None:
     try:
         data = yaml.safe_load(parts[1])
     except yaml.YAMLError as exc:
-        log.debug("Failed to parse model-card frontmatter: %s", exc)
+        msg = "Failed to parse model-card frontmatter: %s" + field_loss_suffix(
+            "skipped", "license", "datasets"
+        )
+        log.warning(msg, exc)
         return None
     return data if isinstance(data, dict) else None
 
@@ -90,7 +94,10 @@ class ReadmeEnricher:
         try:
             text = card_path.read_text(encoding="utf-8", errors="replace")
         except OSError as exc:
-            log.debug("Failed to read model card %s: %s", card_path, exc)
+            msg = "Failed to read model card %s: %s" + field_loss_suffix(
+                "skipped", "license", "datasets"
+            )
+            log.warning(msg, card_path, exc)
             return EnrichmentResult(source_name=self.name)
 
         frontmatter = _parse_frontmatter(text)

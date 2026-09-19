@@ -1,6 +1,6 @@
 ---
 Created: 2026-08-12
-Last-Modified: 2026-08-26
+Last-Modified: 2026-09-11
 SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 SPDX-FileType: DOCUMENTATION
 SPDX-License-Identifier: CC0-1.0
@@ -27,13 +27,14 @@ the same way.
 | `pretty` | bool | `false` | `--pretty` / `--no-pretty` | `pretty` | `pretty` | Indent the JSON output with 2 spaces. |
 | `describe-relationship` | bool | `false` | `--describe-relationship` / `--no-describe-relationship` | -- | `describe_relationship` | Include human-readable text on SPDX relationships. |
 | `sbom-basename` | string | *(derived from project name/version)* | -- | -- | `sbom_basename` | Base filename (no extension) for the generated SBOM. |
-| `offline` | bool | `false` | `--offline` | -- | `offline` | Skip the PyPI JSON API fallback used to fill dependency metadata gaps. Network attempted, best-effort, by default -- any failure (including no network) silently falls back to local-only data. |
+| `offline` | bool | `false` | `--offline` | `offline` | `offline` | Skip the PyPI JSON API fallback used to fill dependency metadata gaps. Network attempted, best-effort, by default -- any failure (including no network) silently falls back to local-only data. |
+| `use-lockfile` | bool | `true` | `--use-lockfile` / `--no-use-lockfile` | `use-lockfile` | `use_lockfile` | Resolve exact versions from a lock/pin file cascade (`pylock.toml`/`uv.lock`/`poetry.lock`/`pdm.lock`/`Pipfile.lock`/pinned `requirements.txt`) -- see [Dependency sources and precedence](dependency-sources.md). On by default, unlike every other bool above; `false` falls back to direct dependencies and environment introspection only. CLI flag only on `project`/`generate` (dependency resolution) and `enrich` (`--project-dir` document identity matching); no effect on `model`/`wheel`/`embed-wheel`/`env`. |
 | `extract-file-header` | bool | `true` | `--extract-file-header` / `--no-extract-file-header` | `extract-file-header` | `extract_file_header` | Scan each source file's leading comment header for SPDX-File\* tags. Independent of content-type detection below -- a binary file with no text header still gets a `contentType` when that's on. |
 | `enrich` | bool | `false` | `--enrich` / `--no-enrich` | `enrich` | `enrich` | Run local README/model-card enrichment for discovered AI models. |
 | `ids-file` | string | `null` (auto-discovers `loom-ids.json` by walking up from the project directory) | -- | -- | -- (see `registry` param) | Path to the Loom ID registry file. |
 | `update-registry` | bool | `true` (`project` command only -- `wheel`/`env` aren't pyproject-cascaded, same as `ids-file`) | `--update-registry` / `--no-update-registry` | -- | `update_registry` | After generating, harvest newly-minted ids back into the resolved registry and save it. Only consulted by `project`/`wheel`/`env`/`generate`; accepted but has no effect on `model`/`enrich`/`embed-wheel`. No effect when no registry is resolved -- see [Loom IDs across fragments](https://github.com/bact/pitloom/blob/main/README.md#loom-ids-across-fragments-pitloom-ids). |
 
-**Invalid values / fallback behavior:** every boolean above raises
+**Invalid values / fallback behaviour:** every boolean above raises
 `ValueError` at config-read time if set to a non-boolean (e.g. the TOML
 string `"true"` instead of the bare value `true`) -- no silent
 coercion. `sbom-basename`/`ids-file` raise `ValueError` if set to a
@@ -53,7 +54,7 @@ to every file, text or binary).
 | `enabled` | bool | `false` | `--content-type` / `--no-content-type` | `content-type` | `content_type` | Detect each file's real IANA media type. Off by default -- `magika` inference is a real per-file cost (~5ms/file). |
 | `method` | `"auto"` \| `"magika"` \| `"extension"` | `"auto"` | `--content-type-method` | `content-type-method` | `content_type_method` | Which detector resolves a value: `"auto"` tries `magika`, falling back to a filename-extension guess when `magika` isn't installed or its result is inconclusive; `"magika"` behaves identically per-file but raises immediately if the package isn't installed at all; `"extension"` skips `magika` entirely. |
 
-**Invalid values / fallback behavior:** `enabled` non-boolean raises
+**Invalid values / fallback behaviour:** `enabled` non-boolean raises
 `ValueError` at config-read time. `method` not one of the three listed
 values raises `ValueError` at config-read time. `method = "magika"`
 with the `magika` package not installed raises `RuntimeError` at
@@ -93,7 +94,7 @@ pattern = "vendor/*"
 content-type = "application/octet-stream"
 ```
 
-**Invalid values / fallback behavior:** `override` present but not an
+**Invalid values / fallback behaviour:** `override` present but not an
 array of tables, an entry not a table, a missing/empty `pattern`, or a
 `content-type` not shaped like `type/subtype` -- each raises
 `ValueError` at config-read time with a message naming the exact
@@ -104,10 +105,29 @@ pattern falls through to normal detection.
 
 | Key | Type | Default | CLI flag | Action input | API param | Meaning |
 | :-- | :--- | :------ | :------- | :------------ | :-------- | :------ |
-| `files` | array of strings | `[]` | -- | -- | -- | Paths to pre-generated SPDX 3 JSON-LD fragment files (relative to the project directory) merged into the final SBOM. See [Merge fragments](cli.md#merge-fragments). |
+| `files` | array of strings and/or tables | `[]` | -- | -- | -- | Pre-generated SPDX 3 JSON-LD fragment files merged into the final SBOM. Each entry is either a plain path string (shorthand -- every other field below defaults) or an inline table with `path` plus any of the fields below. See [Merge fragments](cli.md#merge-fragments), [`loom fragment list`](cli.md#list-configured-fragments). |
 
 Kept as its own table (rather than folded into a flat `[tool.pitloom]`
 key) since it's expected to grow more fragment-related settings.
+
+**`files` table-entry fields** (all optional besides `path`):
+
+| Key | Type | Default | Meaning |
+| :-- | :--- | :------ | :------ |
+| `path` | string | *(required)* | Path to the fragment file, relative to the project directory. |
+| `role` | string | `null` | Free-form, unvalidated label for what *part* this fragment plays in a pipeline (e.g. `input_dataset`, `output_dataset`, `ai_model`, `software_package`, `source`, `training_script`, `data_cleaning_script`, `post_processing_script`, `guardrail_safety_function`) -- not enforced, and not read by the merge itself yet; informational only, shown by `loom fragment list`. |
+| `description` | string | `null` | Human-readable description of what the fragment covers. |
+| `required` | boolean | `false` | If `true`, a missing or unreadable fragment fails the build (`FragmentMergeError`) instead of the default warn-and-skip. |
+| `sha256` | string | `null` | Expected SHA-256 hex digest of the fragment file. Currently checked for display only by `loom fragment list` -- not yet enforced before merge (planned: `loom fragment sign`). |
+| `link-to-main` | string | `null` | Reserved for a future SPDX relationship type between the fragment's root element and the project's main package. Stored but not yet acted on. |
+
+```toml
+[tool.pitloom.fragment]
+files = [
+    "fragments/legacy.spdx3.json",
+    { path = "fragments/model.spdx3.json", role = "ai_model", required = true, sha256 = "a3f1..." },
+]
+```
 
 ## `[tool.pitloom.creation]`
 
@@ -158,7 +178,7 @@ what these fields record in the generated SBOM.
 | | `type` | `"person"` \| `"organization"` \| `"software-agent"` \| `"agent"` | Defaults to `"person"`. |
 | `[[tool.pitloom.creation-tool]]` | `name` | string (required) | Tool name recorded as having produced the SBOM. |
 
-**Invalid values / fallback behavior:** a missing/empty `name` on
+**Invalid values / fallback behaviour:** a missing/empty `name` on
 either table, or a non-string `type`/`email`, raises `ValueError` at
 config-read time. `--creator-name`/`--creation-tool` on the CLI replace
 the whole configured list for that run rather than merging with it.
@@ -175,9 +195,9 @@ changes in the generated SBOM's Annotations.
 | `schema` | string | `"pitloom/1"` | -- | -- | -- | Which statement schema encodes provenance Annotations. |
 | `detail` | `"minimal"` \| `"full"` | `"minimal"` | -- | -- | -- | `"minimal"` emits a field-source Annotation only when the source adds signal the native value can't convey; `"full"` emits the per-field source map for every field. |
 | `preserve-source-metadata` | `"auto"` \| `"always"` \| `"never"` | `"auto"` | -- | -- | -- | Whether to embed an artifact's verbatim original metadata blob. `"auto"` does so only when the artifact isn't shipped with the distribution (and so can't be re-extracted later). |
-| `max-source-metadata-bytes` | non-negative integer | `0` | `--max-source-metadata-bytes` | `max-source-metadata-bytes` | -- | Byte budget for the serialized artifact-metadata `Annotation.statement`. `0` means unlimited (today's behavior). When exceeded, the largest metadata entries are dropped first and the result is marked `truncated`/`truncatedKeys`/`truncatedKeyCount`/`maxMetadataBytes` -- see [Metadata provenance](metadata-provenance.md#size-bounded-preservation). Unlike its siblings above, this one has a CLI flag / Action input (no dedicated API param -- set it via the same `ProvenanceConfig` object the others use): a byte cap is an operational knob someone may want to override per-run without editing `pyproject.toml`. |
+| `max-source-metadata-bytes` | non-negative integer | `0` | `--max-source-metadata-bytes` | `max-source-metadata-bytes` | -- | Byte budget for the serialised artifact-metadata `Annotation.statement`. `0` means unlimited (today's behaviour). When exceeded, the largest metadata entries are dropped first and the result is marked `truncated`/`truncatedKeys`/`truncatedKeyCount`/`maxMetadataBytes` -- see [Metadata provenance](metadata-provenance.md#size-bounded-preservation). Unlike its siblings above, this one has a CLI flag / Action input (no dedicated API param -- set it via the same `ProvenanceConfig` object the others use): a byte cap is an operational knob someone may want to override per-run without editing `pyproject.toml`. |
 
-**Invalid values / fallback behavior:** a non-string value, or a
+**Invalid values / fallback behaviour:** a non-string value, or a
 `format`/`detail`/`preserve-source-metadata` outside its listed set,
 raises `ValueError` at config-read time. An unknown `schema` id is not
 caught here (`core` doesn't import the assembly layer's encoder
@@ -185,7 +205,7 @@ registry) -- it's caught with a clear error the first time an SBOM is
 actually generated. `max-source-metadata-bytes`: a non-integer or
 `bool` value raises `ValueError` at config-read time; a negative
 value, or a positive value below the smallest possible JSON object it
-could ever hold (8 bytes), is normalized to `0` (unlimited) with a
+could ever hold (8 bytes), is normalised to `0` (unlimited) with a
 logged `WARNING`, not rejected.
 
 ## See also
@@ -193,6 +213,8 @@ logged `WARNING`, not rejected.
 - [Command line](cli.md) -- flag-by-flag usage with worked examples.
 - [GitHub Action](github-action.md) -- input reference for CI.
 - [Python API](python-api.md) -- calling Pitloom from Python code.
+- [Dependency sources and precedence](dependency-sources.md) -- how
+  resolved lock files feed into Source SBOM dependencies.
 - [Hatchling build hook](hatchling-build-hook.md) -- inherits the
   project's `[tool.pitloom]` automatically, no separate hook-level
   config surface (only `[tool.hatch.build.hooks.pitloom] enabled`

@@ -1,6 +1,6 @@
 ---
 Created: 2026-08-17
-Last-Modified: 2026-08-29
+Last-Modified: 2026-09-18
 SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 SPDX-FileType: DOCUMENTATION
 SPDX-License-Identifier: CC0-1.0
@@ -126,6 +126,7 @@ pitloom/
 │       │   ├── _config_types.py    # Configuration dataclasses and type definitions
 │       │   ├── _models_wheel.py    # Backend-dispatch facade + shared per-file processing loop
 │       │   ├── _models_wheel_hatchling.py  # Hatchling WheelBuilder-based discover()
+│       │   ├── _models_wheel_poetry.py     # poetry-core WheelBuilder-based discover()
 │       │   ├── _models_wheel_setuptools.py # setuptools static-config-based discover()
 │       │   ├── _models_wheel_types.py # IncludedFile, BackendDiscoverer protocol, shared helpers
 │       │   ├── ai_metadata.py      # AiModelMetadata, ModelFormat
@@ -143,37 +144,19 @@ pitloom/
 │       │   └── readme.py           # README.md/MODEL_CARD.md YAML frontmatter enricher
 │       ├── export/                 # Layer 4 -- serialise to physical format
 │       │   └── spdx3_json.py       # SPDX 3 JSON-LD serialiser
-│       ├── extract/                # Layer 1 -- read sources (_prefix = internal, see AGENTS.md)
-│       │   ├── _croissant.py       # Croissant metadata parser
-│       │   ├── _croissant_keys.py  # Croissant JSON-LD key constants
+│       ├── extract/                # Layer 1 -- read sources
+│       │   ├── ai_model/           # AI model extractors (fasttext, gguf, hdf5, keras, numpy, onnx, pytorch, pytorch_pt2, safetensors, reader)
+│       │   ├── dataset/            # Dataset extractors (croissant, croissant_key, reader)
+│       │   ├── lock/               # Lockfile extractors (cascade, poetry, pdm, uv, pylock, pipfile, requirements, _common, _hash, etc.)
+│       │   ├── project/            # Build backend & project metadata extractors (pyproject, poetry, pdm, flit, setuptools, sdist, hatchling, reader)
+│       │   ├── remote/             # Remote registries/hubs (huggingface, huggingface_fetch, huggingface_field)
 │       │   ├── _extract_utils.py   # Shared extraction utilities (incl. provenance sanitization)
-│       │   ├── _fasttext.py        # fastText (.ftz, .bin)
 │       │   ├── _file_headers.py    # SPDX-File* comment-header scanner
-│       │   ├── _gguf.py            # GGUF (.gguf)
-│       │   ├── _hdf5.py            # HDF5 / Keras v1-v2 (.h5, .hdf5)
-│       │   ├── _huggingface.py     # Hugging Face Hub model extraction (facade)
-│       │   ├── _huggingface_fetch.py # HF API/card fetching + license detection
-│       │   ├── _huggingface_fields.py # HF metadata field parsing
-│       │   ├── _keras.py           # Keras v3 (.keras)
-│       │   ├── _license_detect.py  # License text detection and file scanning
 │       │   ├── _license.py         # License normalization and resolution facade
-│       │   ├── _numpy.py           # NumPy (.npy, .npz)
-│       │   ├── _onnx.py            # ONNX (.onnx)
-│       │   ├── _poetry.py          # [tool.poetry] extractor; Poetry -> PEP 440 conversion
-│       │   ├── _pyproject.py       # pyproject.toml extractor ([project] + [tool.poetry] merge)
-│       │   ├── _pytorch.py         # PyTorch classic (.pt, .pth)
-│       │   ├── _pytorch_pt2.py     # PyTorch PT2 / ExecuTorch (.pt2)
-│       │   ├── _safetensors.py     # Safetensors (.safetensors)
-│       │   ├── _sdist.py           # sdist archive (.tar.gz/.zip) unpacking
-│       │   ├── _setuptools_cfg.py  # setup.cfg parser and [tool:pitloom] config extraction
-│       │   ├── _setuptools_py.py   # setup.py AST parser
-│       │   ├── _setuptools.py      # Setuptools extractor facade and backend detection
-│       │   ├── ai_model.py         # AI model dispatcher + format detection (public entry point)
+│       │   ├── _license_detect.py  # License text detection and file scanning
+│       │   ├── _toml_io.py         # Shared tomllib/tomli compat import + raw TOML-file read
 │       │   ├── binary.py           # Bundled third-party binary ("phantom dependency") detection
-│       │   ├── dataset.py          # Dataset metadata extraction public API (Croissant)
 │       │   ├── env.py              # Deployed SBOM: installed-environment dependency tree
-│       │   ├── hatchling.py        # Metadata from Hatchling's own resolved ProjectMetadata
-│       │   ├── project.py          # pyproject.toml/setup.cfg/setup.py -> dispatcher (public entry point)
 │       │   ├── scanner.py          # Heuristic scanner for AI model files
 │       │   └── wheel.py            # Analyzed SBOM: project metadata + file records from a built .whl
 │       ├── plugins/                # Build-system integrations
@@ -198,8 +181,14 @@ pitloom/
 │   │   └── huggingface/            # 20 files -- split by metadata category
 │   │       └── hf_patches/         # 13 files -- shared mock patches for HF tests
 │   ├── fixtures/                   # Per-format model/project fixtures (see fixtures/README.md)
+│   ├── scripts/                    # Mirrors scripts/: probe, resolver, install and Generate-step tests
 │   ├── conftest.py                 # Cross-cutting fixtures (each subfolder has its own too)
 │   └── ids_shared.py               # Shared helpers for ids-registry tests
+├── scripts/
+│   ├── action/                     # GitHub Action helpers (install, Python probe/resolver)
+│   ├── check_version_consistency.py  # CI version check; --print-version also used by the action
+│   └── compare_allow_build.py      # Manual --allow-build parity check
+├── .gitattributes                  # LF for *.sh and action.yml
 ├── AGENTS.md                       # CLAUDE.md is a symlink to this
 ├── CHANGELOG.md
 ├── CITATION.cff
