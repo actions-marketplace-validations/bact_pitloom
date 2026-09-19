@@ -23,6 +23,7 @@ from _harness import (
     CheckFailed,
     CheckSkipped,
     Context,
+    Result,
     check,
     child_env,
     expect,
@@ -191,12 +192,43 @@ def check_sigint(ctx: Context) -> None:
     expect(code in (-signal.SIGINT, 128 + signal.SIGINT), f"exit {code}\n{err}")
 
 
+def _run_with_open_stdin(ctx: Context, args: list[str], tmp: Path) -> Result:
+    """``loom *args`` with its stdin an open pipe never written to, as in
+    a terminal: only Pitloom closing the build's stdin gives it EOF."""
+    out, err = ctx.work / "stdout.txt", ctx.work / "stderr.txt"
+    start = time.monotonic()
+    with (
+        out.open("wb") as out_file,
+        err.open("wb") as err_file,
+        subprocess.Popen(  # nosec B603
+            loom_argv(*args),
+            env=_tmp_env(tmp),
+            stdin=subprocess.PIPE,
+            stdout=out_file,
+            stderr=err_file,
+        ) as proc,
+    ):
+        try:
+            returncode = proc.wait(timeout=300)
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait()
+    return Result(
+        args,
+        returncode,
+        out.read_text(encoding="utf-8", errors="replace"),
+        err.read_text(encoding="utf-8", errors="replace"),
+        time.monotonic() - start,
+    )
+
+
 @check("B4", "a build reading stdin fails fast, not after the timeout")
 def check_stdin(ctx: Context) -> None:
     project, tmp = _backend_project(ctx, "stdin")
-    result = run_loom(
-        *_build_args(project, ctx.work / "out.json"), env=_tmp_env(tmp), timeout=300
-    )
+    # Bounded: a build that sees the open stdin hangs until the timeout.
+    args = _build_args(project, ctx.work / "out.json", "--build-timeout", "60")
+    result = _run_with_open_stdin(ctx, args, tmp)
     expect(result.returncode == 0, result.describe())
     expect_tagged(result)
     expect(result.elapsed < 120, f"took {result.elapsed:.0f}s")

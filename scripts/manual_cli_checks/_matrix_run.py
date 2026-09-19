@@ -80,6 +80,8 @@ class Matrix:
         }
         self._lock = threading.Lock()
         self._baselines: dict[str, tuple[int, str | None]] = {}
+        # A failed baseline fails every cell compared against it the same way.
+        self._baseline_failures: dict[str, Exception] = {}
 
     def takes(self, command: Command, option: str) -> bool:
         return option in self.spellings.get(command.name, set())
@@ -121,12 +123,21 @@ class Matrix:
 
     def baseline(self, command: Command) -> tuple[int, str | None]:
         with self._lock:
+            if command.name in self._baseline_failures:
+                raise self._baseline_failures[command.name]
             if command.name not in self._baselines:
                 cell = (
                     _fixtures.get().root / "baselines" / command.name.replace(" ", "-")
                 )
-                result, plain = self.run(command, cell)
-                universal(result, debug=False, network_ok=command.network)
+                try:
+                    result, plain = self.run(command, cell)
+                    universal(result, debug=False, network_ok=command.network)
+                    # Cells compare against it: a failing plain run would
+                    # make "same as the baseline" vacuous.
+                    expect(result.returncode == 0, f"baseline: {result.describe()}")
+                except Exception as exc:
+                    self._baseline_failures[command.name] = exc
+                    raise
                 self._baselines[command.name] = (result.returncode, plain)
             return self._baselines[command.name]
 

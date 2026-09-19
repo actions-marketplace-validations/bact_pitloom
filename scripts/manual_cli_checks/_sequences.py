@@ -51,7 +51,9 @@ def seq_default_output(ctx: Context) -> None:
     outputs = []
     for _ in range(2):
         result = _ok(project, "project", ".", "--offline", *_DATED)
-        path = result.stdout.strip().split("=", 1)[1]
+        line = result.stdout.strip()
+        expect(line.startswith("PITLOOM_SBOM_OUTPUT_PATH="), f"stdout: {line!r}")
+        path = line.split("=", 1)[1]
         outputs.append((project / path).read_bytes())
     expect(
         outputs[0] == outputs[1], "the second run's SBOM includes the first's output"
@@ -118,17 +120,26 @@ def seq_registry(ctx: Context) -> None:
         "-o",
         str(registry),
     )
+    # While the fresh registry still lacks the project's entities, so a
+    # plain run (the control below) does change it.
+    fresh = registry.read_bytes()
+    frozen = ctx.work / "frozen.json"
+    frozen.write_bytes(fresh)
+    _ok(
+        ctx.work,
+        *("project", str(project), "--registry", str(frozen), "--offline", *_DATED),
+        *("-o", "c.json", "--no-update-registry"),
+    )
+    expect(frozen.read_bytes() == fresh, "--no-update-registry changed the registry")
     args = ("project", str(project), "--registry", str(registry), "--offline", *_DATED)
     outputs, registries = [], []
     for name in ("a.json", "b.json"):
         _ok(ctx.work, *args, "-o", name)
         outputs.append((ctx.work / name).read_bytes())
         registries.append(registry.read_bytes())
+    expect(registries[0] != fresh, "a plain run did not update the fresh registry")
     expect(outputs[0] == outputs[1], "same registry, different SBOMs")
     expect(registries[0] == registries[1], "the second run changed the registry again")
-    before = registry.read_bytes()
-    _ok(ctx.work, *args, "-o", "c.json", "--no-update-registry")
-    expect(registry.read_bytes() == before, "--no-update-registry changed the registry")
     expect((ctx.work / "c.json").read_bytes() == outputs[0], "SBOM differs")
 
 

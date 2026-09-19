@@ -314,15 +314,18 @@ def test_cli_generate_wheel_build_flag_warning_precedes_metadata_warning(
     ) < _first_index(stderr_lines, _SIBLING_CONFIG_METADATA_WARNING_SUBSTRING)
 
 
+@pytest.mark.parametrize("via_cwd", [False, True], ids=["project-dir", "cwd"])
 def test_cli_embed_wheel_project_dir_build_flag_warning_precedes_config_read(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
+    via_cwd: bool,
 ) -> None:
-    """``loom embed-wheel --project-dir``: the stray ``--build-timeout``
-    warning is settled before the handler reads the project's
-    ``[tool.pitloom]`` config -- so it still reaches stderr, first, when
-    that read fails the command."""
+    """``loom embed-wheel``, with ``--project-dir`` or with the project
+    as the current directory: the stray ``--build-timeout`` warning is
+    settled before the handler reads the project's ``[tool.pitloom]``
+    config -- so it still reaches stderr, first, when that read fails
+    the command."""
     project = tmp_path / "proj"
     project.mkdir()
     (project / "pyproject.toml").write_text(
@@ -331,18 +334,15 @@ def test_cli_embed_wheel_project_dir_build_flag_warning_precedes_config_read(
         encoding="utf-8",
     )
     wheel = _make_dummy_wheel(tmp_path / "dist", "demo", "1.0.0")
+    if via_cwd:
+        monkeypatch.chdir(project)
+        target = []
+    else:
+        target = ["--project-dir", str(project)]
     monkeypatch.setattr(
         sys,
         "argv",
-        [
-            "loom",
-            "embed-wheel",
-            str(wheel),
-            "--project-dir",
-            str(project),
-            "--build-timeout",
-            "5",
-        ],
+        ["loom", "embed-wheel", str(wheel), *target, "--build-timeout", "5"],
     )
 
     assert __main__.main() == 1

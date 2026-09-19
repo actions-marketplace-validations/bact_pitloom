@@ -292,17 +292,13 @@ below, which is the actual commitment for what ships before mid-October):
   dirs need the extraction's open files closed first. See
   [allow-build-termination.md](../implementation/allow-build-termination.md#limitations).
 - [ ] **Accepted residual limits of build termination** -- revisit only if
-  reported: a backend that calls `setsid()` escapes the kill, a library
-  call from a non-main thread gets no signal handling, a Ctrl-C in the
-  few bytecodes between a temp dir's creation and its registration can
-  leak it, a Ctrl-C inside `TerminationGuard`/`EmbedFileCache`
-  `__enter__`/`__exit__` bookkeeping can leave a stale thread-local guard
-  owner (only a long-lived host that catches `KeyboardInterrupt`, e.g. a
-  REPL, is affected: later handlers stay installed and fallbacks don't
-  run; fix: reset the owner first in the guard's `finally`), and on macOS
-  a surviving process owned by another user is reported as gone (`EPERM`
-  can't tell it from zombies). Listed in
+  reported; listed in
   [allow-build-termination.md](../implementation/allow-build-termination.md#limitations).
+- [ ] **Build child isolation gaps** (PR #226 review) -- a `PYTHONPATH`
+  entry into the project still shadows PyPA `build`;
+  `_require_build_package()` checks Pitloom's `sys.path`, not the
+  child's; `-I`/`-E`/`-s` aren't passed on; setuptools writes `build/`
+  and `*.egg-info` into the scanned project.
 - [ ] **PEP 517 `prepare_metadata_for_build_wheel`** (opt-in) -- call the build
   backend in a subprocess to resolve dynamic metadata (Git-tag versions,
   computed deps) that static parsing cannot handle.
@@ -394,6 +390,9 @@ below, which is the actual commitment for what ships before mid-October):
   then overwrites it: a stale self-reference, and not idempotent. The
   target's own SBOM path should be left out of the file list.
   Check `S2` of `scripts/manual_cli_checks`.
+- [ ] **`embed-wheel --project-dir <sdist>` runs discovery on the
+  archive path** (Hatchling fails on it with a `WARNING:`): read the
+  sdist's own listing, as `loom project <sdist>` does, or reject it.
 
 ### AI model id stability (follow-up to [#178](https://github.com/bact/pitloom/pull/178))
 
@@ -655,19 +654,22 @@ be built:
   Pitloom as PID 1 in a container without `--init` are covered by mocks
   only; the Linux child-subreaper e2e test runs only on Linux CI. See
   [allow-build-termination.md](../implementation/allow-build-termination.md).
-- [x] **Scripted runner for the manual CLI checks** --
-  `scripts/manual_cli_checks` runs the numbered checks, a declared CLI
-  matrix (subcommand x option x environment variable, with a
-  completeness guard against the real parser) and order-dependent
-  sequences as real processes; `tests/scripts/test_manual_cli_checks.py`
-  keeps it complete. See
-  [manual-cli-checks.md](../implementation/manual-cli-checks.md).
-  (PR #226)
+- [ ] **Blind spots of `scripts/manual_cli_checks`** (see
+  [manual-cli-checks.md](../implementation/manual-cli-checks.md)): S1
+  can't see a rescan (the fixture wheel ships only `demo/`);
+  `M/model/offline/*` never reaches the network, so it proves nothing.
+  Surviving pytest mutants: `TerminationGuard` cleanup order and nested
+  hold, the build wait's deadline slack, `parse_build_timeout`'s
+  empty-match guard. S1-S8 and the fixture builds run without the network
+  guard; an interrupted run leaves its `pitloom-mcc-*` scratch dir.
 - [ ] **Build workflow fails on spdx.org network errors** -- `loom
   validate-wheel`, `loom fragment validate` and `spdx3-validate` fetch
   the SPDX schema, ontology and context over the network on every run;
-  a `Connection reset by peer` failed PR #226's first run. Cache or
-  vendor them, or retry.
+  a `Connection reset by peer` failed two of PR #226's runs. Cache or
+  vendor them, or retry. The step then reports "The SBOM does not
+  conform to SPDX specification" for what was a download error, and
+  fail-fast cancels the other matrix jobs: tell a network failure apart
+  from a real validation failure.
 
 ### Diagnostics / logging
 
@@ -717,6 +719,18 @@ be built:
   UUID4 per run, so two fresh registries for the same project differ.
   Decide whether that is intended (a registry is minted once) or should
   be derived like an SBOM's namespace.
+- [ ] **Build-flag warning edge cases** (PR #226 final review): a
+  build-flag `WARNING:` before a fatal `ERROR:` is shown by `generate`,
+  `embed-wheel` and library `embed_wheel_sbom()` but not `project`;
+  library `generate()` logs it after the `--use-lockfile` warning, the
+  CLI before; `loom project <non-archive file>` cites the sdist reason;
+  a batch's once-only warning names only the first wheel; the `--debug`
+  build-output tail prints blank lines as empty `DEBUG:` lines, and
+  `_clean_line` leaves an OSC sequence's body (`]8;;url`) in `WARNING:`
+  text. Unverified: wheel entries differing only by case overwrite each
+  other on extraction to a case-insensitive filesystem (wrong hash).
+  Library `embed_wheel_sbom(project_dir=<missing>)` warns before its
+  `FileNotFoundError` (the CLI prints only the `ERROR:`).
 
 ### Internal codenames
 

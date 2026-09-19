@@ -209,6 +209,86 @@ def test_build_and_read_wheel_termination_signal_reraised_after_cleanup(
     assert "Build: received SIGTERM during the build" in caplog.text
 
 
+@pytest.mark.parametrize("outcome", ["success", "timeout"])
+def test_build_and_read_wheel_survives_raising_work_dir_cleanup(
+    fake_build: FakeBuildState,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    sys_tmp: Path,
+    caplog: pytest.LogCaptureFixture,
+    outcome: str,
+) -> None:
+    """Python 3.10's ``TemporaryDirectory.cleanup()`` can raise
+    ``RecursionError`` even with ``ignore_cleanup_errors=True``: the
+    build's own result must survive it, and both temp dirs still go."""
+    del fake_build
+    if outcome == "timeout":
+        monkeypatch.setattr(
+            RUN_BUILD,
+            raising_build(BuildTimeoutError(42, tree_terminated=True), sys_tmp, set()),
+        )
+
+    def raising_cleanup(self: tempfile.TemporaryDirectory[str]) -> None:
+        # As the real one: the finalizer is detached before the removal.
+        # pylint: disable-next=protected-access
+        self._finalizer.detach()  # type: ignore[attr-defined]
+        raise RecursionError("simulated Python 3.10 _rmtree recursion")
+
+    monkeypatch.setattr(tempfile.TemporaryDirectory, "cleanup", raising_cleanup)
+
+    with caplog.at_level(logging.WARNING):
+        result = build_and_read_wheel(tmp_path, timeout=42)
+
+    if outcome == "timeout":
+        assert result is None
+        assert "timed out after 42s (--build-timeout)" in caplog.text
+    else:
+        assert result is not None
+        assert result[0]
+        result[1]()
+    assert "could not fully remove" not in caplog.text
+    assert not list(sys_tmp.iterdir())
+
+
+@pytest.mark.parametrize("outcome", ["success", "timeout"])
+def test_build_and_read_wheel_survives_raising_rmtree(
+    fake_build: FakeBuildState,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    sys_tmp: Path,
+    caplog: pytest.LogCaptureFixture,
+    outcome: str,
+) -> None:
+    """``shutil.rmtree(ignore_errors=True)`` still raises ``RecursionError``
+    on a tree deeper than the recursion limit, which a build can make in
+    its temp dir: the result survives, and each leftover gets its
+    ``WARNING:`` instead."""
+    del fake_build
+    if outcome == "timeout":
+        monkeypatch.setattr(
+            RUN_BUILD,
+            raising_build(BuildTimeoutError(42, tree_terminated=True), sys_tmp, set()),
+        )
+
+    def raising_rmtree(*_args: object, **_kwargs: object) -> None:
+        raise RecursionError("simulated very deep tree")
+
+    monkeypatch.setattr(shutil, "rmtree", raising_rmtree)
+
+    with caplog.at_level(logging.WARNING):
+        result = build_and_read_wheel(tmp_path, timeout=42)
+        if result is not None:
+            result[1]()
+
+    assert (result is None) == (outcome == "timeout")
+    leftovers = sorted(p.name for p in sys_tmp.iterdir())
+    assert {name.split("-")[0] for name in leftovers} == {"pitloom", "plb"}
+    for name in leftovers:
+        assert f"could not fully remove temporary directory {sys_tmp / name}" in (
+            caplog.text
+        )
+
+
 @pytest.mark.usefixtures("fake_build")
 def test_build_and_read_wheel_signal_during_work_dir_removal(
     monkeypatch: pytest.MonkeyPatch,

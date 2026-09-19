@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import logging
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -28,6 +29,7 @@ from pitloom.cli.commands.utils import (
 )
 from pitloom.cli.commands.validate_wheel import _validate_location
 from pitloom.cli.commands.verify_wheel import _check_location, _check_name_version
+from pitloom.cli.constants import _PROJECT_CONFIG_FILES
 from pitloom.cli.options import (
     _resolve_creation_metadata,
     add_allow_build_argument,
@@ -227,19 +229,22 @@ def _run_embed_wheel_command(args: argparse.Namespace) -> int:
 
     # Settle the build flags up front, so an ineffective flag's warning
     # comes before any metadata warning; the batch's EmbedFileCache then
-    # has nothing left to warn about. --sbom and an explicit
-    # --project-dir are known from args alone, so they settle before
+    # has nothing left to warn about. All three settle before
     # _resolve_project_dir_and_config() reads any [tool.pitloom] config;
-    # an implicit cwd needs that read to tell whether it is a project.
+    # a cwd without a project file settles below, once that read has
+    # confirmed there is no project.
     build_options = build_options_from_args(args)
     if args.sbom is not None:
         build_options = build_options.settle_not_applicable(
             args.sbom, EXTERNAL_SBOM_REASON
         )
-    elif args.project_dir is not None and Path(args.project_dir).is_dir():
+    elif args.project_dir is not None:
         # A missing --project-dir settles nothing: it fails below with an
         # ERROR alone, as `loom project` does.
-        build_options = build_options.settle(args.project_dir)
+        build_options = build_options.settle_target(Path(args.project_dir))
+    # os.path.isfile, not Path.is_file(): never raises (e.g. EACCES).
+    elif any(os.path.isfile(Path.cwd() / name) for name in _PROJECT_CONFIG_FILES):
+        build_options = build_options.settle(Path.cwd())
 
     resolved = _resolve_project_dir_and_config(args.project_dir)
     if resolved is None:
@@ -252,7 +257,7 @@ def _run_embed_wheel_command(args: argparse.Namespace) -> int:
             "directory is not a project)",
         )
     else:
-        build_options = build_options.settle(project_dir)
+        build_options = build_options.settle_target(project_dir)
 
     creation = _resolve_creation_metadata(args, pitloom_config)
     overrides = ConfigOverrides(

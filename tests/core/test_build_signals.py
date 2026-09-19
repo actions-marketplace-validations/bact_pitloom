@@ -338,6 +338,24 @@ def test_failed_restore_never_swallows_a_later_signal(
     assert signal.getsignal(signal.SIGTERM) == signal.SIG_DFL
 
 
+@pytest.mark.parametrize(
+    "name",
+    [n for n in ("SIGTERM", "SIGHUP", "SIGBREAK") if hasattr(signal, n)],
+)
+def test_spied_raise_signal_restores_every_handled_signal(
+    monkeypatch: pytest.MonkeyPatch, name: str
+) -> None:
+    """A handler a test leaves installed (as a failed restore does) must
+    not outlive the test: later guards in the same worker only install
+    over SIG_DFL."""
+    signum = getattr(signal, name)
+    before = signal.getsignal(signum)
+    with spied_raise_signal(monkeypatch):
+        assert signal.getsignal(signum) == signal.SIG_DFL
+        signal.signal(signum, lambda *_args: None)
+    assert signal.getsignal(signum) == before
+
+
 def test_guard_can_be_entered_again(raise_spy: mock.Mock) -> None:
     """The owner's exit resets the guard: after a termination that did not
     end the process (its SystemExit fallback caught), a second block

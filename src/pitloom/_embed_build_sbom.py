@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import contextlib
 import dataclasses
+import threading
 from collections.abc import Callable
 from pathlib import Path
 from types import TracebackType
@@ -128,6 +129,8 @@ class EmbedFileCache:
         self._settled: dict[tuple[BuildOptions, str | None], BuildOptions] = {}
         # The block's guard; None outside the block.
         self._guard: TerminationGuard | None = None
+        # Threads sharing one batch get one discovery and one cleanup.
+        self._lock = threading.Lock()
 
     def __enter__(self) -> EmbedFileCache:
         if self._guard is not None:
@@ -183,24 +186,25 @@ class EmbedFileCache:
             content_type.overrides,
             build_options,
         )
-        if self._resolved is None:
-            _, project_files, cleanup = get_wheel_files(
-                project_dir,
-                scan_file_headers=pitloom_config.extract_file_header,
-                detect_content_type=content_type.enabled,
-                content_type_method=content_type.method,
-                content_type_overrides=content_type.overrides,
-                skip_merkle_root=True,
-                build_options=build_options,
-            )
-            self._resolved = (project_files, cleanup)
-            self._resolved_from = resolved_from
-        elif resolved_from != self._resolved_from:
-            raise ValueError(
-                "EmbedFileCache: every call in one batch must use the same "
-                "project directory, file-scan settings and build options"
-            )
-        return self._resolved[0]
+        with self._lock:
+            if self._resolved is None:
+                _, project_files, cleanup = get_wheel_files(
+                    project_dir,
+                    scan_file_headers=pitloom_config.extract_file_header,
+                    detect_content_type=content_type.enabled,
+                    content_type_method=content_type.method,
+                    content_type_overrides=content_type.overrides,
+                    skip_merkle_root=True,
+                    build_options=build_options,
+                )
+                self._resolved = (project_files, cleanup)
+                self._resolved_from = resolved_from
+            elif resolved_from != self._resolved_from:
+                raise ValueError(
+                    "EmbedFileCache: every call in one batch must use the same "
+                    "project directory, file-scan settings and build options"
+                )
+            return self._resolved[0]
 
     def settle(
         self, build_options: BuildOptions, subject: object, reason: str | None = None

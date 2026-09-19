@@ -57,7 +57,7 @@ import _checks_core  # noqa: F401  # pylint: disable=unused-import
 import _fixtures
 import _matrix
 import _sequences  # noqa: F401  # pylint: disable=unused-import
-from _harness import CHECKS, Check, CheckFailed, CheckSkipped, Context
+from _harness import CHECKS, Check, CheckSkipped, Context
 from _known import known_issue
 
 _PRINT_LOCK = threading.Lock()
@@ -146,15 +146,10 @@ def _run_one(item: Check, root: Path, args: argparse.Namespace) -> tuple[str, st
         status, detail = "PASS", ""
     except CheckSkipped as exc:
         status, detail = "SKIP", str(exc)
-    except (
-        CheckFailed,
-        subprocess.TimeoutExpired,
-        OSError,
-        ValueError,
-        KeyError,
-    ) as exc:
+    # Any exception fails this one check, never the whole run.
+    except Exception as exc:  # pylint: disable=broad-exception-caught
         status, detail = "FAIL", f"{type(exc).__name__}: {exc}"
-        tracked = known_issue(item.check_id)
+        tracked = known_issue(item.check_id, detail)
         if tracked:
             status, detail = "KNOWN", f"{tracked} -- {detail}"
     detail = "\n".join([detail, *ctx.notes]).strip()

@@ -58,7 +58,9 @@ checks (`1`-`10`, `B1`-`B7`) it runs:
   hook-built wheel.
 
 A failing cell already tracked in the roadmap reports `KNOWN` with the
-item's title (`_known.py`); drop the entry when the item is done. To
+item's title (`_known.py`) -- only when its failure text is the tracked
+one, so any other failure in that cell still fails; drop the entry when
+the item is done. To
 cover a new option, add it to `PLAN` in `_matrix_plan.py` -- a variant
 with an expectation, a group, or an exclusion with its reason.
 

@@ -206,9 +206,11 @@ def _build_and_read_wheel(
         )
         return None
     finally:
-        remove_work_dir()
-        if not handed_over:
-            remove_extract_dir()
+        try:
+            remove_work_dir()
+        finally:
+            if not handed_over:
+                remove_extract_dir()
 
 
 def _registered_extract_dir(
@@ -268,14 +270,31 @@ def _remove_work_dir(work: tempfile.TemporaryDirectory[str]) -> None:
     """Remove the build's work directory, with a ``WARNING:`` if anything
     survives. :meth:`~tempfile.TemporaryDirectory.cleanup` repeats a
     removal cut short, and resets read-only permissions on the way."""
-    work.cleanup()
+    try:
+        work.cleanup()
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        # Python 3.10's cleanup() ends in RecursionError when an rmdir
+        # fails (e.g. a directory still in use on Windows); a cleanup
+        # callback must not raise.
+        log.debug("%swork directory cleanup failed: %r", BUILD_LOG_PREFIX, exc)
+        _rmtree_quietly(Path(work.name))
     _warn_if_left_behind(Path(work.name))
 
 
 def _remove_temp_dir(path: Path) -> None:
     """Remove *path*, with a ``WARNING:`` if anything survives."""
-    shutil.rmtree(path, ignore_errors=True)
+    _rmtree_quietly(path)
     _warn_if_left_behind(path)
+
+
+def _rmtree_quietly(path: Path) -> None:
+    """``shutil.rmtree(path, ignore_errors=True)``, which still raises
+    ``RecursionError`` on a tree deeper than the recursion limit (Python
+    3.10's rmtree recurses; the build controls its temp dir's depth)."""
+    try:
+        shutil.rmtree(path, ignore_errors=True)
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        log.debug("%sremoving %s failed: %r", BUILD_LOG_PREFIX, path, exc)
 
 
 def _warn_if_left_behind(path: Path) -> None:

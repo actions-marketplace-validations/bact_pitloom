@@ -38,6 +38,7 @@ from collections.abc import Iterator
 import _fixtures
 from _harness import (
     DATETIME,
+    NETGUARD,
     Check,
     CheckFunc,
     Context,
@@ -221,13 +222,34 @@ def _cell_parity(mx: Matrix, generate: Command, dedicated: Command) -> CheckFunc
     return run
 
 
+def _groups_run(mx: Matrix) -> dict[str, set[str]]:
+    """Command -> the cell groups (``debug``, ``output``, ...) it runs."""
+    return {
+        c.name: {
+            cell_id.split("/", 1)[0]
+            for cell_id, _, _ in itertools.chain(_group_cells(mx, c), _env_cells(mx, c))
+        }
+        for c in COMMANDS
+    }
+
+
 def _cell_completeness(mx: Matrix) -> CheckFunc:
     def run(ctx: Context) -> None:
+        groups = _groups_run(mx)
+
+        def planned(cmd: str, opt: str) -> bool:
+            entry = plan_for(cmd, opt)
+            if isinstance(entry, str) and entry.startswith("group:"):
+                # A parent parser (loom, ids, fragment) runs no cells of
+                # its own; its subcommands' cells cover its options.
+                return cmd not in groups or entry[len("group:") :] in groups[cmd]
+            return entry is not None
+
         missing = [
             f"{cmd}: {'/'.join(opt)}"
             for cmd, opts in mx.surface.items()
             for opt in opts
-            if plan_for(cmd, opt[0]) is None
+            if not planned(cmd, opt[0])
         ]
         known = {c.name for c in COMMANDS} | {"loom", "fragment", "ids"}
         unknown = sorted(set(mx.surface) - known)
@@ -334,9 +356,12 @@ def register(checks: list[Check]) -> None:
 
 def _top_level(variant: Variant) -> CheckFunc:
     def run(ctx: Context) -> None:
-        result = run_loom(*variant.args(_fixtures.get(), ctx.work), cwd=ctx.work)
+        result = run_loom(
+            *variant.args(_fixtures.get(), ctx.work), cwd=ctx.work, bootstrap=NETGUARD
+        )
         expect(
             result.returncode == 0 and result.stdout.strip() != "", result.describe()
         )
+        expect(result.network_attempts == 0, result.describe())
 
     return run

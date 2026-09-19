@@ -26,8 +26,14 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 DATETIME = "2026-01-01T00:00:00Z"
 TAGS = ("ERROR: ", "WARNING: ", "INFO: ")
 DEBUG_TAGS = (*TAGS, "DEBUG: ")
-# Env vars that change what `loom` prints or whether it reaches the network.
-_SCRUBBED_ENV = ("PITLOOM_DEBUG", "HF_HUB_OFFLINE", "TRANSFORMERS_OFFLINE")
+# Env vars that change what `loom` prints or writes, or whether it
+# reaches the network.
+_SCRUBBED_ENV = (
+    "PITLOOM_DEBUG",
+    "HF_HUB_OFFLINE",
+    "TRANSFORMERS_OFFLINE",
+    "SOURCE_DATE_EPOCH",
+)
 
 
 # Blocks every socket connection/lookup and reports it on stderr, so a

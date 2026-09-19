@@ -219,7 +219,8 @@ can be entered again afterwards, with a fresh guard and resolution.
   `EmbedFileCache`'s) own enter/exit bookkeeping can leave a stale
   thread-local owner: in a host that catches `KeyboardInterrupt` and
   carries on (a REPL), later guards then join it, handlers stay
-  installed and fallback removals don't run.
+  installed and fallback removals don't run (possible fix: reset the
+  owner first in the guard's `finally`).
 - **PID 1.** The fallback `SystemExit` is raised from the handler into
   whatever code runs; code that swallows `BaseException` would keep the
   process alive. The dir is already gone by then.
@@ -241,6 +242,20 @@ can be entered again afterwards, with a fresh guard and resolution.
   `WARNING:`; `test_build_and_read_wheel_signal_during_extraction_acts_at_once`
   asserts exactly that there. The rest of the Windows handling is
   unverified on a real Windows run.
+- **Kill escalation gaps.** An interrupt landing in `_signal_group` just
+  before `os.killpg` skips that group SIGKILL (`_hold` does not retry
+  the step). The SIGTERM grace period covers only the direct child:
+  `python -m build` exits at once on SIGTERM, so its descendants get
+  SIGKILL with almost no grace. On Linux, a descendant zombie not yet
+  reaped by init still counts for `killpg`, so the "killed processes the
+  build left running" `INFO:` may be logged falsely (reasoned, not
+  observed). On macOS a surviving process owned by another user is
+  reported as gone: its `EPERM` can't be told apart from zombies'.
+- **Python 3.10 cleanup.** `TemporaryDirectory.cleanup()` ends in
+  `RecursionError` there when an `rmdir` fails, even with
+  `ignore_cleanup_errors=True`; `_remove_work_dir` catches it and falls
+  back to `shutil.rmtree(..., ignore_errors=True)`, then warns about a
+  leftover as usual.
 
 ## Tests
 

@@ -47,14 +47,18 @@ it executes third-party build-time code from the project being scanned
 - `--build-timeout DURATION` caps how long the build may run --
   see "Timing out a build" below.
 - The build's own stdout/stderr are captured to a log file rather than
-  leaking onto Pitloom's own stdout/stderr; on failure or timeout, the
-  log's last line is shown at `DEBUG:` (`loom --debug ...`). The
+  leaking onto Pitloom's own stdout/stderr. A failed build's last output
+  line is part of its `WARNING:`; on failure or timeout, `loom --debug`
+  also shows the end of the build output (up to 8 KiB) at `DEBUG:`. The
   build's stdin is closed (`/dev/null`-equivalent), so a backend that
   waits on stdin gets EOF instead of hanging.
 - On any failure (network unavailable, backend not installed, build
-  script error, timeout), Pitloom falls back to the same
-  Hatchling-heuristic path used without the flag -- `--allow-build`'s
-  worst case is never worse than leaving it off.
+  script error, timeout), Pitloom falls back to the same static file
+  discovery used without the flag -- usually the Hatchling heuristic;
+  where static discovery is unsupported (e.g. a `setup.py`-only project
+  with no `[project]` table), the SBOM lists no files, with a
+  `WARNING:`. `--allow-build`'s worst case is never worse than leaving
+  it off.
 - On `generate`, all three flags parse for every target (`generate`
   auto-detects env/wheel/model-file/Hugging-Face/project targets from
   one shared parser) but only take effect when the target resolves to a
@@ -95,12 +99,12 @@ WARNING: Build: build-and-read for <dir> timed out after <N>s (--build-timeout) 
 
 -- or `... -- could not confirm the build process tree terminated` when
 a process in the tree was still alive after the kill (on Windows: when
-`taskkill` did not report success). Either way it is followed by the
-usual Hatchling-heuristic fallback warning; the command still exits 0
-and still writes an SBOM, just with a potentially less accurate file
-list. Terminating the tree can take up to about 8 seconds past the
-deadline on Linux/macOS (a grace period after SIGTERM, then SIGKILL),
-and up to about 90 seconds on Windows.
+`taskkill` did not report success). Either way Pitloom then falls back
+to static file discovery, as without `--allow-build` (see above); the
+command still exits 0 and still writes an SBOM, just with a potentially
+less accurate or empty file list. Terminating the tree can take up to
+about 8 seconds past the deadline on Linux/macOS (a grace period after
+SIGTERM, then SIGKILL), and up to about 90 seconds on Windows.
 
 Ctrl-C, SIGTERM and SIGHUP sent to Pitloom during the build (e.g. a CI
 job cancellation, an external `timeout(1)` around `loom`, a closed

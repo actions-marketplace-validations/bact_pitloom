@@ -24,7 +24,7 @@ and this project adheres to
 ### Added
 
 - `--build-timeout DURATION` for `--allow-build` (CLI, Action input,
-  library `BuildOptions.timeout`); default 20m, max 7d (7 days);
+  library `BuildOptions.timeout`); default 20m, max 7 days;
   falls back to static discovery on expiry ([#226])
 
 ### Changed

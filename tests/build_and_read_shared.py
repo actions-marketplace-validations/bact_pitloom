@@ -169,17 +169,24 @@ def raising_build(exc: BaseException, sys_tmp: Path, seen: set[str]) -> FakeRun:
 
 @contextlib.contextmanager
 def spied_raise_signal(monkeypatch: pytest.MonkeyPatch) -> Iterator[mock.Mock]:
-    """SIGTERM starts at SIG_DFL (restored afterwards), and
+    """Every termination signal the guard handles starts at SIG_DFL
+    (restored afterwards, even when a test leaves a handler installed), and
     ``signal.raise_signal`` is a spy, so a re-raise never kills the test
     process. Returning, it behaves as for PID 1 in a container: the guard
     then ends in its ``SystemExit(128 + signum)`` fallback."""
     spy = mock.create_autospec(signal.raise_signal)
     monkeypatch.setattr(signal, "raise_signal", spy)
-    previous = signal.signal(signal.SIGTERM, signal.SIG_DFL)
+    signums = [
+        getattr(signal, name)
+        for name in ("SIGTERM", "SIGHUP", "SIGBREAK")
+        if hasattr(signal, name)
+    ]
+    previous = {signum: signal.signal(signum, signal.SIG_DFL) for signum in signums}
     try:
         yield spy
     finally:
-        signal.signal(signal.SIGTERM, previous)
+        for signum, handler in previous.items():
+            signal.signal(signum, handler)
 
 
 def deliver_sigterm() -> None:

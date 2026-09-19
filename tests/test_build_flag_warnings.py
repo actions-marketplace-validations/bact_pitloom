@@ -99,10 +99,12 @@ _KIND_REASONS: dict[str, str | None] = {
     "model_file": _NOT_PROJECT,
     "hf": _NOT_PROJECT,
     "embed_project_dir": None,
+    "embed_project_sdist": _SDIST,
     "embed_cwd_project": None,
     "embed_sbom": _EXT_SBOM,
     "embed_no_project": _NO_PROJECT,
     "embed_project_dir_multi": None,
+    "embed_project_sdist_multi": _SDIST,
     "embed_cwd_project_multi": None,
     "embed_sbom_multi": _EXT_SBOM,
     "embed_no_project_multi": _NO_PROJECT,
@@ -209,6 +211,8 @@ def _cli_embed_wheel(
         kind = kind.removesuffix("_multi")
     if kind == "embed_project_dir":
         argv += ["--project-dir", str(env.project)]
+    elif kind == "embed_project_sdist":
+        argv += ["--project-dir", str(_make_sdist(env.tmp))]
     elif kind == "embed_sbom":
         argv += ["--sbom", str(_external_sbom(env))]
     elif kind == "embed_cwd_project":
@@ -250,6 +254,8 @@ def _lib_embed_wheel_sbom(
     kwargs: dict[str, Any] = {}
     if kind == "embed_project_dir":
         kwargs["project_dir"] = env.project
+    elif kind == "embed_project_sdist":
+        kwargs["project_dir"] = _make_sdist(env.tmp)
     elif kind == "embed_sbom":
         kwargs["sbom_path"] = _external_sbom(env)
     elif kind != "embed_no_project":
@@ -395,7 +401,10 @@ def test_build_flags_matrix(
         # Once per run, a multi-wheel batch included (EmbedFileCache).
         assert discovery_settings == [_expected_settings(options, reason)]
     else:
-        assert not discovery_settings
+        # embed-wheel --project-dir <sdist> still runs (failing) file
+        # discovery on the archive, with no build settings.
+        assert all(settings is None for settings in discovery_settings)
+        assert bool(discovery_settings) == kind.startswith("embed_project_sdist")
 
     messages = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
     expected = _expected_warnings(options, reason)

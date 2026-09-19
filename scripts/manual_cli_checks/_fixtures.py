@@ -105,6 +105,8 @@ class Fixtures:
         # Re-entrant: building one fixture gets another (wheel -> project).
         self._lock = threading.RLock()
         self._built: dict[str, Path] = {}
+        # A failed or skipped build: every later user gets the same outcome.
+        self._failed: dict[str, Exception] = {}
         self._builders: dict[str, Callable[[Path], Path]] = {
             "project": self._project,
             "wheel": self._wheel,
@@ -123,10 +125,16 @@ class Fixtures:
     def get(self, name: str) -> Path:
         """The shared fixture *name*, built on first use. Never modify it."""
         with self._lock:
+            if name in self._failed:
+                raise self._failed[name]
             if name not in self._built:
                 target = self._root / name
                 target.mkdir(parents=True)
-                self._built[name] = self._builders[name](target)
+                try:
+                    self._built[name] = self._builders[name](target)
+                except Exception as exc:
+                    self._failed[name] = exc
+                    raise
             return self._built[name]
 
     def stage(self, name: str, cell_dir: Path) -> Path:
@@ -160,6 +168,7 @@ class Fixtures:
             str(wheel),
             "--project-dir",
             str(self.get("project")),
+            "--offline",
             "--creation-datetime",
             DATETIME,
         )
@@ -186,6 +195,7 @@ class Fixtures:
             str(self.get("project")),
             "-o",
             str(sbom),
+            "--offline",
             "--creation-datetime",
             DATETIME,
         )

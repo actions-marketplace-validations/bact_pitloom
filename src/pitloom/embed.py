@@ -53,6 +53,7 @@ from pitloom.assemble.spdx3.document import build as assemble_spdx3
 from pitloom.core.build_options import (
     EXTERNAL_SBOM_REASON,
     NO_PROJECT_DIR_REASON,
+    SDIST_TARGET_REASON,
     BuildOptions,
 )
 from pitloom.core.config import VALID_CONTENT_TYPE_METHODS, PitloomConfig
@@ -337,7 +338,10 @@ def _generate_embed_sbom_json(
     # that didn't already settle upstream still gets the warning first,
     # ahead of any config-parse WARNING: that read can produce.
     settled_build_options = _settle_build_options(
-        overrides.build_options, file_cache, proj_root
+        overrides.build_options,
+        file_cache,
+        proj_root,
+        SDIST_TARGET_REASON if proj_root.is_file() else None,
     )
     if pitloom_config is None:
         # Only [tool.pitloom] config is used here -- skip the lock/pin

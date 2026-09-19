@@ -134,8 +134,10 @@ WARNING: Build: build-and-read for <dir> timed out after <N>s (--build-timeout) 
 (or `-- could not confirm the build process tree terminated`, when the
 kill wasn't confirmed -- also warn the user a build process may still
 be running). The SBOM was still written -- the command exits 0 -- but
-its file list came from the static Hatchling heuristic fallback, not
-the real build, so it may be incomplete or mis-pathed for this backend.
+its file list came from static discovery, as without `--allow-build`
+(usually the Hatchling heuristic; none at all when static discovery is
+unsupported, e.g. a `setup.py`-only project), not the real build, so it
+may be incomplete, mis-pathed or empty.
 Offer a re-run with a larger `--build-timeout` in an interactive
 session; in a non-interactive run, just report what happened. **Never
 silently retry with `--allow-build` again on your own initiative** -- a
