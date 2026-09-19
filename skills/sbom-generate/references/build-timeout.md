@@ -29,11 +29,11 @@ most once:
 ```
 
 Rejected: decimals (`1.5h`), `ms`/`us`/`d` units, uppercase (`1H`),
-whitespace (`1h 30m`, ` 90m`), out-of-order/repeated units (`30m1h`,
-`1h1h`). Range: 1 second .. 7 days (604800 s). Default when the flag is
-omitted: 20 minutes (1200 s). Prefer the unit form when talking to the
-user (`--build-timeout 8m`, not `--build-timeout 480`) -- it's what a
-human actually reads.
+whitespace (`1h 30m`, or a leading/trailing space), out-of-order or
+repeated units (`30m1h`, `1h1h`). Range: 1 second .. 7 days (604800 s).
+Default when the flag is omitted: 20 minutes (1200 s). Prefer the unit
+form when talking to the user (`--build-timeout 8m`, not
+`--build-timeout 480`) -- it's what a human actually reads.
 
 ## 2. Estimate the build time -- read-only, never run the build to measure it
 
@@ -81,10 +81,11 @@ explicitly that it's an estimate, not a measurement.
 - **Why it matters.** If the harness stops `loom` before
   `--build-timeout` fires on its own, no SBOM is written at all. On
   SIGTERM/SIGHUP/Ctrl-C during the build, or while its files are still in
-  use, Pitloom still kills the build and removes its temp dirs before exiting (a few seconds at most), but
-  a harness may SIGKILL (outright, or as an escalation a few seconds
-  after SIGTERM), and then the build process tree is orphaned. Pitloom's own default (20m) already
-  exceeds many harness call limits, so **in an agent session, always
+  use, Pitloom still kills the build and removes its temp dirs before
+  exiting (a few seconds at most), but a harness may SIGKILL (outright,
+  or as an escalation a few seconds after SIGTERM), and then the build
+  process tree is orphaned. Pitloom's own default (20m) already exceeds
+  many harness call limits, so **in an agent session, always
   pass an explicit `--build-timeout`** rather than relying on the
   default.
 - **Rule of thumb:** `--build-timeout` value `<= command_limit - margin`, where
@@ -124,20 +125,62 @@ harness limit fits ~9 min after margin, using `--build-timeout 8m`".
 
 ## 6. On timeout
 
-Report the `WARNING:` line verbatim (see `../SKILL.md`'s "Check stderr"
-section for its exact wording). The SBOM was still written -- the
-command exits 0 -- but its file list came from the static Hatchling
-heuristic fallback, not the real build, so it may be incomplete or
-mis-pathed for this backend. Offer a re-run with a larger
-`--build-timeout` in an interactive session; in a non-interactive run,
-just report what happened. **Never silently retry with `--allow-build`
-again on your own initiative** -- a repeat pass needs the same
-explicit ask this whole document is scoped under.
+Report the `WARNING:` line verbatim:
+
+```text
+WARNING: Build: build-and-read for <dir> timed out after <N>s (--build-timeout) -- build process tree terminated
+```
+
+(or `-- could not confirm the build process tree terminated`, when the
+kill wasn't confirmed -- also warn the user a build process may still
+be running). The SBOM was still written -- the command exits 0 -- but
+its file list came from the static Hatchling heuristic fallback, not
+the real build, so it may be incomplete or mis-pathed for this backend.
+Offer a re-run with a larger `--build-timeout` in an interactive
+session; in a non-interactive run, just report what happened. **Never
+silently retry with `--allow-build` again on your own initiative** -- a
+repeat pass needs the same explicit ask this whole document is scoped
+under.
+
+## 7. Interrupted builds and leftover processes
+
+A `--allow-build` run interrupted during the build kills the build and
+removes its temp dirs first, then stops with no SBOM written. SIGTERM
+or SIGHUP (CI job cancellation, `timeout(1)`, a closed terminal; also
+Ctrl-Break on Windows) prints:
+
+```text
+WARNING: Build: received SIGTERM during the build -- exiting after cleanup
+```
+
+(`after the build` once the build has finished; the signal name
+varies) and ends killed by that signal (exit status 143 for SIGTERM,
+129 for SIGHUP). Ctrl-C (SIGINT) prints no such line: a Python
+`KeyboardInterrupt` traceback instead, exit status 130. Either way,
+tell the user the run was interrupted, not a Pitloom failure, and offer
+to re-run.
+
+After a successful `--allow-build` build, `INFO: Build: killed
+processes the build left running` just reports cleanup;
+
+```text
+WARNING: Build: could not confirm the processes the build left running (process group <N>) terminated
+```
+
+means one may still run -- tell the user.
 
 ## See also
 
-- `../SKILL.md` -- "Choosing `--build-timeout`" (the short version this
-  file expands on) and "Known limitations" (the `--allow-build`
-  consent rule).
-- `references/examples.md` -- a copy-paste recipe using
-  `--build-timeout`.
+- `../SKILL.md`
+  (<https://github.com/bact/pitloom/blob/main/skills/sbom-generate/SKILL.md>)
+  -- "Choosing `--build-timeout`" (the short version this file expands
+  on), "Known limitations" (the `--allow-build` consent rule), and
+  "Check stderr" (the short prefix list this file gives full wording
+  for).
+- `references/examples.md`
+  (<https://github.com/bact/pitloom/blob/main/skills/sbom-generate/references/examples.md>)
+  -- a copy-paste recipe using `--build-timeout`.
+- [`docs/allow-build.md`'s "Timing out a
+  build"](https://bact.github.io/pitloom/allow-build/#timing-out-a-build)
+  -- Pitloom's own published reference for this flag's exact behaviour
+  (this file instead covers how an agent should *decide* a value).

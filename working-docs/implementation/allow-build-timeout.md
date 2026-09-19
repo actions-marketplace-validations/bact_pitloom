@@ -103,30 +103,26 @@ is the only form every surface takes (`build_options=` on `generate()`,
   can't reach any surface, whatever the target. It also requires
   `allow`/`no_isolation` to be real `bool`s: with the old kwargs,
   `allow_build="false"` was truthy and started a real build.
-- **Warnings come from three methods, all on `BuildOptions`.**
-  `warn_no_effect(subject, reason)` logs the line itself, for each
-  given flag; `settle(subject)` runs at every surface that *does*
-  reach file discovery, as early as that surface can tell (a project
-  directory, confirmed by a cheap `is_file()`/`is_dir()` check, before
-  any project-metadata or lock-file read) -- CLI command handlers via
-  `build_options_from_args(args, subject)`, then again (idempotently,
-  since a settled value has nothing left to warn about) inside
-  `generate_project_sbom()`, `embed_wheel_sbom()`, and finally
-  `get_wheel_files()` itself for a direct caller that skipped every
-  earlier layer. `settle_not_applicable(subject, reason)` is `settle`'s
-  mirror for a target a caller already knows will *never* reach file
-  discovery (an sdist archive, a non-project target, an
-  externally-supplied `--sbom`): it calls `warn_no_effect()` with a
-  target-specific *reason* and resets to defaults in one call, so a
-  caller that determines the target's fate cheaply (an `is_file()`
-  check, a string classification) can warn immediately, before any
-  metadata read of its own, rather than deferring to a later layer.
-  Every run path reaches exactly one warning per given flag, so each
-  ignored flag gets exactly one
-  `WARNING: Build: <subject>: <flag> has no effect <reason>` line on
-  every surface, and it's always the *first* thing that surface logs,
-  never buried after a later metadata warning. One line per flag, not
-  one combined line, so a grep for one flag finds it.
+- **Warnings come from three settle methods on `BuildOptions`.**
+  `settle(subject)` runs at every surface that *does* reach file
+  discovery, as early as that surface can tell (before any
+  project-metadata or lock-file read) -- CLI command handlers first,
+  then again (idempotently, since a settled value has nothing left to
+  warn about) inside `generate_project_sbom()`, `embed_wheel_sbom()`,
+  and finally `get_wheel_files()` itself for a direct caller that
+  skipped every earlier layer. `settle_not_applicable(subject, reason)`
+  is its mirror for a target a caller already knows will *never* reach
+  file discovery (an sdist archive, a non-project target, an
+  externally-supplied `--sbom`): it warns with a target-specific
+  *reason* and resets to defaults in one call. `settle_target(path)`
+  picks between the two for a project-or-sdist path with one stat (file:
+  sdist reason; directory: `settle`; missing: nothing, so the read fails
+  with an ERROR alone), shared by `loom project`, `loom generate` and
+  `generate_project_sbom()`. Every run path reaches exactly one warning
+  per given flag, so each ignored flag gets exactly one `WARNING: Build:
+  <subject>: <flag> has no effect <reason>` line on every surface, and
+  it's always the *first* thing that surface logs. One line per flag,
+  not one combined line, so a grep for one flag finds it.
 - `get_wheel_files()` is the right place for the stray check: the
   Hatchling hook and `_model_generator.py` call it with the default
   (no flags given), so they stay silent.
@@ -147,6 +143,12 @@ Side effects, accepted:
   front, for warning order: `--sbom` and `--project-dir` before its own
   config read, an implicit cwd right after it (that read is what tells
   whether cwd is a project).
+- A target path that doesn't exist settles nothing (`generate_project_sbom()`
+  settles an existing file or directory only; `embed-wheel` settles an
+  explicit `--project-dir` only when it is a directory), so `loom
+  project`, `loom generate`, `loom embed-wheel --project-dir` and the
+  library all fail it with the one `ERROR:` / `FileNotFoundError`, and
+  no build-flag warning about a target that was never there.
 - `generate()` now calls `configure_logging()` first; before, its own
   "no effect" lines could reach stderr without the `WARNING:` prefix.
 - An sdist archive target used to show its build-flag warning after a
@@ -186,7 +188,9 @@ unless `_NOT_APPLICABLE` names it with a reason, and
 so a new surface or target kind can't go untested by omission. The
 Action's inputs have their own row: `test_build_input_matrix` in
 `tests/scripts/action/test_generate_step.py` (mode x 8 input
-combinations).
+combinations). `tests/cli/test_cli_build_timeout_process.py` runs
+`loom project --allow-build --build-timeout` as a real process (tagged
+stderr, exit code, nothing left in the temp dir).
 
 Against the pre-`BuildOptions` code, 36 of the then 138 cases failed on
 count alone (0 lines for library stray flags, 2 lines on the CLI for
@@ -238,174 +242,60 @@ in-process call:
 
 ## The 11 traps
 
-Each is handled at a commented line in
-`src/pitloom/core/_models_wheel_build_subprocess.py` or
-`_models_wheel_build_kill.py` (the comments are not numbered) -- read
-the comment at the line, not just this list, before touching that code.
+Each is handled at a commented line in `_models_wheel_build_subprocess.py`
+or `_models_wheel_build_kill.py`; read that comment before touching the
+code.
 
-1. **Missing `build`.** `importlib.util.find_spec("build")` returning
-   `None` -- or a namespace-package spec (`origin is None`), which is
-   just a bare `build/` directory on `sys.path`, e.g. setuptools' output
-   dir in the cwd under `python -m pitloom` -- raises `RuntimeError` up
-   front, naming the `pitloom[build]` extra, rather than letting a
-   cryptic `ModuleNotFoundError` surface from deep inside the
-   subprocess's own stderr. (The child runs with `cwd=work_dir`, trap 3,
-   so it would never see that directory.) `find_spec("build.__main__")`
-   was not used: it imports the parent package into Pitloom's own
-   process. Also guards against an empty/`None` `sys.executable`
-   (embedded/frozen interpreters).
-2. **Path length.** The work directory's layout keeps names short
-   (`o/` for outdir, `t/` for the child's own temp, `build.log`) --
-   observed in practice: a backend using `multiprocessing` creates an
-   AF_UNIX socket path under temp
-   (`.../T/plb-XXXXXXXX/t/pymp-XXXXXXXX/listener-XXXXXXXX`) and POSIX's
-   108-byte-ish `sockaddr_un` limit (104 usable on macOS) is easy to
-   blow past with a verbose prefix. Windows `MAX_PATH` is the same
-   class of hazard.
-3. **`cwd=work_dir`, never `project_dir` or the inherited cwd.** `-m`
-   prepends the current directory to `sys.path`; a scanned project
-   that happens to ship its own `build.py` or `build/__init__.py`
-   (common enough as a repo-local build-helper module name) would
-   shadow PyPA `build` itself if run from the project root -- exactly
-   where `loom project .` is normally invoked from.
-4. **Environment redirect.** `TMPDIR`/`TEMP`/`TMP` all point at
-   `work_dir/"t"`, so `DefaultIsolatedEnv`'s `build-env-*` venv and
-   pip's own temp files land inside the directory this code already
-   owns and cleans up -- a build this code kills leaves nothing behind
-   in the system temp directory. The work dir is a
-   `TemporaryDirectory(ignore_cleanup_errors=True)` (on Windows a
-   just-killed process may hold a handle briefly); if it still exists
-   afterwards, a single `WARNING: Build: could not fully remove
-   temporary directory <path>` names it instead of leaving it silently. `PYTHONUNBUFFERED=1` keeps the captured log
-   from buffering indefinitely. `NO_COLOR=1` plus popping
-   `FORCE_COLOR` suppresses the CLI's own ANSI-coloured error line
-   (`build/__main__.py`) -- otherwise escape-code residue could end up
-   inside the one-line `WARNING:` this code emits on failure.
-5. **`stdin=subprocess.DEVNULL`.** Closes the second, narrower
-   unbounded-hang case noted above.
-6. **Output to a log file, never `PIPE`.** A pipe can fill and
-   deadlock the parent; a surviving grandchild holding the write end
-   open would make `communicate()` block even after the parent process
-   is killed. This is also why `subprocess.run(timeout=)` is not used
-   here at all -- on Windows it calls `communicate()` internally after
-   killing the process, reintroducing the exact hang being avoided.
-7. **Platform-specific process-group setup.** POSIX:
-   `start_new_session=True` so the child's pgid equals its pid, letting
-   `os.killpg()` reach the whole tree. Windows: no special
-   `creationflags` -- `CREATE_NEW_PROCESS_GROUP` would disable Ctrl-C
-   delivery to the child and isn't needed, since `taskkill /T` walks
-   the process tree by parent PID instead. Written as two explicit
-   `Popen(...)` calls under `if sys.platform == "win32":` rather than
-   one call with a conditional kwargs dict, because mypy's `Popen`
-   overloads reject an unpacked `**kwargs` dict, and
-   `os.killpg`/`signal.SIGKILL` are POSIX-only in typeshed and need the
-   same platform narrowing to type-check.
-8. **Sliced wait loop, not one blocking `proc.wait(timeout=...)`.** On
-   Windows, CPython 3.10's `WaitForSingleObject`-based wait is not
-   interrupted by Ctrl-C -- a single long wait could hang up to the
-   full timeout even after the user hits Ctrl-C. Polling in 0.25 s
-   slices keeps Ctrl-C responsive on every platform, and is where a
-   recorded SIGTERM/SIGHUP/SIGBREAK is acted on. The kill happens
-   in a `except BaseException:` handler around the whole loop --
-   unconditionally, not gated on "is the process still running" --
-   because the *direct* child can exit right at the deadline while its
-   own grandchildren are still alive; and because the new session means
-   the terminal's own Ctrl-C signal no longer reaches the child at all,
-   so the parent is the only thing that can kill it either way. After a
-   *normal* exit, the group is sent SIGKILL too
-   (`kill_leftover_descendants()`, POSIX only; `ESRCH` -- nothing left --
-   is the normal case), then polled until gone: a backend's background
-   child would otherwise outlive the build, still in the group, and
-   keep writing into the work dir while it is removed. Killing one is a
-   side effect worth an `INFO:` line (e.g. a compiler-cache server the
-   backend started without `setsid()`); one that can't be confirmed gone
-   gets a `WARNING:`. Own zombies are reaped first (PID 1, subreaper) so
-   they don't count as leftovers. On Windows
-   nothing can reach such a leftover (`taskkill /T` needs a live parent
-   PID; a Job Object would, but is not used).
-9. **`kill_process_tree()` (`_models_wheel_build_kill.py`) raises
-   nothing of its own.** It runs while a
-   `BuildTimeoutError` or `KeyboardInterrupt` is already propagating;
-   a new exception there would mask the original one and leave an
-   un-waited `Popen` behind, which surfaces as a `ResourceWarning` --
-   and this repository's `filterwarnings = ["error"]` turns that into
-   a hard test failure, not a log line. Every OS call inside it is
-   wrapped in `try/except (OSError, subprocess.SubprocessError)`. A
-   `BaseException` arriving mid-way -- a second Ctrl-C during the
-   SIGTERM grace, or during `taskkill` -- is held; every later step
-   (SIGKILL, `proc.kill()`, the reap, the group poll) still runs, each
-   guarded the same way, and only then is the first one re-raised: the
-   first version let it abort before SIGKILL, orphaning any
-   SIGTERM-ignoring descendant. An interrupted reap resumes within its
-   time bound: `with Popen` waits only 0.25 s on `KeyboardInterrupt`,
-   and an unreaped `Popen` is a `ResourceWarning`. `proc.kill()` of the
-   direct child covers a child not leading its group (no own session):
-   `killpg()` misses it and `with Popen`'s unbounded wait hangs --
-   mutation testing hung the whole suite that way. It returns whether the tree was
-   confirmed gone (POSIX: the group probe raised; Windows: `taskkill`
-   exited 0), carried as `BuildTimeoutError.tree_terminated`, so the
-   timeout `WARNING:` says "build process tree terminated" only when
-   that is known, and "could not confirm the build process tree
-   terminated" otherwise.
-   POSIX: SIGTERM, wait up to 3s, unconditional SIGKILL, reap the
-   direct child (up to 2s), then poll `os.killpg(pgid, 0)` every 0.1s
-   (up to 3s) until it raises -- `ProcessLookupError` normally, but
-   macOS can report `EPERM` once only zombies remain. `EPERM` counts as
-   gone on macOS only: on Linux it means a live member this process may
-   not signal (e.g. a setuid `sudo` child), so the timeout `WARNING:`
-   then says "could not confirm". macOS also reports `EPERM` when every
-   live member belongs to another user, indistinguishable from the
-   zombie case -- such a survivor goes unreported there (accepted). The poll keeps temp-directory cleanup
-   from racing still-dying grandchildren.
-   Order matters on Linux: a zombie stays in its process group until
-   reaped, so the direct child is reaped before the first probe, and
-   each probe is preceded by `waitpid(-pgid, WNOHANG)`. That second
-   reap matters only when Pitloom is PID 1 in a container (no
-   `--init`) or a child subreaper: killed descendants are then
-   reparented to Pitloom rather than to an init that reaps them, and
-   would otherwise keep the probe succeeding until it gives up
-   ("could not confirm"). `waitpid(-pgid)` touches only that group,
-   never a host application's other children. Verified only by a
-   Linux-only test using `PR_SET_CHILD_SUBREAPER` (CI), not locally. Windows: `taskkill.exe /F /T /PID <pid>`
-   via the full `%SystemRoot%\System32\taskkill.exe` path (satisfies
-   bandit B607's "no bare command name" rule), then `proc.kill()` and
-   a final `wait()`. If the very last wait still times out, it's
-   logged at `DEBUG:` and left to the `with Popen(...)` context
-   manager's own exit to wait -- acceptable as a last resort, not
-   silently swallowed. `taskkill /T` finds descendants by parent PID,
-   so once the direct child has exited, its orphaned descendants are
-   probably unreachable; unverified on a real Windows run, so the code
-   comment claims no guarantee.
-
-   Worst-case delay past the deadline (a signal: plus one 0.25 s wait
-   slice): POSIX 3 s SIGTERM grace + 2 s reap after SIGKILL + 3 s group
-   poll = about 8 s, normally well under 1 s (the grace ends as soon as the direct
-   child exits, the other two once the processes are gone). The first
-   version used 5 + 5 + 5 s; cut so the whole kill fits inside
-   `docker stop`'s default 10 s between SIGTERM and SIGKILL (and a
-   GitHub Actions cancellation's gaps between SIGINT, SIGTERM and
-   SIGKILL), guarded by a test. After SIGKILL the last two bounds only
-   matter for a process stuck in the kernel. Windows: 60 s `taskkill`
-   timeout + 30 s final wait = about 90 s, normally a second or two;
-   not tuned, as no Windows signal path needs it to be shorter.
-10. **Result classification after a normal return.** Non-zero exit
-    becomes `BuildSubprocessError` carrying the log's last non-empty
-    line. A zero exit is only accepted if `out.glob("*.whl")` finds
-    **exactly** one wheel -- zero or more than one is also a
-    `BuildSubprocessError`, since either means something about the
-    build's own output contract wasn't what was expected.
-11. **Log tail extraction stays bounded.** `_read_log_tail()` seeks
-    from the end and reads at most the last 8 KiB, never the whole
-    file -- the "resource efficiency" rule in CLAUDE.md applies to a
-    build log exactly as much as to any other large artifact. Decoded
-    as UTF-8 with `errors="replace"`. The `WARNING:` line gets only the
-    single last non-empty line, control characters stripped, capped at
-    roughly 200 characters, matching the CLI-output convention of one
-    tagged line with no untagged continuation. On failure or timeout,
-    every tail line is also logged at `DEBUG:` -- individually prefixed
-    so a log line that happens to start with `::` can never be
-    misread as a GitHub Actions workflow command by a runner that later
-    echoes captured output.
+1. **Missing `build`.** `find_spec("build")` is `None`, or a namespace
+   spec (a bare `build/` dir on `sys.path`): `RuntimeError` naming
+   `pitloom[build]` up front. Not `find_spec("build.__main__")`, which
+   imports the package. An empty `sys.executable` is refused too.
+2. **Path length.** Short work-dir names (`o/`, `t/`, `build.log`): a
+   `multiprocessing` AF_UNIX socket under temp must fit 104 bytes on
+   macOS; Windows `MAX_PATH` likewise.
+3. **`cwd=work_dir`.** `-m` puts the cwd on `sys.path`; a project's own
+   `build.py` would shadow PyPA `build` when run from its root.
+4. **Environment.** `TMPDIR`/`TEMP`/`TMP` -> `work_dir/t`, so the isolated
+   env and pip temp files die with the work dir (`ignore_cleanup_errors`,
+   a leftover gets a `WARNING:`); `PYTHONUNBUFFERED`; `NO_COLOR` and no
+   `FORCE_COLOR`, so no ANSI residue reaches the `WARNING:`.
+5. **`stdin=DEVNULL`.** A backend reading stdin gets EOF, not a hang.
+6. **Log file, never `PIPE`.** A full pipe deadlocks, and a grandchild
+   holding it blocks `communicate()` after the kill -- which is also why
+   `subprocess.run(timeout=)` (it calls `communicate()` on Windows) is out.
+7. **Process group.** POSIX `start_new_session=True`, so `killpg()`
+   reaches the tree; Windows no `creationflags` (`CREATE_NEW_PROCESS_GROUP`
+   would disable Ctrl-C) and `taskkill /T`. Two explicit `Popen` calls:
+   mypy rejects a `**kwargs` dict and needs the platform narrowing.
+8. **Sliced wait (0.25 s).** Windows 3.10 doesn't interrupt a long wait
+   on Ctrl-C, and each slice acts on a recorded signal. The kill runs in
+   `except BaseException`, unconditionally: the child can exit at the
+   deadline with grandchildren alive. After a normal exit
+   `kill_leftover_descendants()` kills what the build left in its group
+   (`INFO:`; `WARNING:` if not confirmed gone), reaping Pitloom's own
+   zombies first. Windows can't reach such leftovers (no Job Object).
+9. **`kill_process_tree()` never raises.** It runs while a timeout or
+   interrupt propagates; a second Ctrl-C mid-way is held until every
+   step (SIGKILL, `proc.kill()`, reap, group poll) has run, else an
+   SIGTERM-ignoring descendant is orphaned and the unreaped `Popen` is a
+   `ResourceWarning`. `proc.kill()` covers a child not leading its group.
+   It returns whether the tree was confirmed gone, which picks the
+   timeout `WARNING:`'s "terminated" vs "could not confirm". POSIX:
+   SIGTERM, 3 s grace, SIGKILL, 2 s reap, poll `killpg(pgid, 0)` up to
+   3 s -- about 8 s worst case, inside `docker stop`'s 10 s (the first
+   version's 5 + 5 + 5 s did not fit). `EPERM` means "gone" on macOS only
+   (zombies left; it can't be told from survivors owned by another
+   user), a live unsignalable member on Linux. Each probe is preceded by
+   `waitpid(-pgid, WNOHANG)`: as PID 1 or a subreaper, killed descendants
+   are Pitloom's zombies and would keep the probe succeeding (tested on
+   Linux CI only). Windows: full-path `taskkill.exe /F /T` (bandit
+   B607), `proc.kill()`, wait -- 60 + 30 s worst case, untuned.
+10. **Result.** Non-zero exit -> `BuildSubprocessError` with the log's
+    last line; exit 0 needs exactly one `*.whl`.
+11. **Bounded log tail.** Last 8 KiB only, UTF-8 `errors="replace"`; the
+    `WARNING:` gets one cleaned line (~200 chars); the `DEBUG:` tail lines
+    are prefixed, so a `::` line never reaches a runner as a workflow
+    command.
 
 ## Rejected paths
 

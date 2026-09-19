@@ -363,6 +363,12 @@ determinism, offline-mode zero-network-calls, registry round trip, and
 `--allow-build` with/without/ground-truth parity. Full commands for each
 in
 [working-docs/implementation/manual-cli-checks.md](working-docs/implementation/manual-cli-checks.md).
+Run them all with `.venv/bin/python scripts/manual_cli_checks` (add
+`--network` for the network ones): it also runs the declared CLI matrix
+(subcommand x option x environment variable) and order-dependent command
+sequences. A new CLI option or subcommand must get an entry in
+`scripts/manual_cli_checks/_matrix_plan.py` -- `M/completeness` fails in
+CI until it does.
 
 ## Shell scripts
 

@@ -128,50 +128,27 @@ def _extract_wheel_to_included_files(
 def build_and_read_wheel(
     project_dir: Path, *, isolated: bool = True, timeout: int
 ) -> tuple[list[IncludedFile], Callable[[], None]] | None:
-    """Build a real wheel for *project_dir* and return its file list as
-    ordinary, on-disk :class:`IncludedFile` entries, plus a cleanup
-    callback the caller MUST invoke once done consuming them (deletes the
-    temp extraction directory backing ``.path``).
+    """Build a real wheel for *project_dir* and return its non-``.dist-info``
+    files as on-disk :class:`IncludedFile` entries, plus a cleanup callback
+    the caller MUST invoke once done (it deletes the extraction directory
+    backing ``.path``).
 
-    *timeout* is a required keyword (seconds) -- resolved once upstream
-    via :func:`~pitloom.core._models_wheel_types.resolve_build_timeout`,
-    so a call site that forgets to thread it through fails loudly with a
-    ``TypeError`` instead of silently reusing some default here. Passed
-    straight to
-    :func:`~pitloom.core._models_wheel_build_subprocess.run_build_subprocess`,
-    which runs the build as its own child process tree and terminates it
-    if *timeout* elapses.
+    *timeout* (seconds) is required, so a call site that forgets to thread
+    it through fails with a ``TypeError`` rather than using some default.
 
-    Returns ``None`` on any failure (backend not installable, network
-    unavailable under isolation, the build script itself fails, the
-    build timed out, or the build produced a wheel with zero
-    non-``.dist-info`` files) -- same "``None`` means fall back" contract
-    as every static discoverer, logged with a ``WARNING:`` here (the
-    caller's own fallback-to-Hatchling warning fires on top of this one,
-    same two-tier pattern setuptools'/PDM's/Flit's own failure paths
-    already have). A timeout gets its own, more specific ``WARNING:``
-    naming the elapsed duration, checked before the generic failure
-    ``except``.
+    Returns ``None``, with a ``WARNING:``, on any failure -- including a
+    timeout (its own ``WARNING:``) and a wheel with no non-``.dist-info``
+    file -- the same "``None`` means fall back" contract as every static
+    discoverer.
 
-    Removes both temp directories on every exit path, including
-    ``KeyboardInterrupt`` and SIGTERM/SIGHUP/SIGBREAK: each one's removal
-    is registered with the :class:`~pitloom.core.build_signals.TerminationGuard`
-    as soon as it exists, the build's own work directory is removed once
-    the wheel is extracted, and the *extraction* directory (whose contents
-    are what the returned ``IncludedFile.path`` values point at) unless the
-    call actually succeeded -- only then does it survive past this
-    function's return, via the returned cleanup callback. A directory that
-    could not be fully removed gets a ``WARNING:`` naming it.
-
-    A termination signal is held only while the directories are created
-    and the build runs: it stops the build (kill tree, reap), then both
-    directories are removed and the signal re-raised. From the build's
-    exit on -- extracting a possibly multi-GiB wheel, removing the work
-    directory -- the signal handler removes both directories and ends the
-    process at once. After a successful return, the extraction directory
-    stays protected for as long as the caller's own
-    :class:`~pitloom.core.build_signals.TerminationGuard` (the outermost
-    one entered) is held; with none, until this returns.
+    Both temp directories are registered with a
+    :class:`~pitloom.core.build_signals.TerminationGuard` as soon as they
+    exist and removed on every exit path; the extraction directory survives
+    only a successful return, protected while the caller's outermost guard
+    is held. A directory not fully removed (e.g. a file still open on
+    Windows) gets a ``WARNING:``. Signal behaviour: see
+    :mod:`pitloom.core.build_signals`; the Ctrl-C window between a
+    directory's creation and its registration is a documented limitation.
     """
     with TerminationGuard() as termination:
         return _build_and_read_wheel(
@@ -238,7 +215,8 @@ def _registered_extract_dir(
     termination: TerminationGuard,
 ) -> tuple[Path, Callable[[], None]]:
     """A new extraction directory and its removal, registered with
-    *termination*. Call inside a hold, so no signal acts in between."""
+    *termination*. Call inside a hold, so no termination signal acts in
+    between (a Ctrl-C still can)."""
     path = Path(tempfile.mkdtemp(prefix="pitloom-build-and-read-"))
     remove = _one_shot(functools.partial(_remove_temp_dir, path))
     termination.add_cleanup(remove)
@@ -249,7 +227,8 @@ def _registered_work_dir(
     termination: TerminationGuard,
 ) -> tuple[Path, Callable[[], None]]:
     """The build's new work directory and its removal, registered with
-    *termination*. Call inside a hold, so no signal acts in between."""
+    *termination*. Call inside a hold, so no termination signal acts in
+    between (a Ctrl-C still can)."""
     # Not a with-block: its removal must be the registered callback.
     # ignore_cleanup_errors: on Windows a just-killed process may still
     # hold a handle; a leftover is reported instead of raising.

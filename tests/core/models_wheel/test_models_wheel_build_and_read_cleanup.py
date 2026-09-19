@@ -21,6 +21,7 @@ tests/core/test_build_signals.py
 import logging
 import shutil
 import signal
+import sys
 import tempfile
 from collections.abc import Iterator
 from pathlib import Path
@@ -276,7 +277,20 @@ def test_build_and_read_wheel_signal_during_extraction_acts_at_once(
     assert len(copies) == 1
     assert excinfo.value.code == 128 + signal.SIGTERM
     raise_spy.assert_called_once_with(signal.SIGTERM)
-    assert left_at_raise == [[]]
+    if sys.platform == "win32":
+        # The interrupted extraction still holds the wheel and one target
+        # open, which Windows can't delete: both dirs survive, each named
+        # in its own WARNING, never silently.
+        (leftover,) = left_at_raise
+        assert sorted(p.name.split("-")[0] for p in leftover) == ["pitloom", "plb"]
+        for path in leftover:
+            assert any(
+                "could not fully remove" in r.getMessage()
+                and path.name in r.getMessage()
+                for r in caplog.records
+            ), path
+    else:
+        assert left_at_raise == [[]]
     removed = sorted(
         p
         for c in rmtree.call_args_list

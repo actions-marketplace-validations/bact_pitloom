@@ -63,8 +63,8 @@ it executes third-party build-time code from the project being scanned
   build), they're a no-op and Pitloom prints a `WARNING:` saying so.
   The same applies to `embed-wheel` when it can't resolve a project
   directory to rescan (no `--project-dir`, and the current directory
-  is not a project; for the library, no `project_dir`) or when `--sbom` supplies an
-  already-generated SBOM to embed verbatim.
+  is not a project; for the library, no `project_dir`) or when `--sbom`
+  supplies an already-generated SBOM to embed verbatim.
 
 ```bash
 loom project . --allow-build -o sbom.json
@@ -149,10 +149,11 @@ with only exited processes left, so it goes unreported there).
   console window, logoff or shutdown cannot be intercepted. Ctrl-Break
   is handled like SIGTERM above (the build receives it too, as it
   shares Pitloom's console); after the build, a file still open at that
-  moment cannot be deleted on Windows, so the extracted-wheel directory
-  may be left behind (a `WARNING:` names it). Descendants of a build
-  child that has already exited -- including background processes a
-  successful build leaves running -- may not be reachable.
+  moment cannot be deleted on Windows, so the build's temporary
+  directories may be left behind (a `WARNING:` names each one).
+  Descendants of a build child that has already exited -- including
+  background processes a successful build leaves running -- may not be
+  reachable.
 
 Library API callers pass `BuildOptions(timeout=...)` as plain `int`
 seconds (no duration-string parsing there) -- see

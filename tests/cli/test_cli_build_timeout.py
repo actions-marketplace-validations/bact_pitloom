@@ -24,6 +24,7 @@ import pytest
 
 from pitloom import __main__
 from pitloom.core.build_options import BuildOptions
+from tests.assemble.conftest import _make_dummy_wheel
 from tests.cli.shared import _make_simple_project
 
 _PROJECT_COMMANDS = [
@@ -101,8 +102,6 @@ def test_command_passes_one_build_options_to_library(
     project_dir = _make_simple_project(tmp_path)
     output = str(tmp_path / "sbom.json")
     if command == "embed-wheel":
-        from tests.assemble.conftest import _make_dummy_wheel
-
         wheel = _make_dummy_wheel(tmp_path / "dist", "demo", "1.0.0")
         argv = ["embed-wheel", str(wheel), "--project-dir", str(project_dir)]
     elif command == "generate-sdist":
@@ -141,3 +140,76 @@ def test_command_passes_one_build_options_to_library(
         assert received == BuildOptions()
     else:
         assert received == _EXPECTED
+
+
+@pytest.mark.parametrize("missing", ["no-such-dir", "no-such-1.0.tar.gz"])
+@pytest.mark.parametrize(
+    "flags", [["--build-timeout", "5"], ["--allow-build", "--build-timeout", "5"]]
+)
+@pytest.mark.parametrize("subcommand", ["project", "generate"])
+# pylint: disable-next=too-many-arguments,too-many-positional-arguments
+def test_missing_target_fails_with_one_error_and_no_build_warning(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    subcommand: str,
+    flags: list[str],
+    missing: str,
+) -> None:
+    """A target that doesn't exist fails the command with one ``ERROR:``
+    and nothing else -- no build-flag warning about a target that was
+    never there -- identically on ``project`` and ``generate``."""
+    monkeypatch.chdir(tmp_path)
+    argv = ["loom", subcommand, missing, "-o", "out.json", *flags]
+    monkeypatch.setattr(sys, "argv", argv)
+
+    assert __main__.main() == 1
+
+    stderr = capsys.readouterr().err.splitlines()
+    assert len(stderr) == 1, stderr
+    assert stderr[0].startswith("ERROR: ")
+    assert missing in stderr[0]
+
+
+@pytest.mark.parametrize("missing", ["no-such-dir", "no-such-1.0.tar.gz"])
+@pytest.mark.parametrize("entry_point", ["generate", "generate_project_sbom"])
+def test_library_missing_target_raises_without_build_warning(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    entry_point: str,
+    missing: str,
+) -> None:
+    """The library matches the CLI: ``FileNotFoundError``, and no
+    build-flag warning for a target that doesn't exist."""
+    # pylint: disable-next=import-outside-toplevel
+    from pitloom import assemble
+
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(FileNotFoundError, match="not found"):
+        getattr(assemble, entry_point)(missing, build_options=BuildOptions(timeout=5))
+    assert "has no effect" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    "flags", [["--build-timeout", "5"], ["--allow-build", "--build-timeout", "5"]]
+)
+def test_embed_wheel_missing_project_dir_fails_with_one_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    flags: list[str],
+) -> None:
+    """``embed-wheel --project-dir`` naming a missing directory matches
+    ``project``/``generate``: one ``ERROR:``, no build-flag warning."""
+    wheel = _make_dummy_wheel(tmp_path / "dist", "demo", "1.0.0")
+    missing = tmp_path / "no-such-dir"
+    argv = ["loom", "embed-wheel", str(wheel), "--project-dir", str(missing)]
+    monkeypatch.setattr(sys, "argv", [*argv, *flags])
+
+    assert __main__.main() == 1
+
+    stderr = capsys.readouterr().err.splitlines()
+    assert len(stderr) == 1, stderr
+    assert stderr[0].startswith("ERROR: ")
+    assert "not found" in stderr[0]

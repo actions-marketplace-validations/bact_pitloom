@@ -20,6 +20,50 @@ an agent run them -- against a real project after any change touching
 `plugins/hatch.py`, before committing. Use a scratch dir (`mktemp -d`),
 never the repo tree, for generated output.
 
+## Running them: `scripts/manual_cli_checks`
+
+Every check below except 6 (skills drift, which needs judgement) runs
+unattended from one stdlib-only runner, on Linux, macOS and Windows:
+
+```bash
+.venv/bin/python scripts/manual_cli_checks              # offline checks
+.venv/bin/python scripts/manual_cli_checks --network    # all checks
+.venv/bin/python scripts/manual_cli_checks --only 'M/embed-wheel/*' --only S3
+.venv/bin/python scripts/manual_cli_checks --list
+.venv/bin/python scripts/manual_cli_checks --report matrix.md
+```
+
+Use the checkout's own interpreter: the runner tests the `pitloom` that
+interpreter imports, and prints its path first. Besides the numbered
+checks (`1`-`10`, `B1`-`B7`) it runs:
+
+- **The CLI matrix** (`M/<command>/<group>/<variant>`): every subcommand
+  x its options x the environment variables that change it
+  (`PITLOOM_DEBUG`, `SOURCE_DATE_EPOCH`), each cell a real `loom` in its
+  own directory behind a socket guard. Groups: `debug` (flag x env,
+  checked against the logger level Pitloom configured), `output` (`-o
+  FILE`/`-o -`/none x `--pretty`/`--no-pretty`/none), `date`
+  (`--creation-datetime` x `SOURCE_DATE_EPOCH`), `offline`, `opt`
+  (one-factor variants of every other option, each expected to change
+  the output, leave it alone, contain a value or be rejected) and
+  `parity` (`generate` vs the dedicated subcommand). The plan is
+  `_matrix_plan.py`; `M/completeness` fails on any subcommand or option
+  it doesn't classify, and `tests/scripts/test_manual_cli_checks.py`
+  runs that check in every CI run.
+- **Sequences** (`S1`-`S8`): commands in order where one's side effect
+  is the next one's input -- a default output inside the scanned
+  project, re-embedding, `embed-wheel` vs `wheel --embed` in both
+  orders, registry updates, `ids import`, a merge into its own input
+  directory, verifying before and after embedding, embedding a
+  hook-built wheel.
+
+A failing cell already tracked in the roadmap reports `KNOWN` with the
+item's title (`_known.py`); drop the entry when the item is done. To
+cover a new option, add it to `PLAN` in `_matrix_plan.py` -- a variant
+with an expectation, a group, or an exclusion with its reason.
+
+## The checks
+
 **1. Determinism (bit-for-bit, per "SBOM output" in CLAUDE.md)**
 
 ```bash
@@ -173,7 +217,9 @@ with `--allow-build --no-build-isolation`):
 - a `build_wheel` that sleeps: `--build-timeout 5` returns within ~15 s,
   exit 0, the `timed out after 5s` `WARNING:` and the fallback
   `WARNING:`; no backend process and no `plb-*`/
-  `pitloom-build-and-read-*` directory left in `$TMPDIR`;
+  `pitloom-build-and-read-*` directory left in `$TMPDIR` (automated as
+  `tests/cli/test_cli_build_timeout_process.py`; rerun by hand on a
+  platform CI does not cover);
 - the same, with `kill -TERM` (exit 143, `received SIGTERM during the
   build`) and `kill -INT` (exit 130) sent mid-build -- start `loom` as
   `( trap - INT; exec loom ... ) &`, since a non-interactive shell

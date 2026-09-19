@@ -51,13 +51,14 @@ result's whole lifetime.
   yields the owner, and its exit does nothing. Only the owner installs,
   restores, and acts on an exception. Guards are entered by every holder
   of the result: `get_wheel_files()` (so a direct library call is covered
-  until it returns), `generate_project_sbom()` and
-  `_build_sbom_from_project_and_wheel()` (from discovery to their
-  `cleanup_discovery()`), and `EmbedFileCache`, now a context manager
-  held around the whole `embed-wheel` batch. The outermost one sets the
-  protected lifetime; `build_and_read_wheel()`'s own guard is always
-  nested in practice. The owner's exit resets the guard (handlers,
-  pending signal, cleanups), so an instance can be entered again;
+  until it returns), `generate_project_sbom()` (from discovery to its
+  `cleanup_discovery()`), and `EmbedFileCache`, a context manager held
+  around the whole `embed-wheel` batch, or entered privately by
+  `_build_sbom_from_project_and_wheel()` when no `file_cache` is given.
+  The outermost one sets the protected lifetime;
+  `build_and_read_wheel()`'s own guard is always nested in practice.
+  The owner's exit resets the guard (handlers, pending signal,
+  cleanups), so an instance can be entered again;
   entering one that is entered raises `RuntimeError` (a nested exit
   would otherwise end the outer block's protection).
 - **Installed lazily, at the first `hold()`.** The build is what creates
@@ -214,7 +215,11 @@ can be entered again afterwards, with a fresh guard and resolution.
 - **Ctrl-C between two statements inside the build.** `KeyboardInterrupt`
   still lands anywhere: a dir created but not yet registered (a few
   bytecodes after `mkdtemp()`) can leak. A termination signal there is
-  held until the registration.
+  held until the registration. One inside a guard's (or
+  `EmbedFileCache`'s) own enter/exit bookkeeping can leave a stale
+  thread-local owner: in a host that catches `KeyboardInterrupt` and
+  carries on (a REPL), later guards then join it, handlers stay
+  installed and fallback removals don't run.
 - **PID 1.** The fallback `SystemExit` is raised from the handler into
   whatever code runs; code that swallows `BaseException` would keep the
   process alive. The dir is already gone by then.
@@ -231,7 +236,11 @@ can be entered again afterwards, with a fresh guard and resolution.
   cannot be deleted on Windows -- during extraction the wheel in the work
   dir and the file being written, later a file a scanner has open -- so
   the handler's removal may leave that dir behind (with a `WARNING:`
-  naming it). Unverified on a real Windows run.
+  naming it). Seen on Windows CI for a signal during extraction: both
+  the work dir and the extraction dir survive, each with its own
+  `WARNING:`; `test_build_and_read_wheel_signal_during_extraction_acts_at_once`
+  asserts exactly that there. The rest of the Windows handling is
+  unverified on a real Windows run.
 
 ## Tests
 

@@ -5,8 +5,8 @@
 
 """Unit tests for :class:`pitloom.core.build_options.BuildOptions`:
 validation (the one validation point for every library surface),
-``given``/``settings()``, and the three warning methods
-(``warn_no_effect``, ``settle``, ``settle_not_applicable``).
+``given``/``settings()``, and the settle methods (``settle``,
+``settle_not_applicable``, ``settle_target``).
 
 See also: :mod:`tests.test_build_flag_warnings` for the cross-surface
 matrix (CLI, library API, every target kind) asserting each ignored flag
@@ -18,6 +18,7 @@ from __future__ import annotations
 import dataclasses
 import inspect
 import logging
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -215,15 +216,57 @@ def test_settle_not_applicable_nothing_given_warns_nothing(
     assert settled == BuildOptions()
 
 
-def test_warn_no_effect_one_line_per_flag(caplog: pytest.LogCaptureFixture) -> None:
+_STRAY = BuildOptions(no_isolation=True, timeout=5)
+_ALLOWED = BuildOptions(allow=True, timeout=5)
+
+
+@pytest.mark.parametrize("options", [_STRAY, _ALLOWED], ids=["stray", "allowed"])
+def test_settle_target_sdist_file_warns_every_flag(
+    caplog: pytest.LogCaptureFixture, tmp_path: Path, options: BuildOptions
+) -> None:
+    """A file is an sdist archive: every given flag, ``--allow-build``
+    included, gets the sdist reason -- never "without --allow-build"."""
+    sdist = tmp_path / "demo-1.0.tar.gz"
+    sdist.write_bytes(b"")
     with caplog.at_level(logging.WARNING, logger="pitloom"):
-        BuildOptions(allow=True, timeout=5).warn_no_effect("x.whl", "for this target")
-        BuildOptions().warn_no_effect("y.whl", "for this target")
+        settled = options.settle_target(sdist)
+
+    lines = _build_warnings(caplog)
+    assert len(lines) == len(options.given)
+    assert all(line.endswith(SDIST_TARGET_REASON) for line in lines), lines
+    assert settled == BuildOptions()
+
+
+def test_settle_target_project_dir_settles_like_settle(
+    caplog: pytest.LogCaptureFixture, tmp_path: Path
+) -> None:
+    """A directory settles exactly as ``settle()`` does: stray flags warn
+    "without --allow-build"; with ``allow`` nothing warns and the value
+    (timeout included) is kept."""
+    with caplog.at_level(logging.WARNING, logger="pitloom"):
+        stray = _STRAY.settle_target(tmp_path)
+        allowed = _ALLOWED.settle_target(tmp_path)
 
     assert _build_warnings(caplog) == [
-        "Build: x.whl: --allow-build has no effect for this target",
-        "Build: x.whl: --build-timeout has no effect for this target",
+        f"Build: {tmp_path}: --no-build-isolation has no effect without --allow-build",
+        f"Build: {tmp_path}: --build-timeout has no effect without --allow-build",
     ]
+    assert stray == BuildOptions()
+    assert allowed is _ALLOWED
+
+
+@pytest.mark.parametrize("options", [_STRAY, _ALLOWED], ids=["stray", "allowed"])
+def test_settle_target_missing_path_settles_nothing(
+    caplog: pytest.LogCaptureFixture, tmp_path: Path, options: BuildOptions
+) -> None:
+    """A missing path warns nothing and keeps every flag: the caller's
+    read fails it with an ERROR alone, and a stray flag is not silently
+    dropped before that."""
+    with caplog.at_level(logging.WARNING, logger="pitloom"):
+        settled = options.settle_target(tmp_path / "missing")
+
+    assert not caplog.records
+    assert settled is options
 
 
 @pytest.mark.parametrize(
@@ -245,9 +288,8 @@ def test_every_surface_takes_one_build_options(entry_point: object) -> None:
 
 def test_sdist_target_reason_is_nonempty_and_names_no_build_and_read() -> None:
     """:data:`~pitloom.core.build_options.SDIST_TARGET_REASON` is the one
-    reason string ``cli/commands/project.py``, ``cli/commands/generate.py``,
-    and ``assemble/_generators.py`` all import and pass to
-    ``settle_not_applicable()`` -- see
+    reason string every sdist-target surface reaches through
+    ``BuildOptions.settle_target()`` -- see
     :mod:`tests.test_build_flag_warnings`'s ``_SDIST`` cases (``cli-project``/
     ``cli-generate``/``lib-generate``/``lib-generate_project_sbom``), which
     already drift-guard the four surfaces against each other end to end."""

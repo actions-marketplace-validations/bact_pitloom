@@ -17,6 +17,7 @@ termination guard keeping a build-and-read result from leaking).
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 from collections.abc import Callable
 from pathlib import Path
@@ -98,46 +99,25 @@ def _compute_wheel_merkle_root(files: list[ProjectFile]) -> str | None:
 
 
 class EmbedFileCache:
-    """Memoizes one project directory's file-discovery result (and its
-    cleanup callback) across a batch of :func:`_build_sbom_from_project_and_wheel`
-    calls that share the same *project_dir*/*pitloom_config*/*build_options*
-    -- e.g. embedding into several wheels from one ``loom embed-wheel``
-    invocation.
+    """One file discovery, one build-flag settle and one cleanup for a
+    batch of embeds from the same project directory -- e.g. several wheels
+    in one ``loom embed-wheel`` run, or a library loop passing
+    ``file_cache=`` to :func:`~pitloom.embed.embed_wheel_sbom`.
 
-    Without this, each wheel in a multi-wheel batch independently called
-    ``get_wheel_files()``: a ``--allow-build`` real PEP 517 build ran once
-    per wheel instead of once for the whole batch. The build options are
-    settled once per block too (:meth:`settle`), so an ineffective flag
-    warns once for the batch, not once per wheel.
+    Use it as a context manager around the whole batch. Inside the block,
+    :meth:`resolve` runs discovery (and any ``--allow-build`` build) on its
+    first call only, and :meth:`settle` warns about each ineffective build
+    flag once. Leaving the block runs the discovery's cleanup once, after
+    every wheel is done -- never per wheel, as an earlier wheel's cleanup
+    would delete files a later one still reads. The block holds a
+    :class:`~pitloom.core.build_signals.TerminationGuard`, so a signal
+    during the batch still removes the build's temp directory.
 
     Every call in a batch must use the same project directory, file-scan
-    settings and build options: :meth:`resolve` raises
-    :class:`ValueError` otherwise, rather than silently hand one call the
-    file list resolved for another.
-
-    A context manager, and must be used as one around the whole batch:
-    :meth:`resolve` runs discovery at most once -- the first call in the
-    block; every later call reuses that result. Leaving the block runs the
-    cleanup callback once, on every exit path, after every wheel has
-    finished consuming the files (a build-and-read result's files
-    physically live in a temp directory it removes -- see
-    :func:`~pitloom.core.models.get_wheel_files`'s own cleanup contract).
-    Never per-wheel: an earlier wheel's cleanup would delete the files a
-    later wheel in the same batch still needs to read. :meth:`resolve`
-    outside the block raises :class:`RuntimeError`, as nothing would run
-    that cleanup; entering the block while it is entered does too. The
-    same instance can be entered again after the block, and then resolves
-    afresh.
-
-    The block also holds a
-    :class:`~pitloom.core.build_signals.TerminationGuard`, so a
-    SIGTERM/SIGHUP between or during wheels removes that directory before
-    the process ends.
-
-    Not used unless explicitly passed to
-    :func:`_build_sbom_from_project_and_wheel` -- every other caller (a
-    single ``embed_wheel_sbom()`` call, the public library API) keeps
-    per-call resolve-then-cleanup behaviour.
+    settings and build options: :meth:`resolve` raises :class:`ValueError`
+    otherwise. Using it outside the block, or entering it twice, raises
+    :class:`RuntimeError`. After the block it can be entered again and
+    resolves afresh.
     """
 
     def __init__(self) -> None:
@@ -171,6 +151,11 @@ class EmbedFileCache:
                 _, cleanup = self._resolved
                 self._resolved = None
                 cleanup()
+        except BaseException as err:
+            # Hand the guard the cleanup's own failure (e.g. Ctrl-C during
+            # the rmtree), so it still runs its fallback removal.
+            exc_type, exc, traceback = type(err), err, err.__traceback__
+            raise
         finally:
             if guard is not None:
                 guard.__exit__(exc_type, exc, traceback)
@@ -248,12 +233,6 @@ class EmbedFileCache:
             )
 
 
-def _batch_owned_cleanup() -> None:
-    """Placeholder ``cleanup_discovery`` for the ``file_cache`` path below
-    -- the batch owner (``file_cache``) runs the real cleanup once, so
-    this call's own try/finally must not clean up early."""
-
-
 # pylint: disable-next=too-many-arguments
 def _build_sbom_from_project_and_wheel(
     project_dir: Path,
@@ -272,11 +251,9 @@ def _build_sbom_from_project_and_wheel(
     (see ``ConfigOverrides.build_options``).
 
     *file_cache*, when given, resolves *project_dir*'s file list through
-    it instead of calling ``get_wheel_files()`` directly, and leaves its
-    cleanup to the cache's owner (see :class:`EmbedFileCache`) rather
-    than running it at the end of this call -- the multi-wheel batch
-    path. ``None`` (every other caller) keeps the original per-call
-    resolve-then-cleanup behaviour.
+    it and leaves the cleanup to its owner (see :class:`EmbedFileCache`)
+    -- the multi-wheel batch path. ``None`` resolves through a cache
+    private to this call, cleaned up before it returns.
     """
     # merkle_root (the rescan's own, over project_dir's on-disk bytes) is
     # deliberately discarded here -- see _compute_wheel_merkle_root below,
@@ -286,61 +263,40 @@ def _build_sbom_from_project_and_wheel(
     # below only adopts project_files' content-type/header extras, never
     # its digest, so hashing every file here would be wasted I/O too.
     #
-    # Owns SIGTERM/SIGHUP handling while a build-and-read result is in use
-    # (see pitloom.core.build_signals); nested, and so inert, inside
-    # file_cache's own guard.
-    with TerminationGuard():
-        cleanup_discovery: Callable[[], None]
-        if file_cache is not None:
-            project_files = file_cache.resolve(
-                project_dir, pitloom_config, build_options
-            )
-            cleanup_discovery = _batch_owned_cleanup
-        else:
-            _, project_files, cleanup_discovery = get_wheel_files(
-                project_dir,
-                scan_file_headers=pitloom_config.extract_file_header,
-                detect_content_type=pitloom_config.content_type.enabled,
-                content_type_method=pitloom_config.content_type.method,
-                content_type_overrides=pitloom_config.content_type.overrides,
-                skip_merkle_root=True,
-                build_options=build_options,
-            )
-        # cleanup_discovery (a no-op unless --allow-build's build-and-read
-        # sourced project_files, or file_cache is given -- see above) must
-        # stay alive -- and this whole block must run inside its try --
-        # through every step below that either re-reads a ProjectFile's
-        # bytes from disk via physical_path (AI-model scanning, enrichment)
-        # or could itself raise before reaching them (the file-extras merge,
-        # the fresh-containers copy): any of these raising before
-        # cleanup_discovery() runs would leak the build-and-read temp
-        # directory.
-        try:
-            # Layer content-type/file-header extras onto the wheel's own
-            # file records rather than replacing them outright: replacing
-            # would drop .dist-info entries and any build-hook-injected
-            # files (e.g. compiled extensions, auditwheel-repaired shared
-            # libraries) that read_wheel() found in the actual wheel but
-            # that a source-tree rescan can't see.
-            merged_files = _merge_file_extras(wheel_metadata.files, project_files)
-            # replace_with_fresh_containers(), not a bare
-            # dataclasses.replace() or an in-place `.files =` assignment:
-            # every dict/list field NOT given here (provenance,
-            # field_conflicts, etc.) also gets its own fresh copy, so the
-            # caller's wheel_metadata (e.g. embed_wheel_sbom's
-            # read_wheel() result) can never be silently mutated as a
-            # side effect of anything downstream mutating this SBOM's own
-            # project_metadata.
-            project_metadata = wheel_metadata.replace_with_fresh_containers(
-                files=merged_files
-            )
-            merkle_root = _compute_wheel_merkle_root(merged_files)
-            ai_models = scan_project_for_ai_models(project_dir, project_files)
-            enrichment_results = run_enrichers_for_models(
-                ai_models, pitloom_config.enrich, project_dir
-            )
-        finally:
-            cleanup_discovery()
+    # The cache's block owns SIGTERM/SIGHUP handling while a build-and-read
+    # result is in use (see pitloom.core.build_signals), and its exit runs
+    # the discovery cleanup -- after every step below that re-reads a
+    # ProjectFile's bytes via physical_path (AI-model scanning, enrichment),
+    # and even if one of them raises.
+    with (
+        contextlib.nullcontext(file_cache)
+        if file_cache is not None
+        else EmbedFileCache()
+    ) as cache:
+        project_files = cache.resolve(project_dir, pitloom_config, build_options)
+        # Layer content-type/file-header extras onto the wheel's own
+        # file records rather than replacing them outright: replacing
+        # would drop .dist-info entries and any build-hook-injected
+        # files (e.g. compiled extensions, auditwheel-repaired shared
+        # libraries) that read_wheel() found in the actual wheel but
+        # that a source-tree rescan can't see.
+        merged_files = _merge_file_extras(wheel_metadata.files, project_files)
+        # replace_with_fresh_containers(), not a bare
+        # dataclasses.replace() or an in-place `.files =` assignment:
+        # every dict/list field NOT given here (provenance,
+        # field_conflicts, etc.) also gets its own fresh copy, so the
+        # caller's wheel_metadata (e.g. embed_wheel_sbom's
+        # read_wheel() result) can never be silently mutated as a
+        # side effect of anything downstream mutating this SBOM's own
+        # project_metadata.
+        project_metadata = wheel_metadata.replace_with_fresh_containers(
+            files=merged_files
+        )
+        merkle_root = _compute_wheel_merkle_root(merged_files)
+        ai_models = scan_project_for_ai_models(project_dir, project_files)
+        enrichment_results = run_enrichers_for_models(
+            ai_models, pitloom_config.enrich, project_dir
+        )
     phantom_deps = find_phantom_dependencies(merged_files)
 
     doc = DocumentModel(

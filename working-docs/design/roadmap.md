@@ -283,6 +283,26 @@ below, which is the actual commitment for what ships before mid-October):
   under SIGKILL by design (see its own known limitations); sweep stale
   `pitloom-build-and-read-*`/`plb-*` temp dirs older than N hours at the
   next run as a lightweight backstop.
+- [ ] **Windows: run the build in a Job Object** -- `taskkill /T` walks
+  the tree by parent PID, so processes a finished build leaves running
+  are unreachable once their parent exits; and a Ctrl-Break during
+  wheel extraction leaves both build temp dirs behind (files still open
+  when the handler removes them; each gets a `WARNING:`, seen on Windows
+  CI in PR #226). A Job Object would kill the whole tree; the leftover
+  dirs need the extraction's open files closed first. See
+  [allow-build-termination.md](../implementation/allow-build-termination.md#limitations).
+- [ ] **Accepted residual limits of build termination** -- revisit only if
+  reported: a backend that calls `setsid()` escapes the kill, a library
+  call from a non-main thread gets no signal handling, a Ctrl-C in the
+  few bytecodes between a temp dir's creation and its registration can
+  leak it, a Ctrl-C inside `TerminationGuard`/`EmbedFileCache`
+  `__enter__`/`__exit__` bookkeeping can leave a stale thread-local guard
+  owner (only a long-lived host that catches `KeyboardInterrupt`, e.g. a
+  REPL, is affected: later handlers stay installed and fallbacks don't
+  run; fix: reset the owner first in the guard's `finally`), and on macOS
+  a surviving process owned by another user is reported as gone (`EPERM`
+  can't tell it from zombies). Listed in
+  [allow-build-termination.md](../implementation/allow-build-termination.md#limitations).
 - [ ] **PEP 517 `prepare_metadata_for_build_wheel`** (opt-in) -- call the build
   backend in a subprocess to resolve dynamic metadata (Git-tag versions,
   computed deps) that static parsing cannot handle.
@@ -365,6 +385,15 @@ below, which is the actual commitment for what ships before mid-October):
   directory (the original `.whl` stays intact); a `dist/*` glob like
   `twine upload dist/*` would trip on it. Cheap fix: register the temp
   path as a cleanup on the batch's `TerminationGuard`.
+- [ ] **`loom wheel --embed` has no `--sbom-basename`** -- `embed-wheel`
+  takes one, so the two embed surfaces can't be pointed at the same
+  arcname. Found in the manual CLI checks for PR #226.
+- [ ] **Re-embedding lists the previous embedded SBOM** -- `embed-wheel`
+  on a wheel that already has one describes that old
+  `.dist-info/sboms/*` file (with its old hash) in the new SBOM, which
+  then overwrites it: a stale self-reference, and not idempotent. The
+  target's own SBOM path should be left out of the file list.
+  Check `S2` of `scripts/manual_cli_checks`.
 
 ### AI model id stability (follow-up to [#178](https://github.com/bact/pitloom/pull/178))
 
@@ -621,6 +650,24 @@ be built:
   inline in each file (a local composite action can't check itself out).
   `version-consistency.yml` (no cache/pip-install step) and the two
   intentionally-different `licenseid update` steps were left untouched.
+- [ ] **Verify `--allow-build` termination on real platforms** -- the
+  Windows paths (Ctrl-Break/SIGBREAK, `taskkill /F /T` tree kill) and
+  Pitloom as PID 1 in a container without `--init` are covered by mocks
+  only; the Linux child-subreaper e2e test runs only on Linux CI. See
+  [allow-build-termination.md](../implementation/allow-build-termination.md).
+- [x] **Scripted runner for the manual CLI checks** --
+  `scripts/manual_cli_checks` runs the numbered checks, a declared CLI
+  matrix (subcommand x option x environment variable, with a
+  completeness guard against the real parser) and order-dependent
+  sequences as real processes; `tests/scripts/test_manual_cli_checks.py`
+  keeps it complete. See
+  [manual-cli-checks.md](../implementation/manual-cli-checks.md).
+  (PR #226)
+- [ ] **Build workflow fails on spdx.org network errors** -- `loom
+  validate-wheel`, `loom fragment validate` and `spdx3-validate` fetch
+  the SPDX schema, ontology and context over the network on every run;
+  a `Connection reset by peer` failed PR #226's first run. Cache or
+  vendor them, or retry.
 
 ### Diagnostics / logging
 
@@ -645,6 +692,31 @@ be built:
   top-level handler in `__main__.py` catches it, unlike every other
   failure mode (`ERROR:` via `cli_error_handler`). Found during a
   `--build-timeout` review, 2026-09-19.
+- [ ] **Shared options accepted, then silently ignored** -- the common
+  parent parser gives every SBOM subcommand `--extract-file-header`,
+  `--content-type` and `--content-type-method`, but `wheel`, `model`,
+  `enrich` and `env` never pass them on; `--describe-relationship` has
+  no effect on `embed-wheel` (not in `ConfigOverrides`), `model` or
+  `enrich`. Warn "has no effect" (as the build flags do) or stop
+  offering them there. Cells `M/{wheel,model,enrich,env}/opt/...` of
+  `scripts/manual_cli_checks`.
+- [ ] **`--max-source-metadata-bytes` accepts a negative value** -- `-1`
+  runs like `0` (no cap) with no message; reject it at parse time.
+- [ ] **`enrich` and `merge` stdout is not `KEY=VALUE`** -- they print
+  prose (`Enrichment fragment written to: ...`, `pitloom: merged N
+  fragment(s) into ...`), unlike `PITLOOM_SBOM_OUTPUT_PATH=` from every
+  other SBOM command ("CLI output" in CLAUDE.md); so do `ids` and
+  `fragment validate`.
+- [ ] **A relative `--registry` resolves against the project directory**,
+  not the current directory, and a miss is only a `WARNING:` -- every
+  other path option is relative to the current directory.
+- [ ] **`loom ids generate` crashes on a symlinked path** -- a project
+  path through a symlink (macOS `/var` -> `/private/var`) fails
+  `relative_to()` with a raw traceback instead of an `ERROR:`.
+- [ ] **`loom ids generate` mints a random registry namespace** -- a
+  UUID4 per run, so two fresh registries for the same project differ.
+  Decide whether that is intended (a registry is minted once) or should
+  be derived like an SBOM's namespace.
 
 ### Internal codenames
 
@@ -661,7 +733,8 @@ be built:
 
 - [ ] **CHANGELOG.md split** -- `CHANGELOG.md` now exceeds 800 lines (hard limit).
   Archive completed entries to a `CHANGELOG-archive/` folder or move post-1.0 entries
-  to a per-version doc.
+  to a per-version doc. `roadmap.md` itself (700+ lines) is past the soft
+  limit too: move detailed bullets into their own design docs.
 - [ ] **CycloneDX assembler** -- add a CycloneDX serializer consuming the
   existing `DocumentModel`; no changes to extractors required.
 - [ ] **AIDOC / TechOps renderer** -- additional output format consuming

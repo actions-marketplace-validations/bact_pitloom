@@ -4,12 +4,19 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """Shared stand-ins for build-and-read tests: a fake
-``run_build_subprocess``, a per-test system temp dir, and a simulated
-termination signal.
+``run_build_subprocess``, a fake-project pyproject.toml writer, a
+subprocess env for an in-tree child python, a per-test system temp dir,
+and a simulated termination signal.
 
 See also: tests/core/models_wheel/test_models_wheel_build_and_read.py,
 tests/core/models_wheel/test_models_wheel_build_and_read_cleanup.py,
 tests/core/models_wheel/test_models_wheel_termination.py,
+tests/core/models_wheel/test_models_wheel_build_timeout.py,
+tests/core/models_wheel/test_models_wheel_allow_build.py,
+tests/core/models_wheel/test_models_wheel_dispatch.py,
+tests/core/models_wheel/test_models_wheel_dispatch_lock.py,
+tests/core/models_wheel/test_models_wheel_build_kill.py,
+tests/core/models_wheel/test_models_wheel_build_subprocess_e2e.py,
 tests/core/test_build_signals.py and
 tests/assemble/test_build_termination.py (the users).
 """
@@ -18,7 +25,9 @@ from __future__ import annotations
 
 import contextlib
 import dataclasses
+import os
 import signal
+import sys
 import tempfile
 import zipfile
 from collections.abc import Callable, Iterator
@@ -27,14 +36,51 @@ from unittest import mock
 
 import pytest
 
+import pitloom
+from pitloom.core._models_wheel_types import IncludedFile
 from pitloom.core.build_signals import TerminationGuard
 
 RUN_BUILD = "pitloom.core._models_wheel_build_and_read.run_build_subprocess"
+BUILD_AND_READ = "pitloom.core._models_wheel_build_and_read.build_and_read_wheel"
 EXTRACT_PREFIX = "pitloom-build-and-read-"
 TEMP_PREFIXES = {"plb-", EXTRACT_PREFIX}
 
 # A run_build_subprocess() stand-in.
 FakeRun = Callable[..., Path]
+
+# A build_and_read_wheel() return value -- import build_and_read_wheel
+# itself from pitloom.core._models_wheel_build_and_read at each call
+# site that needs it as a mock.create_autospec() template.
+BuildAndReadResult = tuple[list[IncludedFile], Callable[[], None]] | None
+
+posix_only = pytest.mark.skipif(
+    sys.platform == "win32", reason="process groups are POSIX-only"
+)
+
+
+def make_backend_project(project_dir: Path, build_backend: str) -> None:
+    """Write a minimal pyproject.toml at *project_dir* declaring
+    *build_backend* under ``[build-system]``, with a bare ``[project]``
+    table (name/version only, no other config)."""
+    (project_dir / "pyproject.toml").write_text(
+        f'[build-system]\nrequires = ["{build_backend.split(".", maxsplit=1)[0]}"]\n'
+        f'build-backend = "{build_backend}"\n\n'
+        '[project]\nname = "pkg"\nversion = "1.0.0"\n',
+        encoding="utf-8",
+    )
+
+
+def pitloom_subprocess_env(**extra: str) -> dict[str, str]:
+    """The env for a child python that must import this checkout's
+    in-tree ``pitloom`` (never an installed copy), plus *extra* vars."""
+    src_dir = Path(pitloom.__file__).resolve().parents[1]
+    return {
+        **os.environ,
+        **extra,
+        "PYTHONPATH": os.pathsep.join(
+            filter(None, [str(src_dir), os.environ.get("PYTHONPATH")])
+        ),
+    }
 
 
 def write_fake_wheel(

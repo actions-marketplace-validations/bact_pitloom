@@ -6,53 +6,39 @@
 """Clean up after a build-and-read before SIGTERM/SIGHUP/SIGBREAK ends
 the process.
 
-``--allow-build`` runs a build as a child process tree in its own POSIX
-session, and its result lives in a temporary extraction directory until
-the SBOM no longer needs the files. A signal sent to Pitloom alone never
-reaches the tree, and under ``SIG_DFL`` it would end Pitloom with neither
-the tree killed nor the directories removed.
+The build runs as a child process tree in its own POSIX session, and its
+result lives in a temporary directory until the SBOM no longer needs it.
+Under ``SIG_DFL`` a signal would end Pitloom with neither the tree killed
+nor the directories removed.
 
 Contract of :class:`TerminationGuard`:
 
-- The outermost guard in a thread owns the signal handling; a guard
-  entered inside it yields that owner and does nothing on its own exit.
-  So each entry point that holds a build-and-read result enters one
-  (:func:`~pitloom.core.models.get_wheel_files`, the SBOM generators and
-  :class:`~pitloom.embed.EmbedFileCache`), and the outermost one sets the
+- The outermost guard in a thread owns the handling; a nested guard
+  yields to it and does nothing on its own exit. Every entry point that
+  holds a build-and-read result enters one, so the outermost sets the
   protected lifetime.
-- Nothing is installed until :meth:`TerminationGuard.hold` is first
-  entered, i.e. until a build starts: a run without ``--allow-build`` (the
-  Hatchling hook, a model file, static discovery) never touches signal
-  handling. From then until the owner's exit the handlers stay installed.
-- Inside :meth:`~TerminationGuard.hold` (creating the temporary
-  directories, running the build) the handler only records the signal.
-  The build's wait loop polls :meth:`~TerminationGuard.raise_if_pending`,
-  so the tree is killed and reaped; the process ends once the hold is
-  left.
-- Outside a hold (extracting the wheel, removing the work directory,
-  hashing, AI-model scanning, enrichment) the handler acts at once: it
-  runs the callbacks registered with :meth:`~TerminationGuard.add_cleanup`
-  itself, from inside the handler, and ends the process -- no exception is
-  thrown into whatever code was running, and a long step does not delay
-  the exit. A removal the signal cut short is repeated by that run.
-- Ending the process: registered callbacks run (newest first), the
-  handlers are reset to ``SIG_DFL`` and the signal is re-raised, so the
-  exit status still reads "killed by SIGTERM". ``finally`` blocks up the
-  stack do not run, as with the unhandled signal. ``SystemExit(128 +
-  signum)`` is the fallback only if the re-raise returns (PID 1 in a
-  container). Should an interrupt cut the callbacks short, the handlers
-  are still reset, and the owner's exit finishes the termination.
-- Callbacks also run when the owner's block ends by an exception
-  (``KeyboardInterrupt`` included), and are dropped on a normal exit:
-  by then the owner has released the resource itself, or handed it on
-  (:func:`~pitloom.core.models.get_wheel_files` called on its own).
-- The owner's exit resets the guard, so it can be entered again; entering
-  it while it is entered raises :class:`RuntimeError`.
+- Nothing is installed until :meth:`~TerminationGuard.hold` is first
+  entered (a build starts); the handlers then stay until the owner exits.
+- Inside a hold (creating the temp directories, running the build) the
+  handler only records the signal; the build's wait loop polls
+  :meth:`~TerminationGuard.raise_if_pending`, kills and reaps the tree,
+  and the process ends when the hold is left.
+- Outside a hold (extraction, hashing, scanning) the handler itself runs
+  the :meth:`~TerminationGuard.add_cleanup` callbacks, newest first, and
+  ends the process at once; a removal it cut short is repeated.
+- Ending: handlers reset to ``SIG_DFL`` and the signal is re-raised, so
+  the exit status reads "killed by SIGTERM"; ``finally`` blocks up the
+  stack don't run. If the re-raise returns (PID 1), ``SystemExit(128 +
+  signum)`` is raised from the handler instead. If an interrupt cuts the
+  callbacks short, the owner's exit finishes the termination.
+- Callbacks also run when the owner's block ends by an exception, and are
+  dropped on a normal exit (the owner released or handed on the resource).
+- The owner's exit resets the guard; entering it while entered raises
+  :class:`RuntimeError`.
 
-See also: :mod:`pitloom.core._models_wheel_build_subprocess` (the child
-process tree and the wait loop that polls the guard) and
-:mod:`pitloom.core._models_wheel_build_and_read` (holds the guard for the
-build and registers both temporary directories' removal).
+See also: :mod:`pitloom.core._models_wheel_build_subprocess` (the wait
+loop) and :mod:`pitloom.core._models_wheel_build_and_read` (registers the
+temp directories).
 """
 
 from __future__ import annotations
@@ -159,7 +145,7 @@ class TerminationGuard:
             # the handler; one before it is pending for the check below.
             self._holds -= 1
             if self.pending is not None and not self._holds:
-                self._terminate()
+                self._terminate(self.pending)
 
     def __enter__(self) -> TerminationGuard:
         if self._owner is not None:
@@ -183,7 +169,7 @@ class TerminationGuard:
             if self.pending is not None and not self._terminated:
                 # A termination an interrupt cut short, or a recorded
                 # signal nothing acted on: the first signal still ends it.
-                self._terminate()
+                self._terminate(self.pending)
             elif exc is not None and not self._terminated:
                 # The block failed before its owner released the resources.
                 self._run_cleanups()
@@ -211,13 +197,10 @@ class TerminationGuard:
         self.pending = signal.Signals(signum)
         self._pending_in_hold = self._holds > 0
         if not self._holds:
-            self._terminate()
+            self._terminate(self.pending)
 
-    def _terminate(self) -> None:
-        """Run the cleanups, then end the process by the recorded signal."""
-        signum = self.pending
-        if signum is None:
-            return
+    def _terminate(self, signum: signal.Signals) -> None:
+        """Run the cleanups, then end the process by *signum*."""
         try:
             self._run_cleanups()
         finally:

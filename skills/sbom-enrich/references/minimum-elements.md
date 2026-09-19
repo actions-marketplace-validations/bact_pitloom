@@ -1,6 +1,6 @@
 ---
 Created: 2026-08-12
-Last-Modified: 2026-09-08
+Last-Modified: 2026-09-19
 SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 SPDX-FileType: DOCUMENTATION
 SPDX-License-Identifier: CC0-1.0
@@ -8,7 +8,9 @@ SPDX-License-Identifier: CC0-1.0
 
 # SBOM minimum elements checklists
 
-Companion to `../SKILL.md`'s "Complete a standard's minimum elements" section. Three
+Companion to `../SKILL.md`
+(<https://github.com/bact/pitloom/blob/main/skills/sbom-enrich/SKILL.md)'s>
+"Complete a standard's minimum elements" section. Three
 checklists -- NTIA 2021, CISA 2026, and G7 SBOM for AI 2026 -- each mapped to the
 Pitloom/SPDX 3 field that carries it today, so the agent can tell a real gap from
 something the base SBOM already covers before asking the user anything.
@@ -186,5 +188,6 @@ the community `ntia-conformance-checker` tool
 (<https://github.com/spdx/ntia-conformance-checker>) can validate an SPDX document
 against the NTIA baseline. This is a manual, optional step the user can run
 themselves -- it is not wired into this skill, and its absence shouldn't block
-anything here. The mandatory validation step remains the `sbom-validate` skill (see
-`../SKILL.md`).
+anything here. The mandatory validation step remains the `sbom-validate` skill
+(<https://github.com/bact/pitloom/blob/main/skills/sbom-validate/SKILL.md>; minimal
+fallback: `pip install "pitloom[validate]"` then `loom fragment validate <file>`).

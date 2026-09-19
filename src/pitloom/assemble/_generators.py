@@ -22,7 +22,7 @@ from pitloom.assemble._model_generator import (
 from pitloom.assemble.spdx3.document import build, build_deployed
 from pitloom.assemble.spdx3.fragments import merge_fragments
 from pitloom.core._models_wheel_dispatch import _noop_cleanup
-from pitloom.core.build_options import SDIST_TARGET_REASON, BuildOptions
+from pitloom.core.build_options import BuildOptions
 from pitloom.core.build_signals import TerminationGuard
 from pitloom.core.config import VALID_CONTENT_TYPE_METHODS, PitloomConfig
 from pitloom.core.creation import CreationMetadata
@@ -183,22 +183,9 @@ def generate_project_sbom(
     configure_logging()
     target_path = Path(project_target)
 
-    # Both branches below are cheap (a single is_file() stat, no parsing)
-    # and run before any project-metadata/lock-file read, so the build-flag
-    # WARNING: -- whichever one applies -- is always the first thing this
-    # call logs, never something a user has to scroll past later warnings
-    # to find. An sdist archive never reaches file discovery, so every
-    # given flag (including --allow-build itself) is unconditionally
-    # ineffective here; a project directory does reach it, so only a
-    # no_isolation/timeout given without allow is resolved now (settle()
-    # warns and resets it) -- whether allow itself has an effect depends
-    # on file discovery below, not on this cheap up-front check.
-    if target_path.is_file():
-        build_options = build_options.settle_not_applicable(
-            target_path, SDIST_TARGET_REASON
-        )
-    else:
-        build_options = build_options.settle(target_path)
+    # A cheap stat, before any project-metadata/lock-file read, so the
+    # build-flag WARNING: is the first thing this call logs.
+    build_options = build_options.settle_target(target_path)
 
     if project_metadata is None or pitloom_config is None:
         _warn_if_partial_presupply(project_metadata, pitloom_config, target_path)

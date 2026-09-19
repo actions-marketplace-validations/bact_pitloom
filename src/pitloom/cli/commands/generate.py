@@ -34,7 +34,6 @@ from pitloom.cli.options import (
 )
 from pitloom.core.build_options import (
     NON_PROJECT_TARGET_REASON,
-    SDIST_TARGET_REASON,
 )
 
 
@@ -66,12 +65,9 @@ def _run_generate_command(args: argparse.Namespace) -> int:
         and target_path.is_dir()
         and target_resolves_to_project(args.target)
     ):
-        # A real project directory: is_dir() above already confirms it's
-        # not an sdist archive, so settle a stray --no-build-isolation/
-        # --build-timeout (and warn about it) right now, before the
-        # metadata/lock-file read below -- same reasoning as 'loom
-        # project' (see cli/commands/project.py).
-        build_options = build_options_from_args(args, target_path)
+        # Settle before the metadata/lock-file read below, as 'loom
+        # project' does.
+        build_options = build_options_from_args(args).settle_target(target_path)
 
         # Resolve it once via the same shared helper 'loom project' uses,
         # then pre-supply the result to generate_project_sbom() -- a
@@ -121,15 +117,10 @@ def _run_generate_command(args: argparse.Namespace) -> int:
             str(args.target).strip(), NON_PROJECT_TARGET_REASON
         )
     elif target_path is not None and target_path.is_file():
-        # sdist archive: settle with its own target-specific reason right
-        # now, before _resolve_common_options()'s peek below -- so the
-        # build-flag WARNING precedes any metadata WARNING that peek can
-        # produce. generate_project_sbom()'s own settle_not_applicable()
-        # call for the same target (reached via generate() below) then
-        # finds nothing left to warn about.
-        build_options = build_options.settle_not_applicable(
-            target_path, SDIST_TARGET_REASON
-        )
+        # sdist archive: settle before _resolve_common_options()'s peek
+        # below, so the build-flag WARNING precedes any metadata WARNING
+        # that peek can produce.
+        build_options = build_options.settle_target(target_path)
 
     pitloom_config, creation_metadata, pretty, describe_relationship = (
         _resolve_common_options(args, target_dir=target_path)

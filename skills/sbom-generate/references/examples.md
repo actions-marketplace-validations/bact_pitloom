@@ -114,7 +114,11 @@ use the `sbom-validate` skill on `sbom.spdx3.json`.
 ## See also
 
 - `../SKILL.md` -- operating instructions for this skill.
+  <https://github.com/bact/pitloom/blob/main/skills/sbom-generate/SKILL.md>
 - The sibling `sbom-validate` skill -- schema/shape-level conformance
-  check beyond the `@graph` sanity check above.
-- `docs/resources.md` in the Pitloom repository -- SPDX 3 spec, ontology,
-  and JSON Schema links.
+  check beyond the `@graph` sanity check above (minimal fallback:
+  `pip install "pitloom[validate]"` then
+  `loom fragment validate sbom.spdx3.json`).
+  <https://github.com/bact/pitloom/blob/main/skills/sbom-validate/SKILL.md>
+- `docs/resources.md` -- SPDX 3 spec, ontology, and JSON Schema links.
+  <https://bact.github.io/pitloom/resources/>

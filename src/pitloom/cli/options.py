@@ -201,40 +201,15 @@ def add_build_timeout_argument(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def build_options_from_args(
-    args: argparse.Namespace, subject: object | None = None
-) -> BuildOptions:
+def build_options_from_args(args: argparse.Namespace) -> BuildOptions:
     """Bundle ``--allow-build``/``--no-build-isolation``/``--build-timeout``
-    into the one value the library API takes. The library, not the CLI,
-    warns about a flag that has no effect, so every surface reports it
-    the same way (see :class:`~pitloom.core.build_options.BuildOptions`).
-
-    *subject* is optional: pass it only when the caller already knows,
-    with no I/O beyond what it already did to get *subject* itself, that
-    the target will reach file discovery (e.g. a project directory
-    already confirmed to exist). When given, the returned value is
-    already :meth:`~pitloom.core.build_options.BuildOptions.settle`\\
-    d -- a stray ``no_isolation``/``timeout`` is warned about and reset
-    right here, before the caller goes on to read any project metadata
-    or lock file, rather than only once the library gets around to it.
-    Leave it unset when the target kind isn't known yet. When it's
-    already known *not* to reach file discovery (an sdist archive, a
-    non-project target), don't pass it here -- ``settle()``'s "without
-    --allow-build" reason would misdescribe why the flag is ineffective;
-    instead call
-    :meth:`~pitloom.core.build_options.BuildOptions.settle_not_applicable`
-    on the returned value with that target's own reason (e.g.
-    :data:`~pitloom.core.build_options.SDIST_TARGET_REASON`), before
-    reading any project metadata or lock file for it -- see
-    ``cli/commands/project.py``/``cli/commands/generate.py`` for the
-    sdist case.
-    """
-    options = BuildOptions(
+    into one :class:`~pitloom.core.build_options.BuildOptions`, unsettled:
+    the caller settles it for its target before reading any metadata."""
+    return BuildOptions(
         allow=args.allow_build,
         no_isolation=args.no_build_isolation,
         timeout=args.build_timeout,
     )
-    return options if subject is None else options.settle(subject)
 
 
 def add_debug_argument(parser: argparse.ArgumentParser) -> None:

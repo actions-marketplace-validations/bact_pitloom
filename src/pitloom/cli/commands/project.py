@@ -31,7 +31,6 @@ from pitloom.cli.options import (
     build_options_from_args,
 )
 from pitloom.cli.verbose import _print_verbose
-from pitloom.core.build_options import SDIST_TARGET_REASON
 
 
 @cli_error_handler("SBOM generation failed")
@@ -41,24 +40,10 @@ def _run_project_command(args: argparse.Namespace) -> int:
     if project_dir is None:
         return 1
 
-    # Settle a stray --no-build-isolation/--build-timeout (given without
-    # --allow-build) right now, before the metadata/lock-file read below,
-    # for a real project directory -- not for an sdist archive target
-    # (project_dir.is_file()), whose own "without --allow-build" wording
-    # would misdescribe why the flags are ineffective there.
-    build_options = build_options_from_args(
-        args, None if project_dir.is_file() else project_dir
-    )
-    if project_dir.is_file():
-        # sdist archive target: warn about any given build flag -- with
-        # its own target-specific reason, not "without --allow-build" --
-        # and reset to defaults right now, before the metadata/lock-file
-        # read below, so this is the first thing the run logs.
-        # generate_project_sbom()'s own settle_not_applicable() call for
-        # the same target then finds nothing left to warn about.
-        build_options = build_options.settle_not_applicable(
-            project_dir, SDIST_TARGET_REASON
-        )
+    # Settle before the metadata/lock-file read below, so the build-flag
+    # WARNING: is the first thing the run logs; generate_project_sbom()'s
+    # own settle then finds nothing left to warn about.
+    build_options = build_options_from_args(args).settle_target(project_dir)
 
     (
         project_metadata,

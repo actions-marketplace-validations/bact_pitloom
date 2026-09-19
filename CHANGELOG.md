@@ -34,7 +34,8 @@ and this project adheres to
   on every surface ([#226])
 - `--allow-build`'s build output is now captured (shown at `DEBUG:` on
   failure) instead of leaking to Pitloom's own stdout/stderr; its stdin
-  is closed ([#226])
+  is closed; processes it leaves running are killed, with an `INFO:`
+  ([#226])
 - GitHub Action: `model` mode now warns once per explicitly-set
   `allow-build`/`no-build-isolation`/`build-timeout` input instead of
   silently dropping it ([#226])

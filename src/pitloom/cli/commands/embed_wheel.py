@@ -236,7 +236,9 @@ def _run_embed_wheel_command(args: argparse.Namespace) -> int:
         build_options = build_options.settle_not_applicable(
             args.sbom, EXTERNAL_SBOM_REASON
         )
-    elif args.project_dir is not None:
+    elif args.project_dir is not None and Path(args.project_dir).is_dir():
+        # A missing --project-dir settles nothing: it fails below with an
+        # ERROR alone, as `loom project` does.
         build_options = build_options.settle(args.project_dir)
 
     resolved = _resolve_project_dir_and_config(args.project_dir)

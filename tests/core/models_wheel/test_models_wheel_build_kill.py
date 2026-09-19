@@ -31,10 +31,7 @@ import pytest
 
 from pitloom.core import _models_wheel_build_kill as bk
 from pitloom.core import _models_wheel_build_subprocess as bs
-
-posix_only = pytest.mark.skipif(
-    sys.platform == "win32", reason="process groups are POSIX-only"
-)
+from tests.build_and_read_shared import posix_only
 
 
 @pytest.fixture(autouse=True, name="fake_waitpid")
@@ -436,3 +433,63 @@ def test_kill_leftover_descendants_reaps_every_own_zombie(
     bk.kill_leftover_descendants(_fake_proc())
     assert fake_waitpid.call_count == 3
     assert not caplog.records
+
+
+@posix_only
+def test_group_reap_stops_on_an_unexpected_waitpid_error(
+    monkeypatch: pytest.MonkeyPatch,
+    fake_waitpid: mock.Mock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A ``waitpid`` error other than "no such child" ends the reap loop
+    (logged at DEBUG) instead of spinning or raising."""
+    fake_waitpid.side_effect = OSError(22, "EINVAL")
+    killpg = mock.create_autospec(os.killpg, side_effect=ProcessLookupError())
+    monkeypatch.setattr(os, "killpg", killpg)
+    caplog.set_level("DEBUG", logger=bk.__name__)
+    bk.kill_leftover_descendants(_fake_proc())
+    fake_waitpid.assert_called_once_with(-4321, os.WNOHANG)
+    assert "waitpid(-4321) failed" in caplog.text
+
+
+@posix_only
+@pytest.mark.parametrize("earlier_interrupt", [False, True])
+def test_kill_process_tree_posix_interrupt_in_sigkill_skips_no_step(
+    monkeypatch: pytest.MonkeyPatch, earlier_interrupt: bool
+) -> None:
+    """A Ctrl-C landing on the SIGKILL itself still kills and reaps the
+    direct child and polls the group; the first interrupt is the one
+    re-raised."""
+    second = KeyboardInterrupt("second")
+    killpg = mock.create_autospec(
+        os.killpg, side_effect=[None, second, ProcessLookupError()]
+    )
+    monkeypatch.setattr(os, "killpg", killpg)
+    proc = _fake_proc()
+    first = KeyboardInterrupt("first")
+    proc.wait.side_effect = [first, 0] if earlier_interrupt else [0, 0]
+    with pytest.raises(KeyboardInterrupt) as excinfo:
+        bk.kill_process_tree(proc)
+    assert excinfo.value is (first if earlier_interrupt else second)
+    proc.kill.assert_called_once_with()
+    assert proc.wait.call_count == 2
+    assert killpg.call_args_list[-1] == mock.call(4321, 0)
+
+
+@posix_only
+def test_kill_process_tree_posix_reap_is_bounded_under_repeated_interrupts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An interrupt on every wait must not make the reap retry forever:
+    past its deadline it gives up and re-raises the first interrupt."""
+    killpg = mock.create_autospec(
+        os.killpg, side_effect=[None, None, ProcessLookupError()]
+    )
+    monkeypatch.setattr(os, "killpg", killpg)
+    monkeypatch.setattr(bk, "_TERM_GRACE_SECONDS", 0.0)
+    monkeypatch.setattr(bk, "_KILL_WAIT_SECONDS", 0.0)
+    proc = _fake_proc()
+    proc.wait.side_effect = KeyboardInterrupt()
+    with pytest.raises(KeyboardInterrupt):
+        bk.kill_process_tree(proc)
+    assert proc.wait.call_count == 2  # the grace wait, then one reap try

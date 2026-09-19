@@ -21,7 +21,7 @@ See also:
 from __future__ import annotations
 
 import signal
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from unittest import mock
 
@@ -29,7 +29,7 @@ import pytest
 
 from pitloom.core.build_options import BuildOptions
 from pitloom.core.build_signals import TerminationGuard
-from pitloom.core.config import PitloomConfig
+from pitloom.core.config import ContentTypeOverride, PitloomConfig
 from pitloom.embed import ConfigOverrides, EmbedFileCache, embed_wheel_sbom
 from tests.build_and_read_shared import spied_raise_signal
 
@@ -249,3 +249,134 @@ def test_embed_file_cache_rejects_a_mismatched_batch(tmp_path: Path) -> None:
             with pytest.raises(ValueError, match="same project directory"):
                 cache.resolve(tmp_path, config, BuildOptions(allow=True))
     mocked.assert_called_once()
+
+
+def test_embed_file_cache_exit_without_enter_is_a_no_op() -> None:
+    """Leaving a block never entered touches nothing, and the cache can
+    still be used normally afterwards."""
+    cache = EmbedFileCache()
+    cache.__exit__(None, None, None)
+    with cache:
+        assert cache.settle(BuildOptions(), "wheel") == BuildOptions()
+
+
+def test_single_and_batch_embed_scan_the_project_identically(
+    tmp_path: Path,
+) -> None:
+    """Drift guard: an embed with and without ``file_cache`` must ask file
+    discovery for exactly the same scan -- a setting reaching only one
+    path would make a batch embed differ from a single-wheel one."""
+    wheel_path = _make_ctpkg_project_and_wheel(tmp_path)
+    with (tmp_path / "pyproject.toml").open("a", encoding="utf-8") as f:
+        f.write(
+            "\n[[tool.pitloom.content-type.override]]\n"
+            'pattern = "*.dat"\ncontent-type = "application/x-demo"\n'
+        )
+    overrides = ConfigOverrides(
+        extract_file_header=True,
+        content_type=True,
+        content_type_method="extension",
+        build_options=BuildOptions(allow=True, timeout=321),
+    )
+
+    with mock.patch(
+        _GET_WHEEL_FILES, autospec=True, return_value=(None, [], mock.Mock())
+    ) as mocked:
+        embed_wheel_sbom(wheel_path, project_dir=tmp_path, overrides=overrides)
+        with EmbedFileCache() as cache:
+            embed_wheel_sbom(
+                wheel_path, project_dir=tmp_path, overrides=overrides, file_cache=cache
+            )
+
+    single, batch = mocked.call_args_list
+    assert single == batch
+    # Non-vacuous: the overrides really reached the scan.
+    assert single.kwargs["scan_file_headers"] is True
+    assert single.kwargs["detect_content_type"] is True
+    assert single.kwargs["content_type_method"] == "extension"
+    assert single.kwargs["content_type_overrides"] == (
+        ContentTypeOverride(pattern="*.dat", content_type="application/x-demo"),
+    )
+    assert single.kwargs["build_options"] == overrides.build_options
+    # The rescan's own Merkle root is discarded, so it must not be computed.
+    assert single.kwargs["skip_merkle_root"] is True
+
+
+def test_embed_wheel_without_file_cache_cleans_up_when_a_later_step_fails(
+    tmp_path: Path,
+) -> None:
+    """A step after discovery raising must not leak the build-and-read
+    directory: the call's own cleanup still runs, exactly once."""
+    wheel_path = _make_ctpkg_project_and_wheel(tmp_path)
+    cleanup = mock.Mock()
+
+    with (
+        mock.patch(_GET_WHEEL_FILES, autospec=True, return_value=(None, [], cleanup)),
+        mock.patch(
+            "pitloom._embed_build_sbom.scan_project_for_ai_models",
+            autospec=True,
+            side_effect=RuntimeError("boom"),
+        ),
+        pytest.raises(RuntimeError, match="boom"),
+    ):
+        embed_wheel_sbom(wheel_path, project_dir=tmp_path)
+
+    cleanup.assert_called_once_with()
+
+
+def test_embed_file_cache_defers_cleanup_when_a_later_step_fails(
+    tmp_path: Path,
+) -> None:
+    """With ``file_cache``, a failing wheel must not clean up early (a
+    later wheel may still read the files): cleanup waits for the block."""
+    wheel_path = _make_ctpkg_project_and_wheel(tmp_path)
+    cleanup = mock.Mock()
+
+    with (
+        mock.patch(_GET_WHEEL_FILES, autospec=True, return_value=(None, [], cleanup)),
+        mock.patch(
+            "pitloom._embed_build_sbom.scan_project_for_ai_models",
+            autospec=True,
+            side_effect=RuntimeError("boom"),
+        ),
+    ):
+        with EmbedFileCache() as cache:
+            with pytest.raises(RuntimeError, match="boom"):
+                embed_wheel_sbom(wheel_path, project_dir=tmp_path, file_cache=cache)
+            cleanup.assert_not_called()
+        cleanup.assert_called_once_with()
+
+
+@pytest.mark.parametrize("batch", [False, True], ids=["single", "batch"])
+def test_interrupted_cleanup_still_runs_the_guard_fallback(
+    tmp_path: Path, batch: bool
+) -> None:
+    """Regression: a Ctrl-C inside the discovery cleanup (e.g. mid-rmtree)
+    must reach the guard as a failure, so its fallback removal still runs
+    -- a clean exit would drop it and leak the extraction directory."""
+    wheel_path = _make_ctpkg_project_and_wheel(tmp_path)
+    fallback: list[str] = []
+
+    def _interrupted_cleanup() -> None:
+        raise KeyboardInterrupt
+
+    def _discover(
+        *_args: object, **_kwargs: object
+    ) -> tuple[None, list[object], Callable[[], None]]:
+        # What build_and_read_wheel() does: register a fallback removal
+        # with the guard that owns the call.
+        with TerminationGuard() as owner:
+            owner.add_cleanup(lambda: fallback.append("removed"))
+        return None, [], _interrupted_cleanup
+
+    with (
+        mock.patch(_GET_WHEEL_FILES, autospec=True, side_effect=_discover),
+        pytest.raises(KeyboardInterrupt),
+    ):
+        if batch:
+            with EmbedFileCache() as cache:
+                embed_wheel_sbom(wheel_path, project_dir=tmp_path, file_cache=cache)
+        else:
+            embed_wheel_sbom(wheel_path, project_dir=tmp_path)
+
+    assert fallback == ["removed"]

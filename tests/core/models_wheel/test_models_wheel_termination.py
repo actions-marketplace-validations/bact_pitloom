@@ -35,6 +35,7 @@ from tests.build_and_read_shared import (
     deliver_sigterm,
     extract_dirs,
     install_fake_build,
+    make_backend_project,
     spied_raise_signal,
     use_sys_tmp,
 )
@@ -60,11 +61,7 @@ def fixture_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     it) whose fake build yields a three-file wheel."""
     project = tmp_path / "project"
     project.mkdir()
-    (project / "pyproject.toml").write_text(
-        '[build-system]\nrequires = ["uv_build"]\nbuild-backend = "uv_build"\n\n'
-        '[project]\nname = "pkg"\nversion = "1.0.0"\n',
-        encoding="utf-8",
-    )
+    make_backend_project(project, "uv_build")
     fake = install_fake_build(monkeypatch)
     fake.entries = {f"pkg/m{i}.py": b"x = 1\n" for i in range(3)}
     return project

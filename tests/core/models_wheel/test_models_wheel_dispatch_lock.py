@@ -8,8 +8,9 @@
 
 See also: tests/core/models_wheel/test_models_wheel_dispatch.py for
 backend-routing and fallback-warning tests -- split out of that file once
-it crossed the ~400-500 line soft limit; this half shares its
-``_make_backend_project`` helper rather than duplicating it.
+it crossed the ~400-500 line soft limit; this half shares
+:mod:`tests.build_and_read_shared`'s ``make_backend_project`` helper
+rather than duplicating it.
 """
 
 import threading
@@ -23,8 +24,7 @@ from pitloom.core._models_wheel_lock import _DiscoveryLock
 from pitloom.core._models_wheel_types import IncludedFile
 from pitloom.core.build_options import BuildOptions
 from pitloom.core.models import get_wheel_files
-
-from .test_models_wheel_dispatch import _make_backend_project
+from tests.build_and_read_shared import BUILD_AND_READ, make_backend_project
 
 
 def test_discovery_lock_write_rejects_reentrant_write_by_same_thread() -> None:
@@ -76,7 +76,7 @@ def test_get_wheel_files_backend_discovery_is_serialized(
     duration, racing a Hatchling discovery in another thread) must never
     overlap -- both backend discoverers funnel through one shared lock
     in the facade, so at most one is ever mid-flight at a time."""
-    _make_backend_project(tmp_path, "setuptools.build_meta")
+    make_backend_project(tmp_path, "setuptools.build_meta")
 
     concurrent_calls = 0
     max_concurrent = 0
@@ -154,7 +154,7 @@ def test_get_wheel_files_poetry_discovery_is_not_serialized(
     resolve to Poetry must NOT serialize against each other. Guards
     against the discovery lock's dispatch defaulting every non-setuptools
     backend to the same exclusive write mode setuptools needs."""
-    _make_backend_project(tmp_path, "poetry.core.masonry.api")
+    make_backend_project(tmp_path, "poetry.core.masonry.api")
 
     concurrent_calls = 0
     max_concurrent = 0
@@ -208,7 +208,7 @@ def test_get_wheel_files_build_and_read_does_not_block_or_get_blocked(
     )
     setuptools_dir = tmp_path / "setuptools_proj"
     setuptools_dir.mkdir()
-    _make_backend_project(setuptools_dir, "setuptools.build_meta")
+    make_backend_project(setuptools_dir, "setuptools.build_meta")
 
     # A deterministic Event-based rendezvous, not a fixed time.sleep()
     # race: each side signals "I've entered" and then waits (bounded)
@@ -251,10 +251,7 @@ def test_get_wheel_files_build_and_read_does_not_block_or_get_blocked(
             writer_saw_build_and_read.set()
         return []
 
-    monkeypatch.setattr(
-        "pitloom.core._models_wheel_build_and_read.build_and_read_wheel",
-        _slow_build_and_read,
-    )
+    monkeypatch.setattr(BUILD_AND_READ, _slow_build_and_read)
     monkeypatch.setattr("pitloom.core._models_wheel_setuptools.discover", _slow_writer)
 
     threads = [
@@ -296,7 +293,7 @@ def test_get_wheel_files_writer_not_starved_by_continuous_readers(
     enough, since it always has a gap between calls where the reader
     count can transiently hit zero and let the writer slip in by luck),
     that pool alone would starve the writer forever."""
-    _make_backend_project(tmp_path, "setuptools.build_meta")
+    make_backend_project(tmp_path, "setuptools.build_meta")
     hatchling_dir = tmp_path.parent / "hatchling_proj_starvation"
     hatchling_dir.mkdir()
 

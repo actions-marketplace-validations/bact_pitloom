@@ -5,37 +5,25 @@
 
 """Run PyPA ``build``'s CLI as one child process tree with a hard timeout.
 
-``--allow-build`` runs a third-party PEP 517 build. A build can hang
-(network fetch of build requirements, a backend reading stdin, a
-misbehaving build script), and neither a thread nor ``build``'s own
-``runner=`` hook can be stopped once started -- so the whole build runs as
-``python -m build --wheel`` in its own process tree, which this module
-waits on with a deadline and kills as a whole when the deadline passes or
-the wait is interrupted (Ctrl-C, or a SIGTERM/SIGHUP/SIGBREAK recorded by
-a :class:`~pitloom.core.build_signals.TerminationGuard`).
-After a normal exit, whatever the build left running in its process
-group is killed too (POSIX only).
+A build can hang (build-requirement downloads, a backend reading stdin, a
+misbehaving script), and neither a thread nor ``build``'s ``runner=`` hook
+can be stopped, so the build runs as ``python -m build --wheel`` in its own
+process tree. It is killed as a whole when the deadline passes or the
+wait is interrupted (Ctrl-C, or a signal recorded by a
+:class:`~pitloom.core.build_signals.TerminationGuard`); after a normal
+exit, what it left running in its process group is killed too (POSIX).
 
-The build runs in its own POSIX session, so a signal sent to Pitloom
-alone never reaches it: the tree is orphaned when Pitloom dies without
-running this module's kill path -- SIGKILL, a host application's own
-SIGTERM/SIGHUP handler that ends the process without unwinding (e.g.
-``os._exit()``; one raising ``SystemExit`` unwinds through the wait loop,
-which kills the tree), a call from a non-main thread, a build
-descendant that calls ``setsid()`` itself, or on Windows a forced
-termination (``TerminateProcess``), which cannot be intercepted. On
-Windows, descendants still running after the build's own exit are not
-reachable either (see
-:func:`~pitloom.core._models_wheel_build_kill.kill_leftover_descendants`).
+The tree is orphaned when Pitloom dies without reaching this kill path
+(SIGKILL, a non-main thread, a descendant calling ``setsid()``, ...); see
+``allow-build-termination.md``'s "Limitations".
 
 Layout inside the caller-owned *work_dir*: ``o/`` (wheel output), ``t/``
-(the child's temp dir) and ``build.log`` (combined stdout/stderr). Names
-stay short: a backend using :mod:`multiprocessing` on macOS creates an
-AF_UNIX socket under temp, whose path limit is 104 bytes.
+(the child's temp dir), ``build.log`` (combined output). Names stay short:
+on macOS a :mod:`multiprocessing` AF_UNIX socket path under temp must fit
+104 bytes.
 
-See also: :mod:`pitloom.core._models_wheel_build_and_read` (sole caller)
-and :mod:`pitloom.core.build_signals` (SIGTERM/SIGHUP/
-SIGBREAK handling around a build and while its result is in use).
+See also: :mod:`pitloom.core._models_wheel_build_and_read` (sole caller),
+:mod:`pitloom.core.build_signals`.
 """
 
 from __future__ import annotations

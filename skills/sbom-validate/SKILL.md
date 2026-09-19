@@ -66,7 +66,14 @@ Claude Code plugin). `sbom-file` is optional -- point it at a specific
 file when a project has more than one SBOM; omit it to let the agent find
 the one to validate.
 
-See `references/examples.md` for copy-paste recipes.
+See `references/examples.md` for copy-paste recipes (URL in "See also"
+below).
+
+## Requirements
+
+Python >= 3.10, the `loom`/`pitloom` entry point or standalone
+`spdx3-validate` CLI; `loom fragment validate` needs the `validate`
+extra (`pip install "pitloom[validate]"`).
 
 ## Run the validator
 
@@ -139,12 +146,14 @@ that content validity was not checked, and stop there. Don't silently run
 `validate-wheel` on their behalf either -- expanding scope on an
 unattended run is its own kind of unasked deviation.
 
-See the `sbom-generate` skill's "Embed an SBOM into a wheel" section for
-`embed-wheel --verify`/`--validate` (the combined flag form, run
-immediately after an embed in the same command). `embed-wheel` also
-accepts `--allow-build`; if the user asked for it, follow
-`sbom-generate`'s "Choosing `--build-timeout`" section before running
-the build.
+`sbom-generate`'s "Embed an SBOM into a wheel" section (URL in "See
+also" below) covers the combined flag form, run right after an embed
+in the same command: `loom embed-wheel dist/*.whl --verify --validate`.
+`embed-wheel` also accepts `--allow-build`; if the user asked for it,
+size `--build-timeout` first (bare number = seconds, or `h`/`m`/`s`
+units, default 20m, max 7 days; **in an agent session always pass an
+explicit value**) -- full method in `sbom-generate`'s "Choosing
+`--build-timeout`" section, same URL.
 
 ## Report the result
 
@@ -161,8 +170,13 @@ the build.
 
 - `references/examples.md` -- copy-paste recipes, including multi-file
   and merged-graph validation.
-- The sibling `sbom-generate` and `sbom-enrich` skills -- this skill is
-  their recommended post-generation/post-merge conformance check.
-- `docs/resources.md` in the Pitloom repository -- SPDX 3 spec, ontology,
-  JSON-LD, and JSON Schema links (including the per-minor-version URL
-  pattern), plus the `spdx3-validate` validator this skill wraps.
+  <https://github.com/bact/pitloom/blob/main/skills/sbom-validate/references/examples.md>
+- The sibling `sbom-generate` skill -- produces the SBOM this validates.
+  <https://github.com/bact/pitloom/blob/main/skills/sbom-generate/SKILL.md>
+- The sibling `sbom-enrich` skill -- this skill is its mandatory
+  post-merge conformance check.
+  <https://github.com/bact/pitloom/blob/main/skills/sbom-enrich/SKILL.md>
+- `docs/resources.md` -- SPDX 3 spec, ontology, JSON-LD, and JSON Schema
+  links (including the per-minor-version URL pattern), plus the
+  `spdx3-validate` validator this skill wraps.
+  <https://bact.github.io/pitloom/resources/>

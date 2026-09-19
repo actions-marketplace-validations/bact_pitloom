@@ -55,7 +55,19 @@ plugin). `target` is optional -- a project directory, an sdist/wheel path,
 a local model file, or a Hugging Face model ID; omit it to default to the
 current directory.
 
-See `references/examples.md` for copy-paste recipes.
+See `references/examples.md` for copy-paste recipes (URL in "See also"
+below, for a copy without the `references/` folder).
+
+## Requirements
+
+- Python >= 3.10, the `loom`/`pitloom` entry point -- `pip install
+  pitloom`, or run ephemeral via `uvx`/`pipx` (see below).
+- AI model targets need the `ai` extra (`pitloom[ai]`) or a
+  format-specific one (`pitloom[huggingface_hub]`, `pitloom[gguf]`,
+  etc. -- see `pyproject.toml`'s `[project.optional-dependencies]`,
+  <https://github.com/bact/pitloom/blob/main/pyproject.toml>).
+- `--allow-build` needs the `build` extra (PyPA `build`);
+  `--content-type` needs the `content-type` extra (`magika`).
 
 ## Run without installing anything persistent
 
@@ -131,6 +143,7 @@ files to discover exact, pinned dependency versions and transitive
 dependencies.
 
 Supported lock formats in priority order:
+
 1. `pylock.toml` (PEP 751 standard lock file)
 2. `uv.lock` (uv workspace/resolver)
 3. `poetry.lock` (Poetry resolver)
@@ -139,6 +152,7 @@ Supported lock formats in priority order:
 6. `requirements.txt` (Strictly fully-pinned requirement file)
 
 When a lock file is present:
+
 - Direct dependencies declared with version ranges (e.g. `requests>=2.0`)
   automatically resolve to their exact locked version rather than falling
   back to host environment introspection.
@@ -162,28 +176,25 @@ default; an explicit CLI flag always wins over the config value.
 
 Every element's `spdxId` is content-addressed from the resolved file
 set -- regenerating from the same unchanged source normally reproduces
-the same ids, which is what lets a fragment written against one run
-still merge cleanly into a later regeneration (see the `sbom-enrich`
-skill's fragment workflow, which depends on this). `project`/`wheel`/`env`
+the same ids, letting a fragment written against one run still merge
+cleanly into a later regeneration (see the `sbom-enrich` skill's
+fragment workflow, which depends on this). `project`/`wheel`/`env`
 auto-harvest newly-minted ids into a registry file
 (`.pitloom-ids.json` by default, `--registry FILE` to override,
-`--update-registry`/`--no-update-registry` toggles the behaviour, on by
-default) after each run, so this stability is normally automatic and
-needs no action from you -- just don't switch `--registry` files between
-a base-SBOM run and a later enrichment/regeneration of the same project,
-or ids can drift.
+`--update-registry`/`--no-update-registry` toggles it, on by default)
+after each run, so this is normally automatic -- just don't switch
+`--registry` files between a base-SBOM run and a later
+enrichment/regeneration of the same project, or ids can drift.
 
 Two edge cases need the registry touched manually, via `loom ids
 generate`/`loom ids import` -- **not yet wired into this skill's trigger
-phrasings** (tracked in the roadmap for future skill design): pinning an
-id ahead of a first run (e.g. to match an external naming scheme), or
-reusing ids from a pre-existing SBOM not produced by Pitloom's own
-auto-harvest. If a user's request clearly needs one of these, say so and
-point at [docs/cli.md's "Pin ids across fragments"
+phrasings**: pinning an id ahead of a first run, or reusing ids from a
+pre-existing SBOM not produced by Pitloom's own auto-harvest. If a
+user's request clearly needs one of these, say so and point at
+[docs/cli.md's "Pin ids across fragments"
 section](https://github.com/bact/pitloom/blob/main/docs/cli.md#pin-ids-across-fragments)
-for the exact commands rather than improvising -- don't attempt to
-hand-construct or guess at registry file contents.
-
+for the exact commands -- don't hand-construct or guess at registry
+file contents.
 
 ## Embed an SBOM into a wheel (PEP 770)
 
@@ -197,9 +208,8 @@ loom embed-wheel dist/*.whl --project-dir .   # multiple wheels, Build SBOM
 ```
 
 Or embed an already-generated SBOM file directly -- its declared subject
-name/version is cross-checked against the wheel's own METADATA before
-anything is written; a mismatch aborts the embed (`--allow-mismatch` to
-downgrade to a warning and embed anyway):
+name/version is cross-checked against the wheel's own METADATA first; a
+mismatch aborts the embed (`--allow-mismatch` downgrades to a warning):
 
 ```bash
 loom embed-wheel dist/*.whl --sbom sbom.spdx3.json
@@ -217,8 +227,7 @@ match); it works on any wheel regardless of build backend, since a wheel
 is just a ZIP archive -- unlike the Hatchling-specific build hook. See
 [`docs/cli.md`](https://github.com/bact/pitloom/blob/main/docs/cli.md)
 for the full flag reference, including `--output` (rejected when more
-than one wheel matches, since a single standalone copy would be
-ambiguous) and `--sbom-basename`.
+than one wheel matches) and `--sbom-basename`.
 
 To check the wheel's embedded SBOM right after this same embed, pass
 `--verify`/`--validate` to `embed-wheel` itself -- both checks share the
@@ -238,7 +247,8 @@ presence-only ask).
 
 - `-o FILE` / `--output FILE` -- explicit output path.
 - `--pretty` -- indent the JSON for human reading (default: compact).
-- `--offline` -- enforce offline execution across `project`, `wheel`, `model`, `env`, `embed-wheel`, and `generate`.
+- `--offline` -- enforce offline execution across `project`, `wheel`,
+  `model`, `env`, `embed-wheel`, and `generate`.
 - `-v` / `--verbose` -- print effective options and where each came from.
 - `--creator-name NAME`, `--creator-email EMAIL` -- name who created the SBOM.
 - `--enrich` / `--no-enrich` -- opt in to (or force off) Pitloom's own
@@ -257,110 +267,86 @@ presence-only ask).
 - `--content-type-method {auto,magika,extension}` -- which detector
   `--content-type` uses; defaults to `auto` (try `magika`, fall back to
   the extension guess). Only needed to force a specific detector.
-- `--build-timeout DURATION` -- with `--allow-build`, stop the build
-  after DURATION (seconds, e.g. `900`, or `h`/`m`/`s` units, e.g. `15m`,
-  `1h30m`); default 20m, max 7 days. No effect without `--allow-build`.
-  See "Choosing `--build-timeout`" below.
+- `--build-timeout DURATION` -- with `--allow-build`, cap how long the
+  build may run (default 20m, max 7 days; no effect without
+  `--allow-build`). See "Choosing `--build-timeout`" below.
 
 ## Combine with enrichment
 
 Some requests ask for generation *and* enrichment in one breath -- "generate
 SBOM and enrich it", "give me a complete SBOM", "create an SBOM and fill in
-information as much as possible", "help me get a full SBOM". Two different
-depths answer these, and the request's own language is the signal for
-which one:
+information as much as possible", "help me get a full SBOM". The request's
+own language signals which of two depths to answer with:
 
-- **Light ask** ("...and enrich it", "with enrichment") -- add `--enrich`
-  to the generate command:
+- **Light ask** ("...and enrich it", "with enrichment") -- add `--enrich`:
 
   ```bash
   loom generate <target> --enrich -o sbom.spdx3.json
   ```
 
-  This runs Pitloom's own deterministic, local, frontmatter-only pass
-  (`enrich/readme.py`) as part of the same command -- no prose reading, no
-  network, no separate skill invocation.
+  Runs Pitloom's own deterministic, local, frontmatter-only pass
+  (`enrich/readme.py`) in the same command -- no prose, no network, no
+  separate skill invocation.
 
 - **Strong ask** ("complete", "as much detail/information as possible",
   "full SBOM") -- generate with `--enrich` too (it's free), then invoke
   the `sbom-enrich` skill on the result for the agentic pass: reading
   README/model-card *prose* and inferring license/dataset relationships
-  that neither frontmatter nor static extraction can see. This costs more
-  (agent reasoning, and possibly network for Hugging Face/PyPI lookups
-  some of `sbom-enrich`'s steps make) -- reasonable for an explicit "as
-  much as possible", not for a bare "generate an SBOM".
+  neither frontmatter nor static extraction can see. Costs more (agent
+  reasoning, possibly Hugging Face/PyPI network lookups) -- reasonable
+  for an explicit "as much as possible", not a bare "generate an SBOM".
 
-Plain "generate an SBOM" with no enrichment language in the request skips
-both -- just run the base generate command.
+Plain "generate an SBOM" with no enrichment language skips both -- just
+run the base generate command.
 
 ## Combine with a named standard (NTIA/CISA/G7)
 
-A request can also ask for generation *and* a named standard's minimum
-elements in one breath -- "give me SBOM with CISA 2026 minimum elements",
+The same one-breath pattern, naming a standard instead of asking for
+enrichment in general -- "give me SBOM with CISA 2026 minimum elements",
 "generate an SBOM that meets NTIA requirements", "create an AIBOM
-compliant with G7 SBOM for AI". This is the same one-breath pattern as
-"Combine with enrichment" above, just naming a standard instead of asking
-for enrichment in general: generate the base SBOM first (with `--enrich`
-too, since it's free and the standard's gap analysis benefits from it),
-then invoke the `sbom-enrich` skill's "Complete a standard's minimum
-elements" section on the result -- do not stop at the base `loom generate`
-call and consider the request done.
+compliant with G7 SBOM for AI": generate the base SBOM first (with
+`--enrich` too, since it's free and the gap analysis benefits from it),
+then invoke `sbom-enrich`'s "Complete a standard's minimum elements"
+section on the result -- don't stop at the base `loom generate` call.
 
 ```bash
 loom generate <target> --enrich -o sbom.spdx3.json
 ```
 
-Then hand off to `sbom-enrich` for the checklist-driven gap analysis and
-fragment workflow.
-
 ## Verify the result
 
 A quick `@graph`-presence sanity check is enough for most runs (see
 `references/examples.md`), but for a schema/shape-level conformance
-check, use the `sbom-validate` skill on the output.
+check, use the `sbom-validate` skill (see "See also" below for its URL)
+on the output.
 
 ## Check stderr for INFO:/WARNING:/ERROR: lines
 
 Pitloom logs to stderr with a grep-able `INFO:`/`WARNING:`/`ERROR:`
 prefix -- exactly one of the three, always at the start of the line
-(see `AGENTS.md`'s "CLI output" section for the full convention).
-`WARNING:` examples: "a config value was too small to be useful and got
-normalised instead", "a requested detector isn't installed". `INFO:`
-covers normal status the command wants a human to see, most importantly
-**generation being skipped or scoped down** -- e.g. a Hatchling build
-hook run that produced no SBOM because it's disabled or the target
-isn't `wheel`. These don't always fail the command or show up in the
-output JSON itself, so after running `loom`, scan the captured stderr
-for all three prefixes and mention any hit to the user in plain
-language -- don't let a real warning or an `INFO:` line saying
-generation was skipped pass by unmentioned just because the command
-exited 0 and (maybe) produced a file.
+(see AGENTS.md's "CLI output" section,
+<https://github.com/bact/pitloom/blob/main/AGENTS.md#cli-output>, for the
+full convention). `WARNING:` examples: "a config value was too small to
+be useful and got normalised instead", "a requested detector isn't
+installed". `INFO:` covers normal status worth a human seeing, most
+importantly **generation being skipped or scoped down** (e.g. a
+Hatchling build hook run that produced no SBOM because it's disabled or
+the target isn't `wheel`). Neither always fails the command or shows up
+in the output JSON, so after running `loom`, scan the captured stderr
+for all three prefixes and mention any hit to the user -- don't let a
+real warning or a skipped-generation `INFO:` pass by unmentioned just
+because the command exited 0 and (maybe) produced a file.
 
-A `--allow-build` run that hits its `--build-timeout` prints `WARNING:
-Build: build-and-read for <dir> timed out after <N>s (--build-timeout)
--- build process tree terminated` (or `-- could not confirm the build
-process tree terminated`, when the kill wasn't confirmed -- also warn
-the user a build process may still be running), then continues: exit 0,
-an SBOM is still written, but its file list came from the static
-fallback, not the real build. Tell the user and offer/perform a re-run
-with a larger `--build-timeout` -- see "Choosing `--build-timeout`" below.
+A `--allow-build` run adds three more prefixes -- exact wording and what
+to tell the user for each is in `references/build-timeout.md` (URL in
+"See also" below):
 
-A `--allow-build` run interrupted during the build kills the build and
-removes its temp dirs first, then stops with no SBOM written. SIGTERM
-or SIGHUP (CI job cancellation, `timeout(1)`, a closed terminal; also
-Ctrl-Break on Windows) prints `WARNING: Build: received SIGTERM during
-the build -- exiting after cleanup` (`after the build` once the build
-has finished; the signal name varies) and
-ends killed by that signal (exit status 143 for SIGTERM, 129 for
-SIGHUP). Ctrl-C (SIGINT) prints no such line: a Python
-`KeyboardInterrupt` traceback instead, exit status 130. Either way,
-tell the user the run was interrupted, not a Pitloom failure, and offer
-to re-run.
-
-After a successful `--allow-build` build, `INFO: Build: killed processes
-the build left running` just reports cleanup; `WARNING: Build: could not
-confirm the processes the build left running ... terminated` means one
-may still run -- tell the user.
+- `WARNING: Build: ... timed out after <N>s (--build-timeout) -- ...`
+  -- hit the timeout; SBOM still written, from the static fallback.
+- `WARNING: Build: received <SIGNAL> during/after the build -- ...` --
+  build interrupted (SIGTERM/SIGHUP); Ctrl-C shows a traceback instead.
+- `INFO: Build: killed processes ...` / `WARNING: Build: could not
+  confirm the processes ... terminated` -- leftover-process cleanup.
 
 ## Known limitations -- say so, don't paper over it
 
@@ -370,102 +356,83 @@ it reads `pyproject.toml`/`setup.cfg`/`setup.py`, installed
 drops, and the honest move is to tell the user plainly rather than hand
 back a JSON file that looks complete but isn't:
 
-- **No Python packaging markers at all** (a directory with only
-  `package.json`, `Cargo.toml`, `go.mod`, `pom.xml`/`build.gradle`,
-  `Gemfile`, `composer.json`, or a `.csproj`/`.sln` -- no
+- **No Python packaging markers at all** (only `package.json`,
+  `Cargo.toml`, `go.mod`, `pom.xml`/`build.gradle`, `Gemfile`,
+  `composer.json`, or a `.csproj`/`.sln` -- no
   `pyproject.toml`/`setup.cfg`/`setup.py` anywhere) -- `loom project`/
   `loom generate` already refuses outright ("No project configuration
-  found ... Expected pyproject.toml, setup.cfg, or setup.py"). Don't try
-  to work around this (e.g. by hand-authoring a fragment to fake
-  coverage) -- tell the user this ecosystem isn't supported yet.
-- **Mixed-ecosystem repos** (a `pyproject.toml` sitting alongside
-  `package.json`/`Cargo.toml`/etc., e.g. a Python backend with a JS
-  frontend in the same repo) -- generation *succeeds* here, silently. The
-  resulting SBOM only inventories the Python side (`[project.dependencies]`
-  and what's importable); every non-Python dependency is invisible to
-  Pitloom and simply won't appear -- no error, no NOASSERTION placeholder,
-  nothing marking the gap. If you see non-Python ecosystem files during
-  generation, say explicitly that the SBOM covers only the Python
-  packaging surface, not the whole repo.
-- **Non-PyPI dependencies** (a `git+https://...` URL, a local path
-  requirement, or a private-index-only package) -- these get a package
-  entry, but supplier/license/hash enrichment (both the deterministic
-  local pass and the PyPI JSON API fallback) has nothing to look up, so
-  those fields land on `NOASSERTION`. That's the correct, honest output
-  for "genuinely unknown" -- not a bug -- but worth naming when a user
-  asks why a dependency's entry looks sparse.
-- **AI model formats**: broad but not universal coverage (GGUF, ONNX,
-  PyTorch, PyTorch PT2/ExecuTorch, Safetensors, Keras, HDF5, NumPy,
-  fastText, plus Hugging Face Hub models). A model in some other
-  serialisation format isn't
-  recognised at all -- same "say so" rule applies rather than silently
-  skipping it.
-- **Unsupported build backend** for `loom project`/`loom generate`
-  against a project directory -- check `pyproject.toml`'s
-  `[build-system] build-backend` *before* generating, not after.
-  Hatchling, setuptools, Poetry, PDM-backend, and Flit-core get
-  accurate file-level discovery (which files, hashes, Merkle root) by
-  default; any other backend (`uv_build`, or one still without its own
-  toolchain, e.g. `maturin`/`scikit-build-core`/`meson-python`) falls
-  back to a Hatchling-based heuristic and logs a `WARNING:` that the
-  file list can be silently incomplete or mis-pathed. Project-level
+  found ... Expected pyproject.toml, setup.cfg, or setup.py"). Don't
+  work around this (e.g. hand-authoring a fragment to fake coverage) --
+  tell the user this ecosystem isn't supported yet.
+- **Mixed-ecosystem repos** (`pyproject.toml` alongside
+  `package.json`/`Cargo.toml`/etc.) -- generation *succeeds* here,
+  silently: the SBOM only inventories the Python side
+  (`[project.dependencies]` and what's importable); every non-Python
+  dependency is invisible, no error, no NOASSERTION placeholder. If you
+  see non-Python ecosystem files, say explicitly that the SBOM covers
+  only the Python packaging surface, not the whole repo.
+- **Non-PyPI dependencies** (`git+https://...`, a local path
+  requirement, or a private-index-only package) get a package entry,
+  but supplier/license/hash enrichment has nothing to look up, so those
+  fields land on `NOASSERTION` -- correct and honest for "genuinely
+  unknown", worth naming when a dependency's entry looks sparse.
+- **AI model formats**: broad but not universal (GGUF, ONNX, PyTorch,
+  PyTorch PT2/ExecuTorch, Safetensors, Keras, HDF5, NumPy, fastText,
+  plus Hugging Face Hub). Any other serialisation isn't recognised at
+  all -- same "say so" rule, don't silently skip it.
+- **Unsupported build backend** for `loom project`/`loom generate` --
+  check `pyproject.toml`'s `[build-system] build-backend` *before*
+  generating, not after. Hatchling, setuptools, Poetry, PDM-backend, and
+  Flit-core get accurate file-level discovery (files, hashes, Merkle
+  root) by default; any other backend (`uv_build`, or one still without
+  its own toolchain, e.g. `maturin`/`scikit-build-core`/`meson-python`)
+  falls back to a Hatchling-based heuristic and logs a `WARNING:` that
+  the file list can be silently incomplete or mis-pathed. Project-level
   metadata (name, version, dependencies, license, authors) is read
-  independently and unaffected either way. Say this upfront when you
-  see an unsupported backend, don't wait for the user to ask why the
-  SBOM looks off -- full detail in [docs/cli.md's Generate an SBOM
+  independently and unaffected either way. Say this upfront, don't wait
+  for the user to ask why the SBOM looks off -- full detail in
+  [docs/cli.md's Generate an SBOM
   section](https://bact.github.io/pitloom/cli/#generate-an-sbom).
   `--allow-build` (`loom project`/`loom generate`/`loom embed-wheel`
-  only) closes this gap by actually invoking the project's own PEP 517
-  build backend to discover the real file list -- but it executes
-  third-party build-time code, so **never pass `--allow-build` (or
-  `BuildOptions(allow=True)` via the library API) on the user's behalf unless
-  they have explicitly asked for it in this conversation.** Mention it
-  as an available option when an unsupported backend comes up; don't
-  decide to use it yourself.
+  only) closes this gap by invoking the project's own PEP 517 build
+  backend for the real file list -- but it executes third-party
+  build-time code, so **never pass `--allow-build` (or
+  `BuildOptions(allow=True)` via the library API) on the user's behalf
+  unless they have explicitly asked for it in this conversation.**
+  Mention it as an available option; don't decide to use it yourself.
 
 ### Choosing `--build-timeout`
 
-This applies only once the user has already asked for `--allow-build`
-this conversation -- picking a `--build-timeout` value is not itself a
-security decision, so you may choose one without a fresh ask. The hard
-rule above still stands: never add `--allow-build` yourself just to be
-able to use this flag.
+Only after the user has already explicitly asked for `--allow-build`
+this conversation -- the hard rule above still stands: never add
+`--allow-build` yourself just to be able to use this flag.
 
-Full method (estimating build time from read-only signals, your own
-harness's timeout limits, the interactive question flow, and the
-non-interactive fallback) is in
-`references/build-timeout.md` -- read it before running any
-`--allow-build` command. In short:
+`--build-timeout DURATION`: bare number = seconds, or `h`/`m`/`s` units
+(`15m`, `1h30m`); default 20m, max 7 days. **In an agent session, always
+pass an explicit value** -- Pitloom's default often outlives a harness's
+own call limit, and a harness that `SIGKILL`s `loom` orphans the build
+process tree.
 
-- **In an agent session, always pass an explicit `--build-timeout`.**
-  Pitloom's own default (20m) is longer than many harness call limits
-  (e.g. a 2-10 min Bash tool call); if the harness stops `loom` first,
-  no SBOM is written at all, and a harness that SIGKILLs it orphans the
-  build process tree.
-- Estimate the likely build time from read-only signals (build backend,
-  native-code presence, project size, network dependency) -- never run
-  the build or any project code just to measure it.
-- Interactive: state the estimate and your own limit, propose a value
-  that fits, and ask one question before running. Non-interactive
-  (CI/batch): pick a value yourself, state why, and don't block.
-- On timeout, the SBOM is still written from the static fallback --
-  report the `WARNING:` and offer/perform a re-run with a larger value
-  rather than silently accepting a possibly-inaccurate file list.
+Full method (estimating build time from read-only signals, sizing
+against harness limits, the interactive/non-interactive question flow,
+and what to do on timeout) is in `references/build-timeout.md` (URL in
+"See also" below); read it before running `--allow-build`.
 
 ## See also
 
 - `references/examples.md` -- copy-paste recipes for every target type.
-- `references/build-timeout.md` -- estimating and choosing a
-  `--build-timeout` value for `--allow-build`; see "Choosing
-  `--build-timeout`" above.
-- The sibling `sbom-enrich` skill -- the agentic, prose-reading enrichment
-  pass; see "Combine with enrichment" above for when a request calls for
-  it, and its "Complete a standard's minimum elements" section for
-  NTIA/CISA/G7 compliance work; see "Combine with a named standard" above
-  for when a request calls for that instead.
+  <https://github.com/bact/pitloom/blob/main/skills/sbom-generate/references/examples.md>
+- `references/build-timeout.md` -- estimating/choosing a
+  `--build-timeout` value; see "Choosing `--build-timeout`" above.
+  <https://github.com/bact/pitloom/blob/main/skills/sbom-generate/references/build-timeout.md>
+- The sibling `sbom-enrich` skill -- see "Combine with enrichment" above
+  for its agentic enrichment pass, "Combine with a named standard" above
+  for its NTIA/CISA/G7 "Complete a standard's minimum elements" section.
+  <https://github.com/bact/pitloom/blob/main/skills/sbom-enrich/SKILL.md>
 - The sibling `sbom-validate` skill -- schema/shape-level conformance
   check for any SBOM this skill produces.
-- `docs/resources.md` in the Pitloom repository -- SPDX 3 spec, ontology,
-  JSON-LD, and JSON Schema links (including the per-minor-version URL
-  pattern) for looking up the exact schema/spec a generated SBOM should
-  conform to.
+  <https://github.com/bact/pitloom/blob/main/skills/sbom-validate/SKILL.md>
+- `docs/resources.md` -- SPDX 3 spec, ontology, JSON-LD, and JSON Schema
+  links (including the per-minor-version URL pattern) for the exact
+  schema/spec a generated SBOM should conform to.
+  <https://bact.github.io/pitloom/resources/>

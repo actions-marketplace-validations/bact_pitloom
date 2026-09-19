@@ -49,7 +49,10 @@ structured field encodes. Do this only **after** a base SBOM exists (use
 the `sbom-generate` skill first if it does not), and only when it adds
 real information -- do not fabricate detail for its own sake. If
 generating that base SBOM needs `--allow-build` and the user asked for
-it, follow `sbom-generate`'s "Choosing `--build-timeout`" section.
+it, size `--build-timeout` first (seconds, or `h`/`m`/`s` units;
+default 20m, max 7 days; **always pass an explicit value in an agent
+session**) -- full method in `sbom-generate`'s "Choosing
+`--build-timeout`" section (URL in "See also" below).
 
 **Limitation inherited from the base SBOM:** enrichment can only add
 evidence to elements the base SBOM already contains. If the project mixes
@@ -66,7 +69,14 @@ plugin). `sbom-file` is optional -- point it at a specific
 already-generated SBOM when a project has more than one; omit it to let
 the agent find the one to enrich.
 
-See `references/examples.md` for a full worked example.
+See `references/examples.md` for a full worked example (URL in "See
+also" below).
+
+## Requirements
+
+Python >= 3.10, the `loom`/`pitloom` entry point (`pip install
+pitloom`); an AI model file needs `pip install "pitloom[ai]"`; the
+mandatory post-merge check needs `pip install "pitloom[validate]"`.
 
 ## Contribute enrichment as a fragment, never by hand-editing
 
@@ -257,10 +267,12 @@ Steps:
 
 9. Re-run `loom project <path>` or `loom generate <path>` (generate again) so
    the merged, enriched SBOM is written.
-10. **Post-merge check (mandatory):** use the `sbom-validate` skill on
-   `<merged-sbom-file>` -- a syntactically valid fragment can still be
-   missing a required property or use the wrong relationship type, which
-   only shape/SHACL validation catches.
+10. **Post-merge check (mandatory):** use the `sbom-validate` skill (URL
+   in "See also" below) on `<merged-sbom-file>` -- a syntactically valid
+   fragment can still miss a required property or use the wrong
+   relationship type, which only shape/SHACL validation catches. Minimal
+   fallback: `pip install "pitloom[validate]"` then
+   `loom fragment validate <merged-sbom-file>`.
 
 11. Tell the user what was found deterministically (step 2), what was
    inferred from prose (step 6), and what the SBOM author supplied
@@ -302,7 +314,8 @@ d. **Interactive-only, one field at a time.** Ask the user for each remaining ga
    the fact directly -> `sbomAuthorSupplied`; the user points at a source -> go look,
    role is `declared`/`externalReported`/`inferred` per how it was obtained). Skip
    this step entirely in a non-interactive run, same as above.
-   - **Lead with effort-to-impact, not checklist order.** Before asking, rank the
+
+- **Lead with effort-to-impact, not checklist order.** Before asking, rank the
      remaining gaps: quick answers (a plain yes/no, a fact the user obviously already
      knows) and answers that resolve multiple elements or multiple standards at once
      go first (e.g. setting `[[tool.pitloom.creator]]` closes both `SBOM Author` and
@@ -311,7 +324,7 @@ d. **Interactive-only, one field at a time.** Ask the user for each remaining ga
      front which few answers would close most of the remaining gap, so the user can
      judge where their time actually pays off -- don't just work a flat list top to
      bottom.
-   - **Exit path.** The user can stop the Q&A at any point ("stop", "that's enough",
+- **Exit path.** The user can stop the Q&A at any point ("stop", "that's enough",
      "skip the rest", or equivalent). This is not a failure -- proceed straight to
      step f (draft/validate/merge) with whatever was gathered, and list the
      still-unresolved elements as open gaps in step g's final report rather than
@@ -340,26 +353,31 @@ wired into this skill.
 
 `loom enrich`/`loom project`/`loom generate`/`loom merge` log to stderr
 with a grep-able `INFO:`/`WARNING:`/`ERROR:` prefix -- exactly one of
-the three, always at the start of the line (see `AGENTS.md`'s "CLI
-output" section for the full convention). Relevant here in particular:
-merging a fragment against a base SBOM whose element ids no longer
-match it (see "If a base SBOM already exists" above) logs a
-`WARNING:` naming the dangling reference and fails the merge (non-zero
-exit, `ERROR:` line) -- regenerate the base SBOM and re-run enrichment
-rather than retrying the same merge. `INFO:` covers
-normal status worth surfacing too, e.g. a step being skipped. Scan the
-captured stderr for all three prefixes after running any of these
-commands and mention any hit to the user in plain language -- don't
-let a real warning pass by unmentioned just because the command exited
-0.
+the three, always at the start of the line (see AGENTS.md's "CLI
+output" section,
+<https://github.com/bact/pitloom/blob/main/AGENTS.md#cli-output>, for the
+full convention). Relevant here in particular: merging a fragment
+against a base SBOM whose element ids no longer match it (see "If a
+base SBOM already exists" above) logs a `WARNING:` naming the dangling
+reference and fails the merge (non-zero exit, `ERROR:` line) --
+regenerate the base SBOM and re-run enrichment rather than retrying the
+same merge. `INFO:` covers normal status worth surfacing too, e.g. a
+step being skipped. Scan stderr for all three prefixes after running
+any of these commands and mention any hit to the user -- don't let a
+real warning pass by unmentioned just because the command exited 0.
 
 ## See also
 
 - `references/examples.md` -- full worked example.
-- `references/minimum-elements.md` -- the NTIA 2021 / CISA 2026 / G7 SBOM for
-  AI 2026 checklists, field mappings, and question bank used by "Complete a
-  standard's minimum elements" above.
-- The sibling `sbom-validate` skill -- used for the mandatory post-merge
-  check above.
-- `docs/resources.md` in the Pitloom repository -- SPDX 3 spec, ontology,
-  and JSON Schema links.
+  <https://github.com/bact/pitloom/blob/main/skills/sbom-enrich/references/examples.md>
+- `references/minimum-elements.md` -- the NTIA/CISA/G7 checklists,
+  field mappings, and question bank for "Complete a standard's minimum
+  elements" above.
+  <https://github.com/bact/pitloom/blob/main/skills/sbom-enrich/references/minimum-elements.md>
+- The sibling `sbom-generate` skill -- generates the base SBOM this
+  enriches.
+  <https://github.com/bact/pitloom/blob/main/skills/sbom-generate/SKILL.md>
+- The sibling `sbom-validate` skill -- the mandatory post-merge check.
+  <https://github.com/bact/pitloom/blob/main/skills/sbom-validate/SKILL.md>
+- `docs/resources.md` -- SPDX 3 spec, ontology, and JSON Schema links.
+  <https://bact.github.io/pitloom/resources/>

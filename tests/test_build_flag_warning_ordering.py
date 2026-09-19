@@ -174,11 +174,7 @@ def test_cli_project_sdist_build_flag_warning_precedes_metadata_warning(
     for an sdist archive target" build-flag warning must reach stderr
     before the archive's own malformed-``pyproject.toml`` metadata
     warning that ``_resolve_project_generation_settings()`` triggers
-    while resolving its metadata -- previously the reverse, since that
-    resolution ran before the CLI handler ever settled the build options
-    for this (file) target (``build_options_from_args()`` was called
-    with ``subject=None`` for a file target, deferring entirely to
-    ``generate_project_sbom()``, which only settles later still).
+    while resolving its metadata.
     """
     sdist_path = _make_sdist_with_malformed_member_pyproject(tmp_path)
     output = tmp_path / "out.spdx3.json"

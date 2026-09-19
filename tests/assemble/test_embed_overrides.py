@@ -248,17 +248,14 @@ def test_embed_wheel_defers_cleanup_past_ai_model_scan(
 def test_embed_wheel_cleanup_runs_even_if_step_raises(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, target: str
 ) -> None:
-    """Regression, one case per step inside the try/finally block that
-    guards ``cleanup_discovery()`` (see ``embed.py``'s own comment on
-    that block): a build-and-read temp directory must not leak
-    regardless of WHICH of the five steps between ``get_wheel_files()``
-    returning and the function moving on (the file-extras merge, the
+    """Regression, one case per step inside the ``EmbedFileCache`` block
+    of ``_build_sbom_from_project_and_wheel()`` (``_embed_build_sbom.py``),
+    whose exit runs the discovery cleanup: a build-and-read temp
+    directory must not leak whichever of the five steps after
+    ``get_wheel_files()`` returns (the file-extras merge, the
     fresh-containers copy, Merkle-root recomputation, AI-model
-    scanning, enrichment) raises -- every one of them used to run
-    *outside* the ``try/finally`` before this was fixed, and a future
-    refactor that moves any single one of them back outside it must
-    fail exactly this one parametrize case, not silently pass the
-    other four."""
+    scanning, enrichment) raises. Moving any one of them out of the
+    block must fail exactly its own parametrize case."""
     wheel_path = _make_ctpkg_project_and_wheel(tmp_path)
 
     cleanup_calls: list[str] = []
@@ -293,9 +290,9 @@ def test_embed_wheel_cleanup_runs_strictly_last_in_order(
     of regression there left every parametrized exception case green).
     This test instead records every step's own name into one shared
     list and asserts the exact order, so a future refactor that
-    reorders or hoists any single step across the try/finally boundary
-    is caught precisely, regardless of whether that step happens to
-    raise."""
+    reorders or hoists any single step out of the ``EmbedFileCache``
+    block is caught precisely, regardless of whether that step happens
+    to raise."""
     wheel_path = _make_ctpkg_project_and_wheel(tmp_path)
 
     call_order: list[str] = []

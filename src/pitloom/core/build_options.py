@@ -6,38 +6,26 @@
 """The ``--allow-build``/``--no-build-isolation``/``--build-timeout``
 options as one value, shared by every usage surface.
 
-See also: :mod:`pitloom.core._models_wheel_types` (timeout validation and
-parsing, :class:`~pitloom.core._models_wheel_types.BuildSettings`),
-:mod:`pitloom.core._models_wheel_dispatch` (the build-and-read dispatch).
+Every surface (CLI ``project``/``generate``/``embed-wheel``,
+:func:`pitloom.assemble.generate`, :func:`pitloom.assemble.generate_project_sbom`,
+:class:`pitloom.embed.ConfigOverrides`, :func:`pitloom.core.models.get_wheel_files`)
+takes one :class:`BuildOptions`, validated at construction. Each calls
+:meth:`BuildOptions.settle` or :meth:`BuildOptions.settle_not_applicable`
+as soon as it knows whether the target reaches file discovery, before any
+metadata read, so the "has no effect" ``WARNING:`` comes first. Both
+reset what they warn about, so settling again downstream is a silent
+no-op: every ignored flag is reported exactly once.
 
-Every surface that accepts these flags -- the CLI ``project``/
-``generate``/``embed-wheel`` commands, :func:`pitloom.assemble.generate`,
-:func:`pitloom.assemble.generate_project_sbom`,
-:class:`pitloom.embed.ConfigOverrides` and
-:func:`pitloom.core.models.get_wheel_files` -- takes one
-:class:`BuildOptions` and passes it down unchanged. Validation happens
-once, at construction. The "has no effect" ``WARNING:`` comes only from
-:meth:`BuildOptions.warn_no_effect` (a target that never reaches file
-discovery), :meth:`BuildOptions.settle` (a ``no_isolation``/``timeout``
-given without ``allow``, for a target that does), or
-:meth:`BuildOptions.settle_not_applicable` (``warn_no_effect`` plus
-resetting to defaults in one call, for a target a caller already knows
-will never reach file discovery -- e.g. an sdist archive). Every surface
-calls ``settle()``/``settle_not_applicable()`` on its build options as
-early as it can determine the target's fate -- before reading any
-project metadata or lock file -- so the "stray flag"/"has no effect"
-warning surfaces at the very start of a run rather than after later
-metadata warnings. Both reset what they warn about to defaults, so a
-later call on the same (now settled) value -- e.g. ``get_wheel_files()``'s
-own ``settle()`` call -- is a silent no-op; this is what keeps every
-ignored flag reported exactly once, however many layers it passes
-through.
+See also: :mod:`pitloom.core._models_wheel_types` (timeout parsing and
+:class:`~pitloom.core._models_wheel_types.BuildSettings`),
+:mod:`pitloom.core._models_wheel_dispatch`.
 """
 
 from __future__ import annotations
 
 import dataclasses
 import logging
+from pathlib import Path
 
 from pitloom.core._models_wheel_types import (
     BUILD_LOG_PREFIX,
@@ -132,12 +120,6 @@ class BuildOptions:
             timeout=resolve_build_timeout(self.timeout),
         )
 
-    def warn_no_effect(self, subject: object, reason: str) -> None:
-        """Log one ``WARNING:`` per given flag, for a target that never
-        reaches file discovery. *reason* follows "has no effect" (no
-        trailing punctuation), e.g. ``"for an sdist archive target"``."""
-        _warn_each(subject, self.given, reason)
-
     def settle(self, subject: object) -> BuildOptions:
         """Resolve a ``no_isolation``/``timeout`` given without ``allow``:
         log one ``WARNING:`` per such flag and return
@@ -158,23 +140,36 @@ class BuildOptions:
         _warn_each(subject, self.given, f"without {_ALLOW_FLAG}")
         return BuildOptions()
 
+    def settle_target(self, target: Path) -> BuildOptions:
+        """Settle for a project-or-sdist *target* path: an existing file is
+        an sdist archive (:meth:`settle_not_applicable` with
+        :data:`SDIST_TARGET_REASON`), an existing directory a project
+        (:meth:`settle`). A missing path settles nothing and returns
+        ``self``: the caller's read then fails it with an ``ERROR:``
+        alone, with no build-flag warning ahead of it."""
+        if target.is_file():
+            return self.settle_not_applicable(target, SDIST_TARGET_REASON)
+        if target.is_dir():
+            return self.settle(target)
+        return self
+
     def settle_not_applicable(self, subject: object, reason: str) -> BuildOptions:
         """Resolve a target a caller already knows will never reach file
         discovery (e.g. an sdist archive, a non-project target, an
         externally-supplied ``--sbom``): log one ``WARNING:`` per given
-        flag (via :meth:`warn_no_effect`) and return ``BuildOptions()``
+        flag and return ``BuildOptions()``
         (defaults), so a downstream call on the same value -- one this
         caller forwards, or one a later layer resolves independently --
         has nothing left to warn about.
 
         Call this as early as the caller can tell the target's fate,
         before reading any project metadata or lock file, so the
-        warning precedes those rather than following them. Idempotent
-        the same way :meth:`settle` is: called again on the returned
-        (defaulted) value, :meth:`warn_no_effect` iterates zero given
-        flags and logs nothing.
+        warning precedes those rather than following them. *reason*
+        follows "has no effect" (no trailing punctuation), e.g.
+        :data:`SDIST_TARGET_REASON`. Idempotent the same way :meth:`settle`
+        is: the returned (defaulted) value has no given flag to warn about.
         """
-        self.warn_no_effect(subject, reason)
+        _warn_each(subject, self.given, reason)
         return BuildOptions()
 
 

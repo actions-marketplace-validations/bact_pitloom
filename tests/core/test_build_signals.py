@@ -314,6 +314,30 @@ def test_restore_keeps_a_handler_installed_meanwhile() -> None:
     assert signal.getsignal(signal.SIGTERM) is third_party
 
 
+def test_failed_restore_never_swallows_a_later_signal(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    raise_spy: mock.Mock,
+) -> None:
+    """``signal.signal()`` failing while the guard restores its handlers
+    must not raise out of the block; the handler it leaves installed then
+    acts as SIG_DFL would on a later signal instead of swallowing it."""
+    real_signal = signal.signal
+    caplog.set_level("DEBUG", logger=build_signals.__name__)
+    try:
+        with TerminationGuard() as guard, guard.hold():
+            monkeypatch.setattr(
+                signal, "signal", mock.Mock(side_effect=OSError("restore failed"))
+            )
+        monkeypatch.setattr(signal, "signal", real_signal)
+        assert "cannot restore SIGTERM" in caplog.text
+        _current_handler()(signal.SIGTERM, None)
+        raise_spy.assert_called_once_with(signal.SIGTERM)
+    finally:
+        real_signal(signal.SIGTERM, signal.SIG_DFL)
+    assert signal.getsignal(signal.SIGTERM) == signal.SIG_DFL
+
+
 def test_guard_can_be_entered_again(raise_spy: mock.Mock) -> None:
     """The owner's exit resets the guard: after a termination that did not
     end the process (its SystemExit fallback caught), a second block

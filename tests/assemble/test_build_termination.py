@@ -22,7 +22,6 @@ and tests/core/models_wheel/test_models_wheel_termination.py
 
 from __future__ import annotations
 
-import os
 import shutil
 import signal
 import subprocess
@@ -46,16 +45,14 @@ from tests.build_and_read_shared import (
     deliver_sigterm,
     extract_dirs,
     install_fake_build,
+    make_backend_project,
+    pitloom_subprocess_env,
     spied_raise_signal,
     use_sys_tmp,
 )
 
 from .conftest import _make_dummy_wheel
 
-_PYPROJECT = (
-    '[build-system]\nrequires = ["uv_build"]\nbuild-backend = "uv_build"\n\n'
-    '[project]\nname = "pkg"\nversion = "1.0.0"\n'
-)
 _ALLOW = BuildOptions(allow=True)
 
 
@@ -76,7 +73,7 @@ def fixture_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     it), built by the fake build."""
     project = tmp_path / "project"
     project.mkdir()
-    (project / "pyproject.toml").write_text(_PYPROJECT, encoding="utf-8")
+    make_backend_project(project, "uv_build")
     install_fake_build(monkeypatch)
     return project
 
@@ -251,18 +248,11 @@ def test_real_signal_during_scan_removes_extract_dir(
     sig = signal.Signals[sig_name]
     project = tmp_path / "project"
     project.mkdir()
-    (project / "pyproject.toml").write_text(_PYPROJECT, encoding="utf-8")
+    make_backend_project(project, "uv_build")
     sys_tmp = tmp_path / "sys-tmp"
     sys_tmp.mkdir()
     ready = tmp_path / "ready"
-    src_dir = Path(_generators.__file__).resolve().parents[2]
-    env = {
-        **os.environ,
-        "TMPDIR": str(sys_tmp),
-        "PYTHONPATH": os.pathsep.join(
-            filter(None, [str(src_dir), os.environ.get("PYTHONPATH")])
-        ),
-    }
+    env = pitloom_subprocess_env(TMPDIR=str(sys_tmp))
     with subprocess.Popen(
         [sys.executable, "-c", _DRIVER, str(project), str(ready)],
         cwd=tmp_path,

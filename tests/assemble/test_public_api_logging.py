@@ -51,11 +51,12 @@ def test_generate_configures_logging_before_its_own_warnings(
     monkeypatch.setattr(
         "pitloom.assemble.generate_env_sbom", lambda **_kwargs: events.append("env")
     )
-    monkeypatch.setattr(
-        BuildOptions,
-        "warn_no_effect",
-        lambda _self, _subject, _reason: events.append("warn"),
-    )
+
+    def _settle(_self: BuildOptions, _subject: object, _reason: str) -> BuildOptions:
+        events.append("warn")
+        return BuildOptions()
+
+    monkeypatch.setattr(BuildOptions, "settle_not_applicable", _settle)
     generate("env", build_options=BuildOptions(allow=True))
     assert events == ["configure", "warn", "env"]
 

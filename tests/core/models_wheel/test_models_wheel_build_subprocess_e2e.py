@@ -40,10 +40,7 @@ from pitloom.core._models_wheel_build_subprocess import (
     run_build_subprocess,
 )
 from pitloom.core.build_signals import TerminationGuard
-
-posix_only = pytest.mark.skipif(
-    sys.platform == "win32", reason="process groups are POSIX-only"
-)
+from tests.build_and_read_shared import pitloom_subprocess_env, posix_only
 
 # Deliberately not installed: with --skip-dependency-check the build must
 # still proceed, as the in-process API never checked build requirements.
@@ -394,15 +391,7 @@ def test_termination_signal_kills_build_tree_and_removes_temp_dirs(
     sys_tmp = tmp_path / "sys-tmp"
     sys_tmp.mkdir()
     pid_files = (project / "backend.pid", project / "grandchild.pid")
-    src_dir = Path(bs.__file__).resolve().parents[2]
-    env = {
-        **os.environ,
-        "TMPDIR": str(sys_tmp),
-        "PITLOOM_TEST_GRANDCHILD": "1",
-        "PYTHONPATH": os.pathsep.join(
-            filter(None, [str(src_dir), os.environ.get("PYTHONPATH")])
-        ),
-    }
+    env = pitloom_subprocess_env(TMPDIR=str(sys_tmp), PITLOOM_TEST_GRANDCHILD="1")
     try:
         out, err, returncode = _run_driver_until_signal(project, env, pid_files, sig)
         for pid_file in pid_files:
@@ -481,13 +470,7 @@ def test_subreaper_reaps_killed_descendants(tmp_path: Path) -> None:
         f"subprocess.Popen([sys.executable, '-c', {grandchild!r}])\n"
         "time.sleep(300)\n"
     )
-    src_dir = Path(bs.__file__).resolve().parents[2]
-    env = {
-        **os.environ,
-        "PYTHONPATH": os.pathsep.join(
-            filter(None, [str(src_dir), os.environ.get("PYTHONPATH")])
-        ),
-    }
+    env = pitloom_subprocess_env()
     result = subprocess.run(
         [sys.executable, "-c", _SUBREAPER_DRIVER, str(tmp_path), child],
         env=env,
