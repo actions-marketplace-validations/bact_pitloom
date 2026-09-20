@@ -23,15 +23,7 @@ from hatchling.builders.wheel import WheelBuilder
 from pitloom.core._models_wheel_hatchling import discover as discover_hatchling
 from pitloom.core._models_wheel_types import IncludedFile
 from pitloom.core.models import get_wheel_files
-
-
-def _make_backend_project(tmp_path: Path, build_backend: str) -> None:
-    (tmp_path / "pyproject.toml").write_text(
-        f'[build-system]\nrequires = ["{build_backend.split(".", maxsplit=1)[0]}"]\n'
-        f'build-backend = "{build_backend}"\n\n'
-        '[project]\nname = "pkg"\nversion = "1.0.0"\n',
-        encoding="utf-8",
-    )
+from tests.build_and_read_shared import make_backend_project
 
 
 def test_get_wheel_files_dispatches_setuptools_backend_to_its_module(
@@ -40,7 +32,7 @@ def test_get_wheel_files_dispatches_setuptools_backend_to_its_module(
     """A project whose backend is detected as ``setuptools`` routes
     through the setuptools discovery module, not the Hatchling
     heuristic."""
-    _make_backend_project(tmp_path, "setuptools.build_meta")
+    make_backend_project(tmp_path, "setuptools.build_meta")
 
     def _fake_discover(
         project_dir: Path, *, pyproject_data: dict[str, object] | None = None
@@ -76,7 +68,7 @@ def test_get_wheel_files_sorts_files_regardless_of_discovery_order(
     a different (e.g. filesystem-enumeration-dependent, unsorted) order
     -- both runs of "the same project" must produce a bit-for-bit
     identical SBOM regardless of discovery order."""
-    _make_backend_project(tmp_path, "setuptools.build_meta")
+    make_backend_project(tmp_path, "setuptools.build_meta")
     (tmp_path / "z.py").write_text("z = 1\n", encoding="utf-8")
     (tmp_path / "a.py").write_text("a = 1\n", encoding="utf-8")
     (tmp_path / "m.py").write_text("m = 1\n", encoding="utf-8")
@@ -110,7 +102,7 @@ def test_get_wheel_files_setuptools_no_static_config_falls_back_with_warning(
     """When the setuptools module can't resolve static config (``None``),
     the facade falls back to the Hatchling heuristic and logs a
     warning -- not a silent, unexplained accuracy regression."""
-    _make_backend_project(tmp_path, "setuptools.build_meta")
+    make_backend_project(tmp_path, "setuptools.build_meta")
     monkeypatch.setattr(
         "pitloom.core._models_wheel_setuptools.discover",
         lambda project_dir, *, pyproject_data=None: None,
@@ -220,7 +212,7 @@ def test_get_wheel_files_unhandled_backend_falls_back_with_warning(
     the Hatchling heuristic, but now with an explicit warning instead of
     silently risking an inaccurate file list -- closing the gap for
     every unhandled backend, not just setuptools."""
-    _make_backend_project(tmp_path, "uv_build")
+    make_backend_project(tmp_path, "uv_build")
 
     with caplog.at_level(logging.WARNING):
         root, files, _ = get_wheel_files(tmp_path)
@@ -241,7 +233,7 @@ def test_get_wheel_files_uv_build_fallback_warns_about_wheel_exclude(
     confirmed empirically (allow-build-validation.md's
     2026-09-15 round) to be exactly the case where the Hatchling
     heuristic's file list diverges from a real build's."""
-    _make_backend_project(tmp_path, "uv_build")
+    make_backend_project(tmp_path, "uv_build")
     with (tmp_path / "pyproject.toml").open("a", encoding="utf-8") as f:
         f.write('\n[tool.uv.build-backend]\nwheel-exclude = ["pkg/vendored/**"]\n')
 
@@ -260,7 +252,7 @@ def test_get_wheel_files_uv_build_fallback_no_hint_without_file_filter_keys(
     not get the sharpened hint -- confirmed empirically (the langfuse
     fixture declares module-root and still matches the heuristic
     exactly), so warning there would be a false alarm."""
-    _make_backend_project(tmp_path, "uv_build")
+    make_backend_project(tmp_path, "uv_build")
     with (tmp_path / "pyproject.toml").open("a", encoding="utf-8") as f:
         f.write('\n[tool.uv.build-backend]\nmodule-root = ""\n')
 
@@ -276,7 +268,7 @@ def test_get_wheel_files_dispatches_flit_backend_to_its_module(
 ) -> None:
     """A project whose backend is detected as ``flit`` routes through
     the Flit discovery module, not the Hatchling heuristic."""
-    _make_backend_project(tmp_path, "flit_core.buildapi")
+    make_backend_project(tmp_path, "flit_core.buildapi")
 
     def _fake_discover(
         project_dir: Path, *, pyproject_data: dict[str, object] | None = None
@@ -320,7 +312,7 @@ def test_get_wheel_files_dispatches_pdm_backend_to_its_module(
 ) -> None:
     """A project whose backend is detected as ``pdm`` routes through
     the PDM discovery module, not the Hatchling heuristic."""
-    _make_backend_project(tmp_path, "pdm.backend")
+    make_backend_project(tmp_path, "pdm.backend")
 
     def _fake_discover(
         project_dir: Path, *, pyproject_data: dict[str, object] | None = None
@@ -364,7 +356,7 @@ def test_get_wheel_files_dispatches_poetry_backend_to_its_module(
 ) -> None:
     """A project whose backend is detected as ``poetry`` routes through
     the Poetry discovery module, not the Hatchling heuristic."""
-    _make_backend_project(tmp_path, "poetry.core.masonry.api")
+    make_backend_project(tmp_path, "poetry.core.masonry.api")
 
     def _fake_discover(
         project_dir: Path, *, pyproject_data: dict[str, object] | None = None
@@ -458,7 +450,7 @@ def test_get_wheel_files_relative_project_dir_keeps_physical_path_relative(
     .relative_to(project_dir)`` always raises for an absolute *source*
     against a relative *project_dir*, silently falling back to the
     absolute form."""
-    _make_backend_project(tmp_path, "setuptools.build_meta")
+    make_backend_project(tmp_path, "setuptools.build_meta")
     (tmp_path / "a.py").write_text("a = 1\n", encoding="utf-8")
 
     def _fake_discover(

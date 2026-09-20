@@ -50,12 +50,25 @@ def _make_pytorch_zip(
     return buf.getvalue()
 
 
+def test_fickling_missing_fallback_holds_with_fickle_already_imported() -> None:
+    """Blocking ``fickling`` must also block the already-imported
+    ``fickling.fickle`` submodule the reader imports -- otherwise the import
+    reuses the loaded module and the fallback runs only when no earlier
+    test in the same worker imported it (order-dependent coverage)."""
+    pytest.importorskip("fickling.fickle")
+    # Protocol-2 pickle of collections.OrderedDict(): real fickling names it.
+    data = b"\x80\x02ccollections\nOrderedDict\nq\x00)Rq\x01."
+    assert _fickling_get_top_class(_io.BytesIO(data)) == "OrderedDict"
+    with patch.dict("sys.modules", {"fickling": None, "fickling.fickle": None}):
+        assert _fickling_get_top_class(_io.BytesIO(data)) is None
+
+
 def test_read_pytorch_format(tmp_path: Path) -> None:
     model_file = tmp_path / "model.pt"
     model_file.write_bytes(
         _make_pytorch_zip({"archive/data.pkl": b"\x80\x04\x95\x00\x00\x00\x00."})
     )
-    with patch.dict("sys.modules", {"fickling": None, "fickling.pickle": None}):
+    with patch.dict("sys.modules", {"fickling": None, "fickling.fickle": None}):
         meta = read_pytorch(model_file)
     assert meta.format_info.model_format == AiModelFormat.PYTORCH
 
@@ -70,7 +83,7 @@ def test_read_pytorch_archive_contents_in_properties(tmp_path: Path) -> None:
             }
         )
     )
-    with patch.dict("sys.modules", {"fickling": None, "fickling.pickle": None}):
+    with patch.dict("sys.modules", {"fickling": None, "fickling.fickle": None}):
         meta = read_pytorch(model_file)
     assert "archive_contents" in meta.properties
     assert "archive/data.pkl" in meta.properties["archive_contents"]
@@ -79,7 +92,7 @@ def test_read_pytorch_archive_contents_in_properties(tmp_path: Path) -> None:
 def test_read_pytorch_pth_format(tmp_path: Path) -> None:
     model_file = tmp_path / "model.pth"
     model_file.write_bytes(_make_pytorch_zip({"archive/data.pkl": b"\x80\x02."}))
-    with patch.dict("sys.modules", {"fickling": None, "fickling.pickle": None}):
+    with patch.dict("sys.modules", {"fickling": None, "fickling.fickle": None}):
         meta = read_pytorch(model_file)
     assert meta.format_info.model_format == AiModelFormat.PYTORCH
 
@@ -88,7 +101,7 @@ def test_read_pytorch_raw_pickle_format_detail(tmp_path: Path) -> None:
     # A file that is NOT a ZIP is treated as raw pickle.
     model_file = tmp_path / "model.pt"
     model_file.write_bytes(b"\x80\x02}q\x00.")  # minimal raw pickle (empty dict)
-    with patch.dict("sys.modules", {"fickling": None, "fickling.pickle": None}):
+    with patch.dict("sys.modules", {"fickling": None, "fickling.fickle": None}):
         meta = read_pytorch(model_file)
     assert meta.format_info.model_format == AiModelFormat.PYTORCH
     assert meta.properties.get("format_detail") == "raw pickle"
@@ -97,7 +110,7 @@ def test_read_pytorch_raw_pickle_format_detail(tmp_path: Path) -> None:
 def test_read_pytorch_no_fickling_type_of_model_is_none(tmp_path: Path) -> None:
     model_file = tmp_path / "model.pt"
     model_file.write_bytes(_make_pytorch_zip({"archive/data.pkl": b"\x80\x02."}))
-    with patch.dict("sys.modules", {"fickling": None, "fickling.pickle": None}):
+    with patch.dict("sys.modules", {"fickling": None, "fickling.fickle": None}):
         meta = read_pytorch(model_file)
     assert meta.type_of_model is None
 
@@ -105,7 +118,7 @@ def test_read_pytorch_no_fickling_type_of_model_is_none(tmp_path: Path) -> None:
 def test_read_pytorch_no_name_version(tmp_path: Path) -> None:
     model_file = tmp_path / "model.pt"
     model_file.write_bytes(_make_pytorch_zip({"archive/data.pkl": b"\x80\x02."}))
-    with patch.dict("sys.modules", {"fickling": None, "fickling.pickle": None}):
+    with patch.dict("sys.modules", {"fickling": None, "fickling.fickle": None}):
         meta = read_pytorch(model_file)
     assert meta.name is None
     assert meta.version is None

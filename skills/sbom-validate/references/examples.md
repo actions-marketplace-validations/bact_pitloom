@@ -1,6 +1,6 @@
 ---
 Created: 2026-08-10
-Last-Modified: 2026-09-08
+Last-Modified: 2026-09-19
 SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 SPDX-FileType: DOCUMENTATION
 SPDX-License-Identifier: CC0-1.0
@@ -72,9 +72,12 @@ stream the SBOM itself to stdout instead.
 ## See also
 
 - `../SKILL.md` -- operating instructions for this skill.
+  <https://github.com/bact/pitloom/blob/main/skills/sbom-validate/SKILL.md>
 - The sibling `sbom-generate` skill -- produces the SBOM this validates.
+  <https://github.com/bact/pitloom/blob/main/skills/sbom-generate/SKILL.md>
 - The sibling `sbom-enrich` skill -- its mandatory post-merge check uses
   this skill.
-- `docs/resources.md` in the Pitloom repository -- SPDX 3 spec, ontology,
-  and JSON Schema links, plus the `spdx3-validate` validator this skill
-  wraps.
+  <https://github.com/bact/pitloom/blob/main/skills/sbom-enrich/SKILL.md>
+- `docs/resources.md` -- SPDX 3 spec, ontology, and JSON Schema links,
+  plus the `spdx3-validate` validator this skill wraps.
+  <https://bact.github.io/pitloom/resources/>

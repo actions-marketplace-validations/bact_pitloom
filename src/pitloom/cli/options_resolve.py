@@ -27,7 +27,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from pitloom.cli.constants import _PROJECT_PYPROJECT_SOURCE
+from pitloom.cli.constants import _PROJECT_CONFIG_FILES, _PROJECT_PYPROJECT_SOURCE
 from pitloom.core.config import PitloomConfig
 from pitloom.core.creation import (
     CreationMetadata,
@@ -95,7 +95,7 @@ def _resolve_project_paths(args: argparse.Namespace) -> tuple[Path | None, Path 
     if project_dir.is_file():
         return project_dir, project_dir
 
-    for candidate in ("pyproject.toml", "setup.cfg", "setup.py"):
+    for candidate in _PROJECT_CONFIG_FILES:
         config_path = project_dir / candidate
         if config_path.exists():
             return project_dir, config_path

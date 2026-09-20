@@ -1,6 +1,6 @@
 ---
 Created: 2026-04-14
-Last-Modified: 2026-09-18
+Last-Modified: 2026-09-19
 SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 SPDX-FileType: DOCUMENTATION
 SPDX-License-Identifier: CC0-1.0
@@ -69,9 +69,10 @@ Goal: ship 1.0 within one month (by mid-October 2026). GitHub milestone
 coverage**, not just stability -- see
 [G7 SBOM for AI field coverage](#g7-sbom-for-ai-field-coverage-10-headline)
 below. Cross-platform CI is already closed
-([PR #220](https://github.com/bact/pitloom/pull/220)); the remaining
-stability items (`--allow-build` timeout, versioning policy) stay in
-scope but no longer fill the list on their own.
+([PR #220](https://github.com/bact/pitloom/pull/220)), as is the
+`--allow-build` timeout (PR #226); the remaining stability item
+(versioning policy) stays in scope but no longer fills the list on its
+own.
 
 **Scope split, decided 2026-09-17**: deterministic field population
 (anything a file format, a structured API response, or explicit
@@ -90,7 +91,7 @@ is explicitly left to the Skill and not listed as a core 1.0 item.
 | 2 | [Real macOS CI run](#testing--ci) | P0 | High | S | Done -- CI added ([PR #220](https://github.com/bact/pitloom/pull/220)) |
 | 3 | [Mechanical G7 wiring: dataset license + `ai_AIPackage.verifiedUsing`](#g7-sbom-for-ai-field-coverage-10-headline) | P0 | High | S | Not started |
 | 4 | [Fix stale gap claims in `minimum-elements.md`](#g7-sbom-for-ai-field-coverage-10-headline) | P0 | Medium | S | Not started |
-| 5 | [`--allow-build` timeout](#medium-term) | P0 | High | S | Not started |
+| 5 | [`--allow-build` timeout](#medium-term) | P0 | High | S | Done (PR #226) |
 | 6 | [Model producer + parameter count (structured sources only)](#g7-sbom-for-ai-field-coverage-10-headline) | P1 | High | M | Not started |
 | 7 | [`loom` SDK: dataset provenance + model training-properties capture](#g7-sbom-for-ai-field-coverage-10-headline) | P1 | High | M-L | Not started |
 | 8 | [Versioning/compatibility policy decision](#versioning-and-compatibility-policy-new-for-10) | P0 | High | S | Needs a decision |
@@ -113,9 +114,10 @@ revisit for 1.1.
    claims right after prevents the agent/Skill from re-asking users
    about fields core already covers -- cheap, and directly protects the
    value of the wiring fix above it.
-5. **`--allow-build` timeout** stays in its original slot -- still the
-   one open correctness gap in shipped 1.0-era code, unrelated to G7 but
-   cheap and independent.
+5. **`--allow-build` timeout** stayed in its original slot -- the one
+   open correctness gap in shipped 1.0-era code, unrelated to G7 but
+   cheap and independent. Done -- see
+   [allow-build-timeout.md](../implementation/allow-build-timeout.md).
 6-7. **Real extraction work, ordered by size.** Model producer (via
    structured API data, e.g. Hugging Face Hub's own author/org field --
    not free-text parsing) and parameter count (per-format, several
@@ -247,7 +249,7 @@ below, which is the actual commitment for what ships before mid-October):
   backend with no static module, or whose static discovery fails)
   resolves via a new generic, backend-agnostic build-and-read mechanism
   gated behind `--allow-build` (real PEP 517 build, opt-in, no
-  `[tool.pitloom]` equivalent -- see [`docs/cli.md`](../../docs/cli.md#building-a-project-to-discover-its-file-list---allow-build)).
+  `[tool.pitloom]` equivalent -- see [`docs/allow-build.md`](../../docs/allow-build.md)).
   Track B (compiled/native backends: `maturin`, `scikit-build-core`,
   `meson-python`) is already covered by the same mechanism once their
   own toolchain happens to be available -- no further Pitloom code
@@ -273,6 +275,29 @@ below, which is the actual commitment for what ships before mid-October):
 
 ### Build backend improvements
 
+- [x] **Build-and-read extraction dir removed on SIGTERM/SIGHUP/Ctrl-C
+  for its whole lifetime** (hashing, AI-model scanning, `embed-wheel`
+  batches), not only during the build. See
+  [allow-build-termination.md](../implementation/allow-build-termination.md).
+- [ ] **Optional safety net for SIGKILL** -- the guard above can't run
+  under SIGKILL by design (see its own known limitations); sweep stale
+  `pitloom-build-and-read-*`/`plb-*` temp dirs older than N hours at the
+  next run as a lightweight backstop.
+- [ ] **Windows: run the build in a Job Object** -- `taskkill /T` walks
+  the tree by parent PID, so processes a finished build leaves running
+  are unreachable once their parent exits; and a Ctrl-Break during
+  wheel extraction leaves both build temp dirs behind (files still open
+  when the handler removes them; each gets a `WARNING:`, seen on Windows
+  CI in PR #226). A Job Object would kill the whole tree; the leftover
+  dirs need the extraction's open files closed first. See
+  [allow-build-termination.md](../implementation/allow-build-termination.md#limitations).
+- [ ] **Accepted residual limits of build termination** -- revisit only if
+  reported; listed in
+  [allow-build-termination.md](../implementation/allow-build-termination.md#limitations).
+- [ ] **`--allow-build` follow-ups from the PR #226 reviews** -- build-flag
+  warning inconsistencies across surfaces, build-child isolation gaps,
+  `EmbedFileCache` on worker threads, and the manual checks' blind spots.
+  See [allow-build-followups.md](allow-build-followups.md).
 - [ ] **PEP 517 `prepare_metadata_for_build_wheel`** (opt-in) -- call the build
   backend in a subprocess to resolve dynamic metadata (Git-tag versions,
   computed deps) that static parsing cannot handle.
@@ -348,6 +373,25 @@ below, which is the actual commitment for what ships before mid-October):
   convenience flags and a pre-embed name/version enforcement check for
   `--sbom`. See
   [wheel-verification-commands.md](../implementation/wheel-verification-commands.md).
+- [ ] **`embed-wheel`'s wheel-rewrite temp file isn't covered by the
+  SIGTERM/SIGHUP/Ctrl-C guard above** -- a signal during
+  `_rewrite_wheel_archive()`'s ZIP write (before the `os.replace()`
+  swap) leaves a `<stem>.<random>.tmp` non-wheel file in the wheel's own
+  directory (the original `.whl` stays intact); a `dist/*` glob like
+  `twine upload dist/*` would trip on it. Cheap fix: register the temp
+  path as a cleanup on the batch's `TerminationGuard`.
+- [ ] **`loom wheel --embed` has no `--sbom-basename`** -- `embed-wheel`
+  takes one, so the two embed surfaces can't be pointed at the same
+  arcname. Found in the manual CLI checks for PR #226.
+- [ ] **Re-embedding lists the previous embedded SBOM** -- `embed-wheel`
+  on a wheel that already has one describes that old
+  `.dist-info/sboms/*` file (with its old hash) in the new SBOM, which
+  then overwrites it: a stale self-reference, and not idempotent. The
+  target's own SBOM path should be left out of the file list.
+  Check `S2` of `scripts/manual_cli_checks`.
+- [ ] **`embed-wheel --project-dir <sdist>` runs discovery on the
+  archive path** (Hatchling fails on it with a `WARNING:`): read the
+  sdist's own listing, as `loom project <sdist>` does, or reject it.
 
 ### AI model id stability (follow-up to [#178](https://github.com/bact/pitloom/pull/178))
 
@@ -604,6 +648,19 @@ be built:
   inline in each file (a local composite action can't check itself out).
   `version-consistency.yml` (no cache/pip-install step) and the two
   intentionally-different `licenseid update` steps were left untouched.
+- [ ] **Verify `--allow-build` termination on real platforms** -- the
+  Windows paths (Ctrl-Break/SIGBREAK, `taskkill /F /T` tree kill) and
+  Pitloom as PID 1 in a container without `--init` are covered by mocks
+  only; the Linux child-subreaper e2e test runs only on Linux CI. See
+  [allow-build-termination.md](../implementation/allow-build-termination.md).
+- [ ] **Build workflow fails on spdx.org network errors** -- `loom
+  validate-wheel`, `loom fragment validate` and `spdx3-validate` fetch
+  the SPDX schema, ontology and context over the network on every run;
+  a `Connection reset by peer` failed two of PR #226's runs. Cache or
+  vendor them, or retry. The step then reports "The SBOM does not
+  conform to SPDX specification" for what was a download error, and
+  fail-fast cancels the other matrix jobs: tell a network failure apart
+  from a real validation failure.
 
 ### Diagnostics / logging
 
@@ -611,6 +668,48 @@ be built:
   silent-data-loss `DEBUG:` messages to `WARNING:`** -- both shipped
   together. See [debug-logging.md](../implementation/debug-logging.md)
   ([PR #201](https://github.com/bact/pitloom/pull/201)).
+- [ ] **`loom <cmd> -o -` corrupts piped JSON** -- with stdout as the
+  SBOM output, `_print_sbom_output_path()`
+  (`cli/commands/utils.py`) still prints
+  `PITLOOM_SBOM_OUTPUT_PATH=-` to stdout after the JSON, on the same
+  stream a consumer expects to be pure SBOM. Found during a
+  `--build-timeout` review, 2026-09-19.
+- [ ] **Hatchling-heuristic fallback WARNING embeds an untagged
+  multi-line exception** -- `_models_wheel_hatchling.py`'s discovery-
+  failure `WARNING:` (~L64) appends a real exception's full text after
+  its one `WARNING:` tag, so continuation lines reach stderr with no
+  `LEVEL:` prefix of their own -- breaks "every line starts with
+  exactly one `LEVEL:`" (CLAUDE.md's "CLI output"). Found during a
+  `--build-timeout` review, 2026-09-19.
+- [ ] **Ctrl-C prints a raw `KeyboardInterrupt` traceback** -- no
+  top-level handler in `__main__.py` catches it, unlike every other
+  failure mode (`ERROR:` via `cli_error_handler`). Found during a
+  `--build-timeout` review, 2026-09-19.
+- [ ] **Shared options accepted, then silently ignored** -- the common
+  parent parser gives every SBOM subcommand `--extract-file-header`,
+  `--content-type` and `--content-type-method`, but `wheel`, `model`,
+  `enrich` and `env` never pass them on; `--describe-relationship` has
+  no effect on `embed-wheel` (not in `ConfigOverrides`), `model` or
+  `enrich`. Warn "has no effect" (as the build flags do) or stop
+  offering them there. Cells `M/{wheel,model,enrich,env}/opt/...` of
+  `scripts/manual_cli_checks`.
+- [ ] **`--max-source-metadata-bytes` accepts a negative value** -- `-1`
+  runs like `0` (no cap) with no message; reject it at parse time.
+- [ ] **`enrich` and `merge` stdout is not `KEY=VALUE`** -- they print
+  prose (`Enrichment fragment written to: ...`, `pitloom: merged N
+  fragment(s) into ...`), unlike `PITLOOM_SBOM_OUTPUT_PATH=` from every
+  other SBOM command ("CLI output" in CLAUDE.md); so do `ids` and
+  `fragment validate`.
+- [ ] **A relative `--registry` resolves against the project directory**,
+  not the current directory, and a miss is only a `WARNING:` -- every
+  other path option is relative to the current directory.
+- [ ] **`loom ids generate` crashes on a symlinked path** -- a project
+  path through a symlink (macOS `/var` -> `/private/var`) fails
+  `relative_to()` with a raw traceback instead of an `ERROR:`.
+- [ ] **`loom ids generate` mints a random registry namespace** -- a
+  UUID4 per run, so two fresh registries for the same project differ.
+  Decide whether that is intended (a registry is minted once) or should
+  be derived like an SBOM's namespace.
 
 ### Internal codenames
 
@@ -625,21 +724,10 @@ be built:
 
 ## Medium-term
 
-- [ ] **`--allow-build`'s real PEP 517 build has no timeout** --
-  `build_and_read_wheel()` (`_models_wheel_build_and_read.py`) runs the
-  isolated build synchronously inside `get_wheel_files()`'s
-  single-threaded call chain, unlike `scripts/compare_allow_build.py`'s
-  own 600s subprocess timeout for the same operation. Identified during
-  PR #215's follow-up review. A hung build (slow/broken network fetch
-  for build-requires, a build backend blocking on stdin, a misbehaving
-  build script) blocks the whole `loom project`/`generate`/`embed-wheel`
-  invocation indefinitely with no escape hatch but Ctrl-C -- a
-  `--allow-build` user opted into running third-party build code, not
-  into an unbounded hang. Needs a design decision before implementing:
-  a hardcoded default timeout vs. a new `--build-timeout` flag, and what
-  happens on timeout (warn-and-fall-back-to-Hatchling, matching every
-  other build-and-read failure path, is the obvious default but should
-  be confirmed).
+- [ ] **CHANGELOG.md split** -- `CHANGELOG.md` now exceeds 800 lines (hard limit).
+  Archive completed entries to a `CHANGELOG-archive/` folder or move post-1.0 entries
+  to a per-version doc. `roadmap.md` itself (700+ lines) is past the soft
+  limit too: move detailed bullets into their own design docs.
 - [ ] **CycloneDX assembler** -- add a CycloneDX serializer consuming the
   existing `DocumentModel`; no changes to extractors required.
 - [ ] **AIDOC / TechOps renderer** -- additional output format consuming
