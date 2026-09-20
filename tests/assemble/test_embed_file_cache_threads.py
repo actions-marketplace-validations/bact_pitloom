@@ -300,6 +300,65 @@ def test_embed_file_cache_resolve_cleans_up_when_the_block_closed(
     assert [type(exc) for exc in failures] == [RuntimeError]
 
 
+def test_embed_file_cache_late_discovery_never_lands_in_the_next_block(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, raise_spy: mock.Mock
+) -> None:
+    """The same late discovery, but the next batch has already begun by
+    the time it finishes: it belongs to the block it was started for, so
+    it cleans up after itself rather than handing the new block files it
+    never asked for -- which would also leave the new block with no
+    discovery of its own."""
+    del raise_spy
+    cleanups = [mock.Mock(), mock.Mock()]
+    release = threading.Event()
+    inside = threading.Event()
+    failures: list[BaseException] = []
+
+    def get_wheel_files(*_args: object, **_kwargs: object) -> object:
+        if not inside.is_set():
+            inside.set()
+            assert release.wait(timeout=30)
+            return None, ["files-from-the-interrupted-block"], cleanups[0]
+        return None, ["files-from-the-new-block"], cleanups[1]
+
+    cache = EmbedFileCache()
+    with mock.patch(_GET_WHEEL_FILES, side_effect=get_wheel_files) as mocked:
+
+        def resolve() -> None:
+            try:
+                cache.resolve(tmp_path, PitloomConfig(), BuildOptions())
+            except BaseException as exc:  # pylint: disable=broad-exception-caught
+                failures.append(exc)
+
+        worker = threading.Thread(target=resolve)
+        try:
+            with pytest.raises(KeyboardInterrupt):
+                with cache:
+                    worker.start()
+                    assert inside.wait(timeout=30)
+                    monkeypatch.setattr(cache, "_lock", _InterruptingLock())
+
+            monkeypatch.undo()  # the next block needs a working lock
+            with cache as reentered:
+                # The interrupted block's discovery finishes during this one.
+                release.set()
+                worker.join(timeout=30)
+                # object: the fake discovery returns plain strings, not
+                # ProjectFiles, so identity of the list is what matters.
+                files: object = reentered.resolve(
+                    tmp_path, PitloomConfig(), BuildOptions()
+                )
+        finally:
+            release.set()
+            worker.join(timeout=30)
+
+    assert files == ["files-from-the-new-block"]
+    assert mocked.call_count == 2
+    assert [type(exc) for exc in failures] == [RuntimeError]
+    cleanups[0].assert_called_once()  # ran by the worker, not left behind
+    cleanups[1].assert_called_once()  # ran by the new block's own exit
+
+
 def test_embed_file_cache_settles_once_across_threads(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:

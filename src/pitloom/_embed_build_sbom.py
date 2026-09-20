@@ -117,8 +117,9 @@ class EmbedFileCache:
     during the batch still removes the build's temp directory -- but only
     for a discovery the block's own thread ran. Guard ownership is
     thread-local, so one a worker thread ran registers with that thread's
-    own guard: it is removed when the block exits, and leaks if a signal
-    ends the process first.
+    own guard. It is removed when the block exits normally, and leaks if
+    a signal ends the process first, or if the block's own exit is
+    interrupted once that discovery is already cached.
 
     Every call in a batch must use the same project directory, file-scan
     settings and build options: :meth:`resolve` raises :class:`ValueError`
@@ -142,11 +143,14 @@ class EmbedFileCache:
         if self._guard is not None:
             raise RuntimeError("EmbedFileCache is already entered")
         # Start clean rather than trust the last block to have finished:
-        # one whose exit was interrupted leaves its files behind, and they
-        # are gone from disk by then (its guard removed them). Resetting
-        # here, not there, keeps the interrupted exit from touching state
-        # a thread still inside resolve() owns.
-        self._settled.clear()
+        # an interrupted exit leaves its batch behind on purpose, since
+        # that state belongs to whichever thread holds the lock at the
+        # time, not to the exit. Deliberately not locked: a thread of the
+        # last block may hold the lock for a whole build, and the next
+        # batch must not wait for it. A fresh dict rather than clear(),
+        # so a settle() still running for the last block writes into the
+        # dict it took, never into this block's.
+        self._settled = {}
         self._resolved = None
         self._resolved_from = None
         guard = TerminationGuard()
@@ -173,9 +177,10 @@ class EmbedFileCache:
             # handlers would otherwise outlive the block, and every later
             # block in this thread would nest under a dead owner) and
             # nothing else: the batch's state belongs to whichever thread
-            # holds the lock, and the guard's own cleanups remove what this
-            # block's discovery left behind. The next __enter__ resets the
-            # rest.
+            # holds the lock. The guard's own cleanups remove what a
+            # discovery on this thread left behind; one still running on a
+            # worker thread removes its own when it finds the block gone
+            # (see resolve()). The next __enter__ resets the rest.
             guard, self._guard = self._guard, None
             if guard is not None:
                 guard.__exit__(type(err), err, err.__traceback__)
@@ -238,6 +243,7 @@ class EmbedFileCache:
             # thread's discovery held it.
             self._require_block("resolve")
             if self._resolved is None:
+                block = self._guard
                 _, project_files, cleanup = get_wheel_files(
                     project_dir,
                     scan_file_headers=pitloom_config.extract_file_header,
@@ -247,12 +253,20 @@ class EmbedFileCache:
                     skip_merkle_root=True,
                     build_options=build_options,
                 )
-                if self._guard is None:
-                    # The block closed while this discovery held the lock
-                    # (an interrupt in __exit__): nothing else would run
-                    # this cleanup, and nothing may use the result.
+                if self._guard is not block:
+                    # The block this discovery was started for closed
+                    # while it held the lock (an interrupt in __exit__),
+                    # and another may already have taken its place --
+                    # each block gets its own guard, so identity, not
+                    # mere presence, is what says "still the same one".
+                    # Nothing else would run this cleanup, and no block
+                    # may be handed a result it never asked for.
                     cleanup()
                     self._require_block("resolve")
+                    raise RuntimeError(
+                        "EmbedFileCache.resolve() outlived its with-block: "
+                        "the batch it was called for ended while it ran"
+                    )
                 self._resolved = (project_files, cleanup)
                 self._resolved_from = resolved_from
             elif resolved_from != self._resolved_from:
@@ -277,16 +291,19 @@ class EmbedFileCache:
         """
         with self._lock:
             self._require_block("settle")
+            # This block's memo, taken once: __enter__ gives the next
+            # block a new one, so a late call here cannot warn into it.
+            settled = self._settled
             key = (build_options, reason)
-            if key not in self._settled:
+            if key not in settled:
                 # Under the lock: the warning is part of settling, so two
                 # threads must not both emit it.
-                self._settled[key] = (
+                settled[key] = (
                     build_options.settle(subject)
                     if reason is None
                     else build_options.settle_not_applicable(subject, reason)
                 )
-            return self._settled[key]
+            return settled[key]
 
     def _require_block(self, method: str) -> None:
         if self._guard is None:

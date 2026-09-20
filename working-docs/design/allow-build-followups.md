@@ -36,6 +36,17 @@ See also: [allow-build-termination.md](../implementation/allow-build-termination
   when extracted onto a case-insensitive filesystem, so one entry gets
   the wrong hash.
 
+## Outcome of the fallback
+
+- A timed-out build falls back to static discovery, and when that fails
+  too the run still writes an SBOM with zero `software_File` entries and
+  exits 0 (three `WARNING:` lines say so on stderr, but nothing in the
+  exit status does). Seen on the `uv_build` fixture
+  `django-model-import-0.9.0`, whose project name and module name differ,
+  so the Hatchling heuristic finds nothing: 16 files with a successful
+  build, 0 after a timeout. Not specific to the timeout -- any failed
+  discovery ends the same way.
+
 ## Isolation of the build child
 
 - A `PYTHONPATH` entry pointing into the project still shadows PyPA
@@ -51,7 +62,11 @@ See also: [allow-build-termination.md](../implementation/allow-build-termination
 One discovery and one settle are locked, but a discovery a worker thread
 ran registers its temp directory with that thread's own
 `TerminationGuard`, whose ownership is thread-local. Only the block's
-exit then removes it, not a signal mid-batch. Registering it with the
+own exit then removes it -- so it leaks both on a signal mid-batch and
+on an exit interrupted after that discovery was cached, where the exit
+deliberately touches no state (a thread may hold the lock). A discovery
+still running at that point does remove its own, finding the block gone
+(or replaced) when it returns. Registering it with the
 batch's guard needs `TerminationGuard._run_cleanups()` to survive a
 `BaseException` from one cleanup first -- today it suppresses
 `Exception` only, so a `KeyboardInterrupt` from one cleanup skips the
