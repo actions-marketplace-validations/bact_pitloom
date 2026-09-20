@@ -1,6 +1,6 @@
 ---
 Created: 2026-04-14
-Last-Modified: 2026-09-19
+Last-Modified: 2026-09-20
 SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 SPDX-FileType: DOCUMENTATION
 SPDX-License-Identifier: CC0-1.0
@@ -90,7 +90,7 @@ is explicitly left to the Skill and not listed as a core 1.0 item.
 | 1 | [Real Windows CI run](#testing--ci) | P0 | High | S-M | Done -- CI added ([PR #220](https://github.com/bact/pitloom/pull/220)), fixed test fixtures it exposed |
 | 2 | [Real macOS CI run](#testing--ci) | P0 | High | S | Done -- CI added ([PR #220](https://github.com/bact/pitloom/pull/220)) |
 | 3 | [Mechanical G7 wiring: dataset license + `ai_AIPackage.verifiedUsing`](#g7-sbom-for-ai-field-coverage-10-headline) | P0 | High | S | Not started |
-| 4 | [Fix stale gap claims in `minimum-elements.md`](#g7-sbom-for-ai-field-coverage-10-headline) | P0 | Medium | S | Not started |
+| 4 | [Fix stale gap claims in `minimum-elements.md`](#g7-sbom-for-ai-field-coverage-10-headline) | P0 | Medium | S | Done 2026-09-20 |
 | 5 | [`--allow-build` timeout](#medium-term) | P0 | High | S | Done (PR #226) |
 | 6 | [Model producer + parameter count (structured sources only)](#g7-sbom-for-ai-field-coverage-10-headline) | P1 | High | M | Not started |
 | 7 | [`loom` SDK: dataset provenance + model training-properties capture](#g7-sbom-for-ai-field-coverage-10-headline) | P1 | High | M-L | Not started |

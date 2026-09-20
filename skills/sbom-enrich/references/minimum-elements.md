@@ -1,6 +1,6 @@
 ---
 Created: 2026-08-12
-Last-Modified: 2026-09-19
+Last-Modified: 2026-09-20
 SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 SPDX-FileType: DOCUMENTATION
 SPDX-License-Identifier: CC0-1.0
@@ -28,10 +28,11 @@ metadata, or similar; verify per-run, don't assume. **gap** -- this workflow's a
 job. **not automatable** -- no file or answer this workflow can gather will satisfy
 it; say so plainly rather than implying it can be filled.
 
-The "covered"/"conditional" calls below were checked against a real Pitloom-generated
-AI SBOM (`examples/sentimentdemo-aibom/`'s built `sentimentdemo.spdx3.json`), not
-inferred from source alone -- re-verify against a fresh `loom` run if Pitloom's
-assembly code has changed since.
+The "covered"/"conditional"/"gap" calls below were re-checked on 2026-09-20 against the
+assembly code (`assemble/spdx3/_ai_package.py`, `ai.py`, `dataset.py`, `document.py`)
+and a fresh `loom project`/`loom model` run -- not against a single sample SBOM, which
+misses fields the sample's model format never carried. Re-verify if the assembly code
+has changed since.
 
 ## NTIA 2021 (7 data fields + 6 practices)
 
@@ -78,7 +79,7 @@ Automation Support (SPDX 3 JSON-LD is machine-processable -- covered), Frequency
 | :--- | :--- | :--- |
 | Component Producer | dependency: `originatedBy` via `_apply_originator` (`deps_originator.py`) from PyPI JSON API; main package: `software_Package.suppliedBy`, only when `[[tool.pitloom.creator]]` is configured | conditional (deps, PyPI-resolvable only); **gap** for the main package unless `[[tool.pitloom.creator]]` is set -- see NTIA's "Supplier Name" row above |
 | Component Dependency Relationship | `Relationship`/`LifecycleScopedRelationship` | covered |
-| Component Hash Value / Algorithm | `verifiedUsing` (`{"algorithm": "sha256", "hashValue": ...}`); set on dataset files/packages, lock-file-resolved dependencies (via SHA-256 digests in supported lock files, taking priority and applied in both online and offline builds), and PyPI-resolved deps (`_extract_release_hash` fallback, `deps_pypi.py`); **not** set on the main project package (a `loom project`-level SBOM describes source, not a built artifact) | conditional -- present on deps only when a definite version resolves; absent by design on a source-level main package (ask whether a built-artifact hash is even expected before treating this as a gap) |
+| Component Hash Value / Algorithm | `verifiedUsing` (`{"algorithm": "sha256", "hashValue": ...}`); set on every `software_File` (including dataset and model files), lock-file-resolved dependencies (via SHA-256 digests in supported lock files, taking priority and applied in both online and offline builds), and PyPI-resolved deps (`_extract_release_hash` fallback, `deps_pypi.py`). The main package carries the SHA-256 Merkle root over its files (`document.py`; commented as not a single-artifact hash) for `loom project`, the Hatchling hook and source-plus-wheel embedding; **not** set on the main package of a standalone-wheel embed (no source tree, `merkle_root=None`), nor on `ai_AIPackage`/`dataset_DatasetPackage` elements | conditional -- present on deps only when a definite version resolves; on the main package, check the SBOM rather than assuming (Merkle root, not an artifact hash); the AI/dataset package-level gaps are listed under G7 below |
 | Component Identifiers | `software_packageUrl` (PURL) | conditional, same as NTIA's "Other Unique Identifiers" |
 | Component License | `simplelicensing_SimpleLicensingText` + relationship (main package, from `project.license`); deps via PyPI JSON API (`_extract_pypi_license`) | conditional (deps, PyPI-resolvable only); main package usually covered when `pyproject.toml` declares a license |
 | Component Name | `software_Package.name` | covered |
@@ -103,17 +104,17 @@ JSON-LD -- covered).
 | Element | Pitloom/SPDX 3 field | Status |
 | :--- | :--- | :--- |
 | Model name | `ai_AIPackage.name` | covered |
-| Model identifier | none seen on `ai_AIPackage` in the verified sample (no PURL/external identifier) | **gap** |
-| Model version | none seen (`software_packageVersion` not set on the AI package in the verified sample) | **gap** |
+| Model identifier | DOI as `ExternalIdentifier` (type `other`) and the hub page as an `altWebPage` `externalRef`, when the source carries them; no PURL or hub-id identifier | conditional; **gap** when the model has neither a DOI nor a hub page |
+| Model version | `software_packageVersion`, when the format/source carries one (GGUF, ONNX `model_version`, PT2 extra file, Safetensors `modelspec.version`, Hugging Face) | conditional -- verify per model type |
 | Model timestamp | `CreationInfo.created` on the AI package's own `CreationInfo` | covered |
-| Model producer | none | **gap** |
-| Model description | none seen on the AI package itself (the *main* `software_Package.description` is separate) | **gap** |
-| Model hash value / algorithm | none seen -- `verifiedUsing` not set on `ai_AIPackage` in the verified sample even though the model file exists on disk | **gap** -- worth checking whether a newer `loom enrich`/hashing pass already closes this before asking the user; if not, this is a strong candidate to raise upstream as a Pitloom core gap, separate from this skill |
-| Model properties (architecture, parameter count, etc.) | partially: `ai_hyperparameter` (list of `DictionaryEntry`), `ai_typeOfModel` | covered for hyperparameters/type; architecture/parameter-count fields are a **gap** |
+| Model producer | none -- the Hugging Face Hub `author` is captured into `extra_data` only, never emitted as an `Agent` | **gap** |
+| Model description | `ai_AIPackage.description`, when the format/source carries one (GGUF, ONNX, PT2, Safetensors, Hugging Face; distinct from the *main* `software_Package.description`) | conditional -- verify per model type |
+| Model hash value / algorithm | none -- `verifiedUsing` is not set on `ai_AIPackage` (`_build_ai_package`), even though the shipped model file's own `software_File` carries a SHA-256 and is linked by `contains` | **gap** -- do not recompute; the hash is already in the SBOM on the linked `software_File`, so a fragment can reuse it. A core wiring fix is planned, separate from this skill |
+| Model properties (architecture, parameter count, etc.) | `ai_typeOfModel` (type + architecture) and `ai_hyperparameter` (list of `DictionaryEntry`, incl. quantization) | covered for architecture/type/hyperparameters; parameter count is a **gap** (not promoted to its own field, even where a format's raw metadata exposes it) |
 | Model input-output properties | `ai_informationAboutApplication` (JSON string) | covered when the model format's extractor populates it; verify per model type |
 | Model training properties | not distinctly modeled (see `ai_typeOfModel` for the closest overlap) | **gap** -- ask/read for training technique detail (pre-training vs. fine-tuning vs. RLHF, etc.) |
-| Model license | none seen on `ai_AIPackage` (distinct from the main package's license) | **gap** -- this is exactly the kind of field `sbom-enrich`'s existing prose-inference steps (2-6) already target; reuse them rather than re-deriving |
-| Model external references | none | **gap** |
+| Model license | `LicenseExpression` relationships (declared/concluded) on the AI package, built by the same `build_license_elements` as the main package; source is the model file (PT2), the Hugging Face card, or local model-card enrichment (`enrich/readme.py`) | conditional -- **gap** only when none of those carry a license; then `sbom-enrich`'s prose-inference steps (2-6) are the way to fill it, reuse them rather than re-deriving |
+| Model external references | `externalRef` (arXiv as `documentation`, hub page as `altWebPage`) and DOI as `ExternalIdentifier`, when the source carries them | conditional; **gap** when it carries none |
 
 ### Dataset Properties cluster
 
@@ -122,15 +123,15 @@ Applies to each `dataset_DatasetPackage`.
 | Element | Pitloom/SPDX 3 field | Status |
 | :--- | :--- | :--- |
 | Dataset name | `dataset_DatasetPackage.name` | covered |
-| Dataset description | none seen in the verified sample | **gap** |
-| Dataset content | `dataset_datasetType`, `dataset_dataPreprocessing` | covered (type + preprocessing steps); finer content description (format, structure) is a **gap** |
-| Dataset identifier | none beyond the internal `spdxId` (not a public/citable identifier) | **gap** |
-| Dataset hash | `verifiedUsing` | covered, when the dataset is a local file Pitloom can hash |
-| Dataset provenance | not modeled | **gap** -- the classic `sbom-enrich` prose-inference target (trainedOn/testedOn relationships, origin, collection method) |
-| Dataset statistical properties | not modeled | **gap**, generally **not automatable** without the user running their own analysis |
-| Dataset sensitivity | not modeled | **gap** -- ask the user directly (PII/copyright/sensitive-data flags are not derivable from files alone) |
+| Dataset description | `description`, when the source (Croissant) carries one; datasets named only in a model card or Hugging Face metadata get a name and download URL, nothing more | conditional |
+| Dataset content | `dataset_datasetType`, `dataset_dataPreprocessing`, `dataset_datasetSize` (record count) | covered when a Croissant file declares them (type defaults to `noAssertion`); finer content description (format, structure) is a **gap** |
+| Dataset identifier | `software_downloadLocation` and `software_packageVersion` when known; no public/citable identifier beyond that (the `spdxId` is internal) | conditional; **gap** for a citable ID |
+| Dataset hash | none on `dataset_DatasetPackage` (no `verifiedUsing`, `dataset.py`); a dataset file scanned as a project file carries its SHA-256 on its own `software_File` | **gap** at package level; the hash is already on the linked `software_File` when the file ships with the project |
+| Dataset provenance | `dataset_dataCollectionProcess` (free text), creator as a `publishedBy` `Agent`, and `trainedOn`/`testedOn` relationships to the model, when the relationship exists (the fields themselves only from a Croissant file) | conditional -- origin/lineage beyond that is a **gap** -- the classic `sbom-enrich` prose-inference target |
+| Dataset statistical properties | `dataset_datasetSize` only | **gap** for anything beyond record count, generally **not automatable** without the user running their own analysis |
+| Dataset sensitivity | `dataset_hasSensitivePersonalInformation`, `dataset_anonymizationMethodUsed`, `dataset_knownBias`, `dataset_intendedUse`, when a Croissant file declares them | conditional -- when the source is silent, ask the user directly (PII/copyright/sensitive-data flags are not derivable from files alone) |
 | Dataset dependency relationship | `Relationship` (`generates`, `hasDataFile`) captures pipeline-derivation edges already | covered for pipeline-derived datasets |
-| Dataset license | not modeled per-dataset | **gap** |
+| Dataset license | none emitted -- `DatasetMetadata.license` is extracted (Croissant) but `dataset.py` never reads it | **gap** in the output; check the dataset's Croissant file/card first, then fill via fragment. A core wiring fix is planned |
 
 ### System Level Properties, Infrastructure, Security Properties, KPI clusters
 
