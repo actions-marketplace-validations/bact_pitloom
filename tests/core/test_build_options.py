@@ -295,6 +295,12 @@ def test_settle_target_warns_for_an_sdist_archive_only(
 
     assert bool(caplog.records) == warns
     assert (settled is _STRAY) != warns
+    if warns:
+        # Not just "warned", but warned with the sdist reason -- not a
+        # plain settle() warning (e.g. "without --allow-build").
+        lines = _build_warnings(caplog)
+        assert lines
+        assert all(line.endswith(SDIST_TARGET_REASON) for line in lines), lines
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX permission bits")
@@ -302,16 +308,22 @@ def test_settle_target_warns_for_an_sdist_archive_only(
 def test_settle_target_unreadable_directory_does_not_raise(
     caplog: pytest.LogCaptureFixture, tmp_path: Path
 ) -> None:
-    """``Path.is_file()`` raises ``PermissionError`` on a path under an
-    unsearchable directory (PR #217's bug class); settling must not."""
+    """Below Python 3.14 ``Path.is_file()`` propagates ``PermissionError``
+    for a path under an unsearchable directory (PR #217's bug class);
+    settling must not, on any version."""
     parent = tmp_path / "locked"
     parent.mkdir()
     target = parent / "demo-1.0.0.tar.gz"
     target.write_text("x\n", encoding="utf-8")
     parent.chmod(0o000)
     try:
+        # Non-vacuity: the directory really is unsearchable here.
         with pytest.raises(PermissionError):
-            target.is_file()
+            target.read_bytes()
+        if sys.version_info < (3, 14):
+            # 3.14's pathlib swallows it; os.path never raised.
+            with pytest.raises(PermissionError):
+                target.is_file()
         with caplog.at_level(logging.WARNING, logger="pitloom"):
             assert _STRAY.settle_target(target) is _STRAY
         assert not caplog.records

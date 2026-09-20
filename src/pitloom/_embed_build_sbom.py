@@ -114,10 +114,11 @@ class EmbedFileCache:
     wheel, as an earlier wheel's cleanup would delete files a later one
     still reads. The block holds a
     :class:`~pitloom.core.build_signals.TerminationGuard`, so a signal
-    during the batch still removes the build's temp directory -- for a
-    discovery run on the block's own thread; one a worker thread ran is
-    removed at the block's exit instead, the guard's ownership being
-    thread-local.
+    during the batch still removes the build's temp directory -- but only
+    for a discovery the block's own thread ran. Guard ownership is
+    thread-local, so one a worker thread ran registers with that thread's
+    own guard: it is removed when the block exits, and leaks if a signal
+    ends the process first.
 
     Every call in a batch must use the same project directory, file-scan
     settings and build options: :meth:`resolve` raises :class:`ValueError`
@@ -140,6 +141,14 @@ class EmbedFileCache:
     def __enter__(self) -> EmbedFileCache:
         if self._guard is not None:
             raise RuntimeError("EmbedFileCache is already entered")
+        # Start clean rather than trust the last block to have finished:
+        # one whose exit was interrupted leaves its files behind, and they
+        # are gone from disk by then (its guard removed them). Resetting
+        # here, not there, keeps the interrupted exit from touching state
+        # a thread still inside resolve() owns.
+        self._settled.clear()
+        self._resolved = None
+        self._resolved_from = None
         guard = TerminationGuard()
         guard.__enter__()
         self._guard = guard
@@ -152,45 +161,55 @@ class EmbedFileCache:
         traceback: TracebackType | None,
     ) -> None:
         try:
-            self._exit_locked(exc_type, exc, traceback)
+            with self._lock:
+                # Locked: a thread still inside resolve() finishes first, so
+                # its cleanup is never dropped, and it then sees the closed
+                # block instead of caching a result nothing will clean up.
+                self._close(exc_type, exc, traceback)
         except BaseException as err:
-            # Interrupted before the guard was released -- a Ctrl-C while
+            # Interrupted before the block was closed -- a Ctrl-C while
             # waiting for a thread still inside resolve(), which holds the
-            # lock for a whole --allow-build build. Release it here, or its
-            # handlers stay installed and every later block in this thread
-            # nests under a dead owner.
+            # lock for a whole --allow-build build. Release the guard (its
+            # handlers would otherwise outlive the block, and every later
+            # block in this thread would nest under a dead owner) and
+            # nothing else: the batch's state belongs to whichever thread
+            # holds the lock, and the guard's own cleanups remove what this
+            # block's discovery left behind. The next __enter__ resets the
+            # rest.
             guard, self._guard = self._guard, None
             if guard is not None:
                 guard.__exit__(type(err), err, err.__traceback__)
             raise
 
-    def _exit_locked(
+    def _close(
         self,
         exc_type: type[BaseException] | None,
         exc: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        """:meth:`__exit__` once the lock is held: a thread still inside
-        resolve() finishes first, so its cleanup is never dropped, and it
-        then sees the closed block instead of caching a result nothing
-        will clean up."""
-        with self._lock:
-            guard, self._guard = self._guard, None
+        """Close the block, under the lock: forget the batch, run the
+        discovery's cleanup, release the guard."""
+        try:
             self._settled.clear()
             self._resolved_from = None
-            try:
-                if self._resolved is not None:
-                    _, cleanup = self._resolved
-                    self._resolved = None
-                    cleanup()
-            except BaseException as err:
-                # Hand the guard the cleanup's own failure (e.g. Ctrl-C
-                # during the rmtree), so it still runs its fallback removal.
-                exc_type, exc, traceback = type(err), err, err.__traceback__
-                raise
-            finally:
-                if guard is not None:
-                    guard.__exit__(exc_type, exc, traceback)
+            if self._resolved is not None:
+                _, cleanup = self._resolved
+                self._resolved = None
+                cleanup()
+        except BaseException as err:
+            # Hand the guard the cleanup's own failure (e.g. Ctrl-C
+            # during the rmtree), so it still runs its fallback removal.
+            exc_type, exc, traceback = type(err), err, err.__traceback__
+            raise
+        finally:
+            # Released from the attribute, never through a local taken
+            # earlier: an interrupt before this point must leave it where
+            # __exit__'s own handler can still find it.
+            if self._guard is not None:
+                try:
+                    self._guard.__exit__(exc_type, exc, traceback)
+                finally:
+                    self._guard = None
 
     def resolve(
         self,

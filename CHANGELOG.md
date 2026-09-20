@@ -1,5 +1,5 @@
 ---
-Last-Modified: 2026-09-19
+Last-Modified: 2026-09-20
 SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 SPDX-FileType: DOCUMENTATION
 SPDX-License-Identifier: CC0-1.0
@@ -48,6 +48,12 @@ and this project adheres to
 - `--allow-build`: SIGTERM/SIGHUP/Ctrl-C (and Windows Ctrl-Break) now
   terminate the build process tree and clean up its temp dirs instead
   of leaking them ([#226])
+- GitHub Action: with both `embed-wheel` and `model` set, the build
+  inputs now follow the embed-wheel command that actually runs, instead
+  of being dropped with a "no effect in model mode" warning ([#226])
+- `loom project <dir>`: a build flag given for a directory with no
+  project config is now reported, as every other surface already did,
+  instead of being dropped silently before the path check ([#226])
 
 [#226]: https://github.com/bact/pitloom/pull/226
 

@@ -58,6 +58,26 @@ EXTERNAL_SBOM_REASON = (
 NO_PROJECT_DIR_REASON = "with no project directory to rescan"
 
 
+def target_settle_plan(target: Path) -> tuple[bool, str | None]:
+    """How to settle build options for a project-or-sdist *target* path:
+    ``(True, SDIST_TARGET_REASON)`` for an sdist archive, ``(True, None)``
+    for a project directory, ``(False, None)`` for anything else -- a
+    missing path, or a file that is no sdist -- whose read fails with an
+    ``ERROR:`` alone, with no build-flag warning ahead of it.
+
+    One authority for that order and those reasons, shared by
+    :meth:`BuildOptions.settle_target` and :mod:`pitloom.embed`, which
+    settles each branch through its own ``EmbedFileCache`` instead and so
+    cannot call the method.
+    """
+    if is_sdist_archive(target):
+        return True, SDIST_TARGET_REASON
+    # os.path.isdir, not Path.is_dir(): never raises (e.g. EACCES).
+    if os.path.isdir(target):
+        return True, None
+    return False, None
+
+
 @dataclasses.dataclass(frozen=True)
 class BuildOptions:
     """Explicit build-and-read options for one call.
@@ -143,17 +163,16 @@ class BuildOptions:
         return BuildOptions()
 
     def settle_target(self, target: Path) -> BuildOptions:
-        """Settle for a project-or-sdist *target* path: an sdist archive
-        gets :meth:`settle_not_applicable` with :data:`SDIST_TARGET_REASON`,
-        a directory :meth:`settle`. Anything else (a missing path, a file
-        that is no sdist) settles nothing and returns ``self``: the
-        caller's read then fails it with an ``ERROR:`` alone, with no
-        build-flag warning ahead of it."""
-        if is_sdist_archive(target):
-            return self.settle_not_applicable(target, SDIST_TARGET_REASON)
-        if os.path.isdir(target):
+        """Settle for a project-or-sdist *target* path, following
+        :func:`target_settle_plan`: an sdist archive gets
+        :meth:`settle_not_applicable` with :data:`SDIST_TARGET_REASON`, a
+        directory :meth:`settle`, anything else nothing."""
+        settle, reason = target_settle_plan(target)
+        if not settle:
+            return self
+        if reason is None:
             return self.settle(target)
-        return self
+        return self.settle_not_applicable(target, reason)
 
     def settle_not_applicable(self, subject: object, reason: str) -> BuildOptions:
         """Resolve a target a caller already knows will never reach file

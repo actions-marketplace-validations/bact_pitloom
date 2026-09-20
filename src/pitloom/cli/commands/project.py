@@ -36,14 +36,19 @@ from pitloom.cli.verbose import _print_verbose
 @cli_error_handler("SBOM generation failed")
 def _run_project_command(args: argparse.Namespace) -> int:
     """Generate a Source SBOM from a project directory or sdist archive."""
+    # Settle before the path check and the metadata/lock-file read below,
+    # so the build-flag WARNING: is the first thing the run logs -- and is
+    # logged at all for a directory the check then rejects, as `generate`,
+    # `embed-wheel` and the library surfaces all do;
+    # generate_project_sbom()'s own settle then finds nothing left to warn
+    # about.
+    build_options = build_options_from_args(args).settle_target(
+        args.project_dir.resolve()
+    )
+
     project_dir, config_path = _resolve_project_paths(args)
     if project_dir is None:
         return 1
-
-    # Settle before the metadata/lock-file read below, so the build-flag
-    # WARNING: is the first thing the run logs; generate_project_sbom()'s
-    # own settle then finds nothing left to warn about.
-    build_options = build_options_from_args(args).settle_target(project_dir)
 
     (
         project_metadata,

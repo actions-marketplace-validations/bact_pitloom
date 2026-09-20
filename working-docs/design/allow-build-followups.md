@@ -1,6 +1,6 @@
 ---
 Created: 2026-09-19
-Last-Modified: 2026-09-19
+Last-Modified: 2026-09-20
 SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 SPDX-FileType: DOCUMENTATION
 SPDX-License-Identifier: CC0-1.0
@@ -9,9 +9,9 @@ SPDX-License-Identifier: CC0-1.0
 # `--allow-build` follow-ups from the PR #226 reviews
 
 Deviations the `--build-timeout` reviews and the first
-`scripts/manual_cli_checks` runs found, none of them fixed in PR #226
-itself. Summarised in [roadmap.md](roadmap.md) as one bullet linking
-here.
+`scripts/manual_cli_checks` runs found and left open: PR #226 fixed the
+correctness defects among them, and these are what remains. Summarised
+in [roadmap.md](roadmap.md) as one bullet linking here.
 
 See also: [allow-build-termination.md](../implementation/allow-build-termination.md)
 (accepted limits of the termination design, and why each stands),
@@ -20,14 +20,8 @@ See also: [allow-build-termination.md](../implementation/allow-build-termination
 
 ## Build-flag warnings
 
-- A build-flag `WARNING:` before a fatal `ERROR:` is printed by
-  `generate`, `embed-wheel` and the library `embed_wheel_sbom()`, but not
-  by `project`.
 - The library `generate()` logs it after the `--use-lockfile` warning;
   the CLI logs it before.
-- `loom project <non-archive file>` cites the sdist reason (the CLI's own
-  path resolution accepts any file; `BuildOptions.settle_target()` no
-  longer does).
 - In a batch, the once-per-batch warning names only the first wheel as
   its subject, because `EmbedFileCache.settle` keys on
   (options, reason).
@@ -65,10 +59,6 @@ rest.
 
 ## One predicate, several spellings
 
-- `embed.py`'s sdist / directory / neither chain hand-inlines
-  `BuildOptions.settle_target()`'s three-way logic, because it must route
-  each branch through `EmbedFileCache.settle` instead. A `settle_target`
-  taking a settler callback would collapse the two copies.
 - `cli/commands/generate.py` still uses `target_path.is_file()` in its
   settle chain, where the rest of this PR moved to `os.path.isfile` for
   the never-raises reason.

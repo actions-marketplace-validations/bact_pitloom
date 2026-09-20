@@ -24,13 +24,14 @@ def is_sdist_archive(path: Path) -> bool:
     """Whether *path* is an existing sdist archive file.
 
     One authority for every caller that branches on "sdist archive vs
-    project directory" (the project reader, the build-flag settle).
-    ``os.path.isfile``, not ``Path.is_file()``: never raises (e.g.
-    EACCES).
+    project directory" (the project reader, the build-flag settle). A
+    directory named like an archive is not one, hence the file check
+    before the extension match. ``os.path.isfile``, not
+    ``Path.is_file()``: never raises (e.g. EACCES).
     """
     if not os.path.isfile(path):
         return False
-    return path.name.lower().endswith(SDIST_EXTENSIONS)
+    return os.path.basename(os.fspath(path)).lower().endswith(SDIST_EXTENSIONS)
 
 
 @dataclass

@@ -170,6 +170,35 @@ def test_build_input_matrix(
     assert _build_flags(result.loom_args) == expected
 
 
+def test_build_inputs_follow_the_mode_actually_chosen(
+    generate: Callable[..., _Result], tmp_path: Path
+) -> None:
+    """With both ``embed-wheel`` and ``model`` set, embed-wheel is the mode
+    that runs, so the build inputs go with it: keying them on ``model``
+    being set instead would drop three flags the command accepts and warn
+    that they have no effect "in model mode", which is not the mode."""
+    _make_wheel(tmp_path / "p-1.whl")
+
+    result = generate(
+        PL_EMBED_WHEEL=str(tmp_path / "*.whl"),
+        PL_MODEL="dummy.gguf",
+        LOOM_STDOUT=EMBED_STDOUT,
+        PL_ALLOW_BUILD="true",
+        PL_NO_BUILD_ISOLATION="true",
+        PL_BUILD_TIMEOUT="1h30m",
+    )
+
+    assert result.returncode == 0
+    assert result.loom_args[0] == "embed-wheel"
+    assert _build_flags(result.loom_args) == [
+        "--allow-build",
+        "--no-build-isolation",
+        "--build-timeout",
+        "1h30m",
+    ]
+    assert "has no effect in model mode" not in result.output
+
+
 def _build_flags(loom_args: list[str]) -> list[str]:
     """The build-flag tokens in *loom_args*, with ``--build-timeout``'s value."""
     flags: list[str] = []

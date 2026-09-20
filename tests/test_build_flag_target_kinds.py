@@ -105,17 +105,62 @@ def test_cli_embed_wheel_non_project_target_warns_nothing(
     assert "ERROR: " in stderr
 
 
-def test_library_embed_wheel_sbom_missing_project_dir_warns_nothing(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
+@pytest.mark.parametrize("command", ["project", "generate"])
+def test_cli_directory_without_project_config_warns_before_the_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    command: str,
 ) -> None:
-    """Library parity with the CLI above: the raised ``FileNotFoundError``
-    is the only report, with no build-flag warning ahead of it."""
+    """A directory is a project target whatever it holds, so a stray flag
+    is reported there even when the run then fails for want of a
+    ``pyproject.toml`` -- and by every command alike: ``project`` settling
+    only after its own path check would make it the one surface that
+    drops the flag silently."""
+    target = tmp_path / "nonproj"
+    target.mkdir()
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "loom",
+            command,
+            str(target),
+            "--build-timeout",
+            "5",
+            "-o",
+            str(tmp_path / "o.json"),
+        ],
+    )
+
+    assert __main__.main() == 1
+
+    stderr = capsys.readouterr().err.splitlines()
+    warnings = [i for i, line in enumerate(stderr) if _BUILD_WARNING in line]
+    errors = [i for i, line in enumerate(stderr) if line.startswith("ERROR: ")]
+    assert len(warnings) == 1, stderr
+    assert errors and warnings[0] < errors[0], stderr
+
+
+@pytest.mark.parametrize("kind", ["missing", "plain_file"])
+def test_library_embed_wheel_sbom_missing_project_dir_warns_nothing(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, kind: str
+) -> None:
+    """Library parity with the CLI's
+    ``test_cli_embed_wheel_non_project_target_warns_nothing`` above: a
+    missing path, and a file that is no sdist archive, both raise
+    ``FileNotFoundError`` as the only report, with no build-flag warning
+    ahead of it -- ``target_settle_plan()`` must not settle a plain file
+    as if it were an sdist archive."""
     wheel = _make_dummy_wheel(tmp_path / "dist", "demo", "1.0.0")
+    target = tmp_path / "nope"
+    if kind == "plain_file":
+        target.write_text("not an sdist\n", encoding="utf-8")
     overrides = ConfigOverrides(build_options=BuildOptions(timeout=900))
 
     with caplog.at_level(logging.WARNING, logger="pitloom"):
         with pytest.raises(FileNotFoundError):
-            embed_wheel_sbom(wheel, project_dir=tmp_path / "nope", overrides=overrides)
+            embed_wheel_sbom(wheel, project_dir=target, overrides=overrides)
 
     assert [
         r.getMessage() for r in caplog.records if _BUILD_WARNING in r.getMessage()

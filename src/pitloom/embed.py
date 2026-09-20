@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import dataclasses
 import logging
-import os
 from pathlib import Path
 from typing import Any
 
@@ -54,13 +53,13 @@ from pitloom.assemble.spdx3.document import build as assemble_spdx3
 from pitloom.core.build_options import (
     EXTERNAL_SBOM_REASON,
     NO_PROJECT_DIR_REASON,
-    SDIST_TARGET_REASON,
     BuildOptions,
+    target_settle_plan,
 )
 from pitloom.core.config import VALID_CONTENT_TYPE_METHODS, PitloomConfig
 from pitloom.core.creation import CreationMetadata
 from pitloom.core.document import DocumentModel
-from pitloom.core.project import ProjectMetadata, is_sdist_archive
+from pitloom.core.project import ProjectMetadata
 from pitloom.core.provenance import ProvenanceConfig
 from pitloom.export.spdx3_json import SPDX3_JSONLD_EXTENSION
 from pitloom.extract.binary import find_phantom_dependencies
@@ -338,18 +337,12 @@ def _generate_embed_sbom_json(
     # project-config read below -- a direct embed_wheel_sbom() caller
     # that didn't already settle upstream still gets the warning first,
     # ahead of any config-parse WARNING: that read can produce.
-    if is_sdist_archive(proj_root):
-        settled_build_options = _settle_build_options(
-            overrides.build_options, file_cache, proj_root, SDIST_TARGET_REASON
-        )
-    elif os.path.isdir(proj_root):
-        settled_build_options = _settle_build_options(
-            overrides.build_options, file_cache, proj_root
-        )
-    else:
-        # Neither: the read below fails it with its own error, with no
-        # build-flag warning ahead of it (BuildOptions.settle_target).
-        settled_build_options = overrides.build_options
+    settle, reason = target_settle_plan(proj_root)
+    settled_build_options = (
+        _settle_build_options(overrides.build_options, file_cache, proj_root, reason)
+        if settle
+        else overrides.build_options
+    )
     if pitloom_config is None:
         # Only [tool.pitloom] config is used here -- skip the lock/pin
         # cascade (embed-wheel is build-stage; a source-stage lock file's

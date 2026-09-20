@@ -328,7 +328,10 @@ runs:
         # is passed through verbatim -- parse_build_timeout() in
         # pitloom.core._models_wheel_types is the single duration parser;
         # this script never validates or converts the value itself.
-        if [ -z "${PL_MODEL}" ]; then
+        # Keyed on the mode actually chosen above, not on "model" being
+        # set: with both embed-wheel and model given, embed-wheel wins,
+        # and its flags must go with it.
+        if [ "${is_embed}" = true ] || [ -z "${PL_MODEL}" ]; then
           if [ "${PL_ALLOW_BUILD}" = "true" ]; then
             loom_args+=("--allow-build")
           fi

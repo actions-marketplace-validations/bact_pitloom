@@ -1,6 +1,6 @@
 ---
 Created: 2026-09-19
-Last-Modified: 2026-09-19
+Last-Modified: 2026-09-20
 SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 SPDX-FileType: DOCUMENTATION
 SPDX-License-Identifier: CC0-1.0
@@ -276,6 +276,10 @@ can be entered again afterwards, with a fresh guard and resolution.
   during the work dir's removal, after success.
 - `tests/assemble/test_embed_build_options.py` -- `EmbedFileCache`
   outside its block, entered again, entered twice.
+- `tests/assemble/test_embed_file_cache_threads.py` -- the same cache
+  under threads: one discovery and one settle per batch, an exit that
+  waits for a thread still resolving, and an interrupted exit (guard
+  released, batch forgotten, the late discovery cleaning up itself).
 - `tests/assemble/test_build_termination.py` -- SIGTERM during AI-model
   scanning in `generate_project_sbom()`/`embed_wheel_sbom()`, Ctrl-C right
   after `get_wheel_files()` returns, SIGTERM between `embed-wheel` batch

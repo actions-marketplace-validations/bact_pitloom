@@ -1,6 +1,6 @@
 ---
 Created: 2026-09-19
-Last-Modified: 2026-09-19
+Last-Modified: 2026-09-20
 SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 SPDX-FileType: DOCUMENTATION
 SPDX-License-Identifier: CC0-1.0
@@ -115,9 +115,12 @@ is the only form every surface takes (`build_options=` on `generate()`,
   file discovery (an sdist archive, a non-project target, an
   externally-supplied `--sbom`): it warns with a target-specific
   *reason* and resets to defaults in one call. `settle_target(path)`
-  picks between the two for a project-or-sdist path with one stat (file:
-  sdist reason; directory: `settle`; missing: nothing, so the read fails
-  with an ERROR alone), shared by `loom project`, `loom generate` and
+  picks between the two for a project-or-sdist path: an sdist archive
+  (`pitloom.core.project.is_sdist_archive()`, an extension match on an
+  existing file) gets the sdist reason, a directory gets `settle`, and
+  anything else -- a missing path, or a file that is no archive --
+  settles nothing, so the read fails with an ERROR alone. Shared by
+  `loom project`, `loom generate` and
   `generate_project_sbom()`. Every run path reaches exactly one warning
   per given flag, so each ignored flag gets exactly one `WARNING: Build:
   <subject>: <flag> has no effect <reason>` line on every surface, and
@@ -161,8 +164,8 @@ Side effects, accepted:
   call, mirroring `settle()`'s contract but for a target a caller
   already knows won't reach file discovery. Both CLI handlers call it
   -- with the shared `pitloom.core.build_options.SDIST_TARGET_REASON`
-  string -- right after the cheap `is_file()` check that tells them
-  it's an sdist, before either resolves any metadata;
+  string -- right after the cheap `is_sdist_archive()` check that tells
+  them it's an sdist, before either resolves any metadata;
   `generate_project_sbom()` calls it too, so a direct library caller
   gets the same ordering with no CLI layer involved. Idempotent, so
   whichever layer settles first leaves nothing for a later layer to
