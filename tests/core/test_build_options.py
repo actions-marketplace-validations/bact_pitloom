@@ -303,8 +303,16 @@ def test_settle_target_warns_for_an_sdist_archive_only(
         assert all(line.endswith(SDIST_TARGET_REASON) for line in lines), lines
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="POSIX permission bits")
-@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores permission bits")
+# One condition, not two decorators: a decorator's argument is evaluated
+# at import time, so a bare os.geteuid() call would fail the whole module
+# on Windows, where it does not exist, however it is skipped afterwards.
+_POSIX_PERMISSION_BITS = sys.platform != "win32" and os.geteuid() != 0
+
+
+@pytest.mark.skipif(
+    not _POSIX_PERMISSION_BITS,
+    reason="POSIX permission bits, and root ignores them",
+)
 def test_settle_target_unreadable_directory_does_not_raise(
     caplog: pytest.LogCaptureFixture, tmp_path: Path
 ) -> None:
