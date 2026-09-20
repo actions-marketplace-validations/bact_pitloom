@@ -8,3 +8,9 @@
 _PROJECT_PYPROJECT_SOURCE = "pyproject.toml"
 _PROJECT_SETUP_CFG_SOURCE = "setup.cfg"
 _PROJECT_SETUP_PY_SOURCE = "setup.py"
+# The project config files a directory is recognised by, in lookup order.
+_PROJECT_CONFIG_FILES = (
+    _PROJECT_PYPROJECT_SOURCE,
+    _PROJECT_SETUP_CFG_SOURCE,
+    _PROJECT_SETUP_PY_SOURCE,
+)

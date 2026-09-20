@@ -63,8 +63,11 @@ General-purpose failure modes that have recurred across more than one
 subsystem -- worth checking for by name in any code that resembles the
 shape described, not just the module where each was first found. Full
 detail (war stories, PR references, exact code shapes) lives in
-[working-docs/implementation/recurring-bug-patterns.md](working-docs/implementation/recurring-bug-patterns.md) --
-read it before extending or citing any of these one-liners.
+[working-docs/implementation/recurring-bug-patterns.md](working-docs/implementation/recurring-bug-patterns.md)
+(data and semantics) and
+[recurring-bug-patterns-platform.md](working-docs/implementation/recurring-bug-patterns-platform.md)
+(platform, concurrency, test harness, CI) -- read them before extending
+or citing any of these one-liners.
 
 - **`None` vs `[]`/`{}` (empty-but-present) is a distinct signal, not two
   spellings of the same thing.** `None`/absent means "this source doesn't
@@ -192,6 +195,36 @@ read it before extending or citing any of these one-liners.
   unconditionally -- a real Windows `FileNotFoundError` carries both --
   never short-circuit on "winerror is set" (PR #217's own first fix got
   this wrong and wasn't caught until the next review round).
+  **Python 3.14 changes this**: there they swallow `PermissionError` too
+  and return `False`, so the same call raises on 3.10-3.13 and does not
+  on 3.14. Use `os.path.isfile`/`isdir` where the intent is "never
+  raises" (true on every version, no gate needed); in a test, gate the
+  raising assertion on `sys.version_info < (3, 14)` and keep a
+  version-independent probe (`read_bytes()`) so the 3.14 branch is not
+  vacuous (PR #226).
+- **A `skipif` decorator's condition is evaluated at import time, on
+  every platform.** `@pytest.mark.skipif(os.geteuid() != 0, ...)` raises
+  `AttributeError` while *collecting* the module on Windows, so the whole
+  file errors out and the skip never applies -- one red leg, everything
+  else green. Compute one short-circuited module constant
+  (`sys.platform != "win32" and os.geteuid() != 0`) and pass that; same
+  trap for any POSIX-only name in a decorator argument, a default
+  argument or a module-level `parametrize` list (PR #226).
+- **A context manager whose `__exit__` can be interrupted must reset its
+  shared state in `__enter__`, not in `__exit__`** -- and must not take
+  its lock to do so (a worker may hold it for a whole build), must
+  install a *fresh* container rather than `.clear()` one a late writer
+  still references, and must detect "my block ended" by object identity,
+  never by mere presence. An interrupt handler releases its own
+  resources and nothing else: state behind a lock belongs to whoever
+  holds the lock, so "retry the cleanup without the lock" deletes things
+  under a live caller (PR #226, and that retry *was* the previous review
+  round's fix -- reproduce a concurrency claim, never reason it through).
+- **Mutation testing lies in two ways**: an *equivalent* mutant (a
+  rearrangement that changes no semantics) cannot be killed and proves
+  nothing, so reinstate the exact pre-fix shape; and an assertion aimed
+  at a lazily-installed side effect (signal handlers installed at first
+  use) observes nothing and passes either way (PR #226).
 - **`json.loads(bytes)` auto-strips a leading UTF-8 BOM; `json.loads(str)`
   after `.decode("utf-8")` raises on one instead.** Recurred twice,
   independently, in the same PR (#217) -- once fixed, then found again
@@ -363,6 +396,12 @@ determinism, offline-mode zero-network-calls, registry round trip, and
 `--allow-build` with/without/ground-truth parity. Full commands for each
 in
 [working-docs/implementation/manual-cli-checks.md](working-docs/implementation/manual-cli-checks.md).
+Run them all with `.venv/bin/python scripts/manual_cli_checks` (add
+`--network` for the network ones): it also runs the declared CLI matrix
+(subcommand x option x environment variable) and order-dependent command
+sequences. A new CLI option or subcommand must get an entry in
+`scripts/manual_cli_checks/_matrix_plan.py` -- `M/completeness` fails in
+CI until it does.
 
 ## Shell scripts
 

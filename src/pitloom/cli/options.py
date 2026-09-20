@@ -16,7 +16,6 @@ the ~400-500 line soft limit -- re-exported below so every existing
 from __future__ import annotations
 
 import argparse
-import logging
 
 # Re-exports (mypy's explicit-reexport check under strict=true needs
 # either "import X as X" or __all__ membership for a name to count as
@@ -42,7 +41,8 @@ from pitloom.cli.options_resolve import (
     _ResolvedTools,
     _ResolvedValue,
 )
-from pitloom.core._models_wheel_types import BUILD_LOG_PREFIX
+from pitloom.core._models_wheel_types import parse_build_timeout
+from pitloom.core.build_options import BuildOptions
 
 __all__ = [
     "_load_pitloom_tool_section",
@@ -65,11 +65,10 @@ __all__ = [
     "add_use_lockfile_argument",
     "add_allow_build_argument",
     "add_no_build_isolation_argument",
-    "warn_if_no_build_isolation_without_allow_build",
+    "add_build_timeout_argument",
+    "build_options_from_args",
     "add_debug_argument",
 ]
-
-log = logging.getLogger(__name__)
 
 
 def add_offline_argument(parser: argparse.ArgumentParser, effect: str) -> None:
@@ -151,7 +150,7 @@ def add_allow_build_argument(parser: argparse.ArgumentParser) -> None:
 
 def add_no_build_isolation_argument(parser: argparse.ArgumentParser) -> None:
     """Add the shared ``--no-build-isolation`` flag. No effect without
-    ``--allow-build`` (each caller warns if passed without it)."""
+    ``--allow-build`` (the library warns if passed without it)."""
     parser.add_argument(
         "--no-build-isolation",
         action="store_true",
@@ -167,22 +166,50 @@ def add_no_build_isolation_argument(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def warn_if_no_build_isolation_without_allow_build(
-    args: argparse.Namespace, subject: object
-) -> None:
-    """Check and, if needed, log the shared ``WARNING:`` for
-    ``--no-build-isolation`` passed without ``--allow-build``. Every
-    command offering both flags calls this instead of repeating the
-    ``if args.no_build_isolation and not args.allow_build:`` guard
-    itself, so the check and its wording stay identical everywhere
-    (mirrors :func:`warn_use_lockfile_no_effect` in
-    :mod:`pitloom.extract.project.reader`)."""
-    if args.no_build_isolation and not args.allow_build:
-        log.warning(
-            "%s%s: --no-build-isolation has no effect without --allow-build",
-            BUILD_LOG_PREFIX,
-            subject,
-        )
+def _build_timeout_arg(text: str) -> int:
+    """``type=`` callable for ``--build-timeout``: parse *text* via the
+    single shared duration parser
+    (:func:`~pitloom.core._models_wheel_types.parse_build_timeout`) and
+    convert its ``ValueError``/``TypeError`` into
+    ``argparse.ArgumentTypeError`` so argparse reports it the normal way
+    (``argument --build-timeout: ...``, exit code 2) instead of a raw
+    traceback."""
+    try:
+        return parse_build_timeout(text)
+    except (ValueError, TypeError) as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
+
+
+def add_build_timeout_argument(parser: argparse.ArgumentParser) -> None:
+    """Add the shared ``--build-timeout`` flag.
+
+    ``default=None`` (like ``--offline``/``--use-lockfile`` above) means
+    "not given" -- needed to tell an explicit value apart from Pitloom's
+    own default when warning about a stray flag without ``--allow-build``.
+    """
+    parser.add_argument(
+        "--build-timeout",
+        type=_build_timeout_arg,
+        default=None,
+        metavar="DURATION",
+        help=(
+            "With --allow-build, stop the build after DURATION -- "
+            "seconds (e.g. 900) or h/m/s units (e.g. 90m, 1h30m); "
+            "default 20m, max 7 days -- and fall back to static file "
+            "discovery with a WARNING:. No effect without --allow-build."
+        ),
+    )
+
+
+def build_options_from_args(args: argparse.Namespace) -> BuildOptions:
+    """Bundle ``--allow-build``/``--no-build-isolation``/``--build-timeout``
+    into one :class:`~pitloom.core.build_options.BuildOptions`, unsettled:
+    the caller settles it for its target before reading any metadata."""
+    return BuildOptions(
+        allow=args.allow_build,
+        no_isolation=args.no_build_isolation,
+        timeout=args.build_timeout,
+    )
 
 
 def add_debug_argument(parser: argparse.ArgumentParser) -> None:

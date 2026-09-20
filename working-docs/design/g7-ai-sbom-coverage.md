@@ -1,6 +1,6 @@
 ---
 Created: 2026-09-17
-Last-Modified: 2026-09-17
+Last-Modified: 2026-09-20
 SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 SPDX-FileType: DOCUMENTATION
 SPDX-License-Identifier: CC0-1.0
@@ -98,6 +98,14 @@ derivable from repo content alone, matching the checklist's own
    -- smallest, zero design risk, code-verified gaps.
 2. **Fix the stale `minimum-elements.md` claims** -- prevents the
    agent/Skill from re-asking users about fields core already covers.
+   **Done 2026-09-20.** Re-verified against code and a fresh run: besides
+   the four rows above (now "conditional" -- emitted only when the
+   format/source carries the value), Model properties' architecture,
+   Dataset description/identifier/provenance/sensitivity/statistical
+   rows were also stale (partly wired via Croissant), and two rows
+   over-claimed: Dataset hash (no `verifiedUsing` on
+   `dataset_DatasetPackage`) and the CISA "main package never hashed"
+   note (it carries the Merkle root).
 3. **Model producer + parameter count** (structured sources only) --
    medium, self-contained, no SDK changes needed.
 4. **`loom` SDK expansion** for dataset provenance + model

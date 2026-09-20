@@ -24,10 +24,11 @@ from pitloom.cli.options import (
     _resolve_project_generation_settings,
     _resolve_project_paths,
     add_allow_build_argument,
+    add_build_timeout_argument,
     add_no_build_isolation_argument,
     add_offline_argument,
     add_use_lockfile_argument,
-    warn_if_no_build_isolation_without_allow_build,
+    build_options_from_args,
 )
 from pitloom.cli.verbose import _print_verbose
 
@@ -35,10 +36,19 @@ from pitloom.cli.verbose import _print_verbose
 @cli_error_handler("SBOM generation failed")
 def _run_project_command(args: argparse.Namespace) -> int:
     """Generate a Source SBOM from a project directory or sdist archive."""
+    # Settle before the path check and the metadata/lock-file read below,
+    # so the build-flag WARNING: is the first thing the run logs -- and is
+    # logged at all for a directory the check then rejects, as `generate`,
+    # `embed-wheel` and the library surfaces all do;
+    # generate_project_sbom()'s own settle then finds nothing left to warn
+    # about.
+    build_options = build_options_from_args(args).settle_target(
+        args.project_dir.resolve()
+    )
+
     project_dir, config_path = _resolve_project_paths(args)
     if project_dir is None:
         return 1
-    warn_if_no_build_isolation_without_allow_build(args, project_dir)
 
     (
         project_metadata,
@@ -77,8 +87,7 @@ def _run_project_command(args: argparse.Namespace) -> int:
         extract_file_header=args.extract_file_header,
         content_type=args.content_type,
         content_type_method=args.content_type_method,
-        allow_build=args.allow_build,
-        no_build_isolation=args.no_build_isolation,
+        build_options=build_options,
     )
     _print_sbom_output_path(output_path)
     return 0
@@ -112,4 +121,5 @@ def add_parser(subparsers: Any, parent_parser: argparse.ArgumentParser) -> None:
     )
     add_allow_build_argument(proj_parser)
     add_no_build_isolation_argument(proj_parser)
+    add_build_timeout_argument(proj_parser)
     proj_parser.set_defaults(func=_run_project_command)

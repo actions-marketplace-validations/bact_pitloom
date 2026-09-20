@@ -1,6 +1,6 @@
 ---
 Created: 2026-07-05
-Last-Modified: 2026-09-08
+Last-Modified: 2026-09-19
 SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 SPDX-FileType: DOCUMENTATION
 SPDX-License-Identifier: CC0-1.0
@@ -79,6 +79,15 @@ uvx --from 'pitloom[huggingface_hub]' loom model mistralai/Mistral-7B-v0.1 \
 loom env -o env.spdx3.json
 ```
 
+## Project SBOM with a real build, capped build time
+
+Only after the user has explicitly asked for `--allow-build` -- see
+`../SKILL.md`'s "Choosing `--build-timeout`":
+
+```bash
+loom project . --allow-build --build-timeout 8m -o sbom.spdx3.json
+```
+
 ## Project SBOM, multiple creators
 
 ```bash
@@ -105,7 +114,11 @@ use the `sbom-validate` skill on `sbom.spdx3.json`.
 ## See also
 
 - `../SKILL.md` -- operating instructions for this skill.
+  <https://github.com/bact/pitloom/blob/main/skills/sbom-generate/SKILL.md>
 - The sibling `sbom-validate` skill -- schema/shape-level conformance
-  check beyond the `@graph` sanity check above.
-- `docs/resources.md` in the Pitloom repository -- SPDX 3 spec, ontology,
-  and JSON Schema links.
+  check beyond the `@graph` sanity check above (minimal fallback:
+  `pip install "pitloom[validate]"` then
+  `loom fragment validate sbom.spdx3.json`).
+  <https://github.com/bact/pitloom/blob/main/skills/sbom-validate/SKILL.md>
+- `docs/resources.md` -- SPDX 3 spec, ontology, and JSON Schema links.
+  <https://bact.github.io/pitloom/resources/>

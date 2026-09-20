@@ -1,6 +1,6 @@
 ---
 Created: 2026-09-17
-Last-Modified: 2026-09-19
+Last-Modified: 2026-09-20
 SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 SPDX-FileType: DOCUMENTATION
 SPDX-License-Identifier: CC0-1.0
@@ -9,7 +9,10 @@ SPDX-License-Identifier: CC0-1.0
 # Recurring bug patterns
 
 See also: [CLAUDE.md](../../CLAUDE.md) ("Recurring bug patterns" section --
-short summary list; this doc holds the full detail).
+short summary list; this doc holds the full detail),
+[recurring-bug-patterns-platform.md](recurring-bug-patterns-platform.md)
+(the same kind of list for platform, concurrency, test-harness and CI
+traps -- this file keeps the data-and-semantics ones).
 
 General-purpose failure modes that have recurred across more than one
 subsystem -- worth checking for by name in any code that resembles the
@@ -336,152 +339,3 @@ shape described, not just the module where each was first found.
   fragility finding, run the actual import in a fresh interpreter (both
   orders) -- it's faster and more conclusive than manually tracing which
   module's `__init__.py` reaches which line first.
-- **A hardcoded POSIX-style path literal in a test silently stops
-  exercising the "genuinely absolute path" branch on Windows.**
-  `pathlib.PureWindowsPath.is_absolute()` requires a drive letter --
-  a literal like `"/tmp/xyz"` is *not* absolute under Windows semantics,
-  even though the equivalent real value from `tempfile.mkdtemp()` on
-  Windows always carries a drive letter and is genuinely absolute. Build
-  the literal from the real `tempfile.gettempdir()` at test-run time
-  instead of hand-typing a POSIX path (see `tests/conftest.py`'s
-  `fake_build_and_read_path()`). Surfaced by PR #220's first real
-  `windows-latest` CI run across 7 call sites in 3 test files -- see
-  [windows-macos-ci.md](windows-macos-ci.md).
-- **A bit-for-bit POSIX permission assertion is unwinnable on Windows --
-  NTFS only tracks a single read-only attribute, not owner/group/other
-  bits.** `os.chmod(path, 0o644)` round-trips as `0o666` on Windows, not
-  bit-for-bit; no black-box `stat()`-based check can distinguish
-  "permissions restored" from "never touched" there. Spy on the
-  `os.chmod` call's own arguments instead
-  (`unittest.mock.Mock(wraps=os.chmod)` + `assert_called_once_with(...)`)
-  on Windows, keep the real bit-for-bit `stat()` assertion on POSIX. A
-  first attempt using `current_mode & stat.S_IWRITE` was vacuously true
-  regardless of whether the real chmod-restore call ran -- caught by a
-  later review round, not by the person writing the fix. See
-  [windows-macos-ci.md](windows-macos-ci.md) and
-  `tests/assemble/test_embed_core.py::test_embed_sbom_preserves_file_permissions`.
-- **`Path.exists()`/`.is_file()` do NOT swallow every `OSError` -- only a
-  specific errno set.** CPython's `pathlib._ignore_error()` returns
-  `False` for genuinely any other failure, e.g. `PermissionError`
-  (`EACCES`), which propagates straight out of a bare `.exists()` call
-  instead of the caller getting a clean "not found"/"can't tell" signal.
-  `merge_fragments()` (PR #217, `assemble/spdx3/fragments.py`) crashed
-  the whole build with an unhandled `PermissionError` on a
-  permission-denied fragment path before this was caught. Fix: classify
-  the failure explicitly (`_is_missing_errno()`/`_fragment_is_missing()`)
-  instead of trusting a bare `.exists()`/`.is_file()` call to degrade
-  gracefully on its own.
-- **The POSIX/Windows split in that same classification must `OR` both
-  checks unconditionally, never short-circuit on "winerror is set".** A
-  real Windows `FileNotFoundError` carries *both* `errno=ENOENT` *and* a
-  `winerror` (typically 2/3, `ERROR_FILE_NOT_FOUND`/`ERROR_PATH_NOT_FOUND`)
-  -- neither of which is in the *extra* winerror set (21/123/1921) that
-  exists specifically to catch cases `errno` alone doesn't cover.
-  CPython's actual `_ignore_error()` is
-  `errno in _IGNORED_ERRNOS or winerror in _IGNORED_WINERRORS` (checks
-  both, every time). PR #217's own first fix for the item above got this
-  wrong -- `if winerror is not None: return winerror in
-  _STAT_MISSING_WINERRORS` -- which silently misclassified the single
-  most common not-found case on Windows as "not missing," and wasn't
-  caught until the *next* review round (a live interpreter check against
-  `inspect.getsource(pathlib)` is what settled it, not reasoning from the
-  docstring). Lesson underneath the bug: a fix from an earlier review
-  round is not exempt from the next round's scrutiny -- verify it with
-  the same rigor as new code, especially any platform-conditional logic
-  that can't be exercised on the CI runner actually reviewing it.
-- **`json.loads(bytes)` and `json.loads(str)` disagree on a leading
-  UTF-8 BOM -- bytes auto-detects and strips it, `str` (after an explicit
-  `.decode("utf-8")`) raises `JSONDecodeError: Unexpected UTF-8 BOM`.**
-  The real SPDX3 merge path (`spdx3.JSONLDDeserializer().read()` on a
-  binary file handle) is BOM-tolerant; any sibling code that does
-  `path.read_bytes().decode("utf-8")` then `json.loads(str)` is not, and
-  silently rejects a BOM-prefixed fragment a real build would merge
-  fine. This exact bug shipped twice, independently, in one PR (#217):
-  once in `cli/commands/fragment.py`'s `_fragment_read_status()`, and
-  again in a *different* file added in the same PR,
-  `extract/_json_io.py`'s `load_json_bytes()` -- fixed once, then found
-  again by the next review round in the sibling file nobody thought to
-  re-check. Prefer `json.loads(raw_bytes)` directly over decode-then-parse
-  for any JSON read meant to match a binary-file-handle parse elsewhere.
-- **`dict.get(key, default)` only guards the key's *absence*, not the
-  key being present with the wrong type.** `data.get("@graph", [])`
-  looks like it always yields something `len()`-able, but if `@graph`
-  is present with a non-list value (e.g. a hand-edited or malformed
-  fragment file with `{"@graph": 5}`), the default never applies and
-  `len(5)` raises an uncaught `TypeError` (PR #217,
-  `_fragment_read_status()` in `cli/commands/fragment.py`) -- crashing
-  an entire multi-item CLI listing command instead of degrading just the
-  one malformed record. Add an explicit `isinstance` check on the
-  *value*, not just a default for the *key*, whenever "valid JSON, wrong
-  shape" is a real possibility (any external/user-editable file, as
-  opposed to output this codebase generated itself).
-- **A monkeypatched stdlib method's fake must match the real method's
-  actual signature, or mypy --strict silently accepts a runtime-only
-  contract violation.** `pathlib.Path.stat()` is
-  `stat(self, *, follow_symlinks: bool = True)` -- keyword-only, no
-  positional `*args`. A test fake written as
-  `def fake_stat(self, *args: object, **kwargs: object)` runs fine under
-  pytest (nothing calls it with conflicting args in practice) but fails
-  `mypy --strict` the moment the real call site passes
-  `follow_symlinks=...` as a keyword, since `**kwargs: object` can't
-  satisfy a `bool` parameter (PR #217,
-  `test_fragments_merge_required.py`). Write the fake against the real
-  method's actual signature (check it, don't guess), not a generic
-  passthrough shim.
-- **A version floor asserted in many places drifts -- and nothing checks
-  it.** `scripts/check_version_consistency.py` covers Pitloom's *own*
-  version string only, not dependency floors. The Hatchling floor lives in
-  `pyproject.toml` (`[build-system] requires` *and* `dependencies`),
-  README/docs/example snippets, the `hatch-integration.yml` matrix's
-  floor axis, `_MIN_HATCHLING_SBOM_VERSION` in `plugins/hatch.py`, test
-  literals, and an action-input example (PR #223). Two traps: (1) raising
-  the floor to "the latest known-good" silently defeats a version-agnostic
-  compat fix (#222 exists so older Hatchling keeps working) -- keep the
-  floor at the *empirically verified* technical minimum (build + embed in a
-  scratch venv pinned to it), and raise it only when a feature needs more;
-  (2) prose and code sample disagreeing in the same paragraph ("Hatchling
-  **1.29.0+** required" above `requires = ["hatchling>=1.32.3"]`). When
-  changing one, `grep -rn` every spelling and classify each hit: *enforced
-  requirement* and *illustrative example* move together; *historical
-  narrative* (what the floor was when a past break happened) stays
-  factual. Also keep the CI matrix's floor axis equal to the pyproject
-  floor.
-- **A manual repro that fails is first suspect for a wrong replication,
-  not a real bug.** Two false alarms in one session (PR #223): an
-  editable install run without the install sequence the CI composite
-  action actually performs (Hatchling pin, `editables`, `setuptools`),
-  and `normalize_requirement("Foo>=1")` called with a raw `str` where the
-  real call site passes a `packaging.requirements.Requirement`. Read the
-  actual call site/invocation and replicate its exact shape before
-  concluding an old dependency version is incompatible.
-- **To find what an undocumented upstream release changed, diff the two
-  released wheels, not the changelog.** Hatchling 1.32.3's generic-arity
-  change was in no changelog: `pip download pkg==A pkg==B --no-deps`,
-  unzip both, `diff` the module (here `builders/plugin/interface.py`) and
-  `git log -S` the upstream repo for the introducing commit (PR #222).
-- **`gh pr checks` lists job names, not workflow names, and `paths-ignore`
-  skips workflows on docs-only commits.** A "missing" check usually
-  means a differently-named job of a workflow that did run (`Python 3.10
-  on ubuntu-latest` is `build.yml`; pylint is a step inside `Ruff (Lint &
-  Format)`, not its own check). Confirm with `gh run list --workflow=...`
-  before concluding a check didn't run.
-- **A test helper that normalises what it captures hides the bug class
-  under test.** `StubBin.run` used `subprocess.run(text=True)`, whose
-  universal newlines turn CRLF into LF, so every "Windows CR is dropped"
-  assertion in `tests/scripts/action/` passed even with the stripping code
-  deleted. A mutation pass (18 one-line breaks of `action.yml` and
-  `scripts/action/*`, rerun after each fix) exposed it; reviewers had not.
-  Decode bytes without newline translation. Survivors left on purpose:
-  defensive fallbacks, error wording, and the Python-step `if:`
-  expressions (covered only by `action-selftest-install.yml` in CI)
-  (PR #224).
-- **Workflow-command injection through echoed tool output.** A composite
-  step that tees a tool's output to the log lets a line starting `::` run
-  as a workflow command. `::stop-commands::<random token>` fences the echo,
-  but the runner does not order stdout against stderr, so put the fence,
-  the echo and the later annotations on one stream (`exec 1>&2`); a real
-  run showed the token masked as `***` in the log, which is cosmetic
-  (PR #224).
-- **Annotation text needs `%` escaping** (`%25`, `%0A`, `%0D` are decoded
-  by the runner), and a final line without a trailing newline is dropped
-  by `while read` unless the loop also tests `[ -n "${line}" ]` (PR #224).

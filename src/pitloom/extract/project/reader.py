@@ -19,9 +19,12 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from pitloom.core._models_wheel_types import BUILD_LOG_PREFIX
 from pitloom.core.config import PitloomConfig
-from pitloom.core.project import ProjectMetadata, merge_project_metadata
+from pitloom.core.project import (
+    ProjectMetadata,
+    is_sdist_archive,
+    merge_project_metadata,
+)
 from pitloom.extract.lock import apply_locked_dependencies
 from pitloom.extract.project._installed_reconcile import reconcile_installed_metadata
 from pitloom.extract.project.installed import (
@@ -33,8 +36,6 @@ from pitloom.extract.project.sdist import read_sdist
 from pitloom.extract.project.setuptools import read_setuptools
 
 log = logging.getLogger(__name__)
-
-_SDIST_EXTENSIONS = (".tar.gz", ".tgz", ".tar.bz2", ".tar.xz", ".zip")
 
 
 def warn_use_lockfile_no_effect(subject: object, reason: str) -> None:
@@ -54,42 +55,6 @@ def warn_use_lockfile_no_effect(subject: object, reason: str) -> None:
         subject,
         reason,
     )
-
-
-def warn_allow_build_no_effect(subject: object, reason: str) -> None:
-    """Log the shared ``WARNING:`` for an explicit ``--allow-build``/
-    ``--no-build-isolation`` (or the equivalent ``allow_build``/
-    ``no_build_isolation`` library-API arguments) given for a target the
-    setting doesn't apply to.
-
-    *reason* is spliced in after "has no effect" (its own leading space,
-    no trailing punctuation). Called from every no-op case, mirroring
-    :func:`warn_use_lockfile_no_effect` above: from
-    :func:`~pitloom.assemble.generate` for a non-project target (env,
-    wheel, Hugging Face, or standalone model file); from
-    :func:`~pitloom.assemble.generate_project_sbom` for an sdist archive
-    target; and from :func:`~pitloom.embed.embed_wheel_sbom` when no
-    project directory is resolvable to rescan, or when ``--sbom``
-    supplies an already-generated SBOM to embed verbatim. None of these
-    call :func:`~pitloom.core.get_wheel_files`, the only consumer of
-    these two flags, so build-and-read is never reachable for them
-    regardless.
-    """
-    log.warning(
-        "%s%s: --allow-build/--no-build-isolation has no "
-        "effect %s -- ignoring the explicit override",
-        BUILD_LOG_PREFIX,
-        subject,
-        reason,
-    )
-
-
-def _is_sdist_archive(path: Path) -> bool:
-    """Return True if path points to an sdist file archive."""
-    if not path.is_file():
-        return False
-    name_lower = path.name.lower()
-    return any(name_lower.endswith(ext) for ext in _SDIST_EXTENSIONS)
 
 
 # pylint: disable-next=too-many-arguments,too-many-positional-arguments
@@ -237,7 +202,7 @@ def read_project(
     if not project_path.exists():
         raise FileNotFoundError(f"Project path not found: {project_path}")
 
-    if _is_sdist_archive(project_path):
+    if is_sdist_archive(project_path):
         metadata, files = read_sdist(project_path)
         metadata.files = files
         return metadata, PitloomConfig(), project_path
@@ -347,7 +312,7 @@ def resolve_project_with_lockfile(
     same accepted-cost umbrella as the static-metadata double-parse, not a
     separate tradeoff of its own.
     """
-    if _is_sdist_archive(project_path):
+    if is_sdist_archive(project_path):
         if use_lockfile is not None:
             warn_use_lockfile_no_effect(
                 project_path,
