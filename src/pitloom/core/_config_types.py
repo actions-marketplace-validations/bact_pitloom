@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import TypedDict
 
 from pitloom.core.content_type_config import ContentTypeConfig, ContentTypeOverride
 from pitloom.core.creation import CreationMetadata, Creator, Tool
@@ -16,6 +17,17 @@ from pitloom.core.provenance import ProvenanceConfig
 
 _DEFAULT_PROVENANCE_SCHEMA = "pitloom/1"
 VALID_CONTENT_TYPE_METHODS: frozenset[str] = frozenset({"auto", "magika", "extension"})
+
+
+class AssembleOptions(TypedDict):
+    """The config-resolved settings ``build()`` takes as keyword arguments.
+
+    See :attr:`PitloomConfig.assemble_options`.
+    """
+
+    provenance: ProvenanceConfig
+    offline: bool
+    content_type_method: str
 
 
 @dataclass
@@ -130,6 +142,21 @@ class PitloomConfig:
             enabled=self.content_type_enabled,
             method=self.content_type_method,
             overrides=self.content_type_overrides,
+        )
+
+    @property
+    def assemble_options(self) -> AssembleOptions:
+        """Return the settings a build-stage caller hands to
+        :func:`pitloom.assemble.spdx3.document.build` as ``**kwargs``.
+
+        One place to add a setting ``build()`` starts consuming, so a
+        surface that already has a resolved config (the Hatchling hook,
+        ``embed-wheel --project-dir``) cannot forget it.
+        """
+        return AssembleOptions(
+            provenance=self.provenance,
+            offline=self.offline,
+            content_type_method=self.content_type_method,
         )
 
     @property

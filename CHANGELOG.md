@@ -39,6 +39,8 @@ and this project adheres to
 - GitHub Action: `model` mode now warns once per explicitly-set
   `allow-build`/`no-build-isolation`/`build-timeout` input instead of
   silently dropping it ([#226])
+- Library `ConfigOverrides.provenance` now replaces every provenance
+  setting, including the byte cap, not four of five ([#227])
 
 ### Fixed
 
@@ -54,8 +56,11 @@ and this project adheres to
 - `loom project <dir>`: a build flag given for a directory with no
   project config is now reported, as every other surface already did,
   instead of being dropped silently before the path check ([#226])
+- `embed-wheel --project-dir`: `--content-type-method` and
+  `--max-source-metadata-bytes` now reach the SBOM, as on `project` ([#227])
 
 [#226]: https://github.com/bact/pitloom/pull/226
+[#227]: https://github.com/bact/pitloom/pull/227
 
 ## [0.19.0] - 2026-09-18
 

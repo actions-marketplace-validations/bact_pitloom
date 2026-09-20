@@ -2,7 +2,7 @@
 # SPDX-FileType: SOURCE
 # SPDX-License-Identifier: Apache-2.0
 
-"""Checks 1-10 of manual-cli-checks.md that can run unattended.
+"""Checks 1-11 of manual-cli-checks.md that can run unattended.
 
 Check 6 (skills/plugin drift) needs judgement and stays manual.
 
@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import re
 import shutil
 import subprocess  # nosec B404
@@ -314,3 +315,66 @@ def check_allow_build_parity(ctx: Context) -> None:
         f"compare_allow_build.py exited {proc.returncode}:\n" + output[-2000:],
     )
     ctx.note(output.strip().splitlines()[-1] if output.strip() else "no output")
+
+
+@check("11", "--content-type-method extension skips the authors-file fetch")
+def check_content_type_method_fetch(ctx: Context) -> None:
+    """A dependency authored by "and others (see AUTHORS.txt)" has its authors
+    file fetched from the repository host, except under ``extension``. The
+    socket guard blocks that attempt, so ``auto`` shows one more blocked
+    attempt than ``extension`` (the PyPI fallback's are the same in both).
+    Run on ``project`` (the reference) and on ``embed-wheel``."""
+    dist_info = ctx.work / "site" / "fakedep-1.0.dist-info"
+    dist_info.mkdir(parents=True)
+    (dist_info / "METADATA").write_text(
+        "Metadata-Version: 2.1\nName: fakedep\nVersion: 1.0\n"
+        "Author: and others (see AUTHORS.txt)\n"
+        "Project-URL: Repository, https://github.com/example/fakedep\n",
+        encoding="utf-8",
+    )
+    # Prepend: replacing an inherited PYTHONPATH could select another Pitloom.
+    env = child_env(
+        PYTHONPATH=os.pathsep.join(
+            p for p in (str(dist_info.parent), os.environ.get("PYTHONPATH", "")) if p
+        )
+    )
+    project = write_project(ctx.work / "proj")
+    pyproject = project / "pyproject.toml"
+    pyproject.write_text(
+        pyproject.read_text(encoding="utf-8").replace("packaging>=20", "fakedep==1.0"),
+        encoding="utf-8",
+    )
+    wheel = _build_wheel(ctx, project, ctx.work / "w")
+
+    def blocked(*args: str) -> int:
+        result = run_loom(*args, env=env, bootstrap=NETGUARD)
+        expect(result.returncode == 0, result.describe())
+        return result.network_attempts
+
+    def run_project(method: str) -> int:
+        out = ctx.work / f"project-{method}.json"
+        return blocked(
+            "project", str(project), "-o", str(out), "--content-type-method", method
+        )
+
+    def run_embed(method: str) -> int:
+        copy = ctx.work / f"embed-{method}" / wheel.name
+        copy.parent.mkdir()
+        shutil.copy2(wheel, copy)
+        return blocked(
+            "embed-wheel",
+            str(copy),
+            "--project-dir",
+            str(project),
+            "--content-type-method",
+            method,
+        )
+
+    for surface, run in (("project", run_project), ("embed-wheel", run_embed)):
+        auto, extension = run("auto"), run("extension")
+        expect(
+            auto > extension,
+            f"{surface}: auto made {auto} blocked attempts, extension {extension} "
+            "(extension must skip the authors-file fetch)",
+        )
+        ctx.note(f"{surface}: auto {auto} blocked attempts, extension {extension}")

@@ -366,10 +366,8 @@ class PitloomBuildHook(_PitloomBuildHookBase):
             merkle_root=merkle_root,
             sbom_type=spdx3.software_SbomType.build,
             registry=registry,
-            provenance=pitloom_config.provenance,
             enrichment_results_by_model=enrichment_results_by_model,
-            offline=pitloom_config.offline,
-            content_type_method=pitloom_config.content_type.method,
+            **pitloom_config.assemble_options,
         )
         merge_fragments(project_dir, pitloom_config.fragments, exporter)
 

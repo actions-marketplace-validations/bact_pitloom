@@ -390,9 +390,8 @@ def _build_sbom_from_project_and_wheel(
         merkle_root=merkle_root,
         sbom_type=spdx3.software_SbomType.build,
         registry=registry,
-        provenance=pitloom_config.provenance,
         enrichment_results_by_model=enrichment_results,
-        offline=pitloom_config.offline,
+        **pitloom_config.assemble_options,
     )
     merge_fragments(project_dir, pitloom_config.fragments, exporter)
     return exporter.to_json(pretty=False)

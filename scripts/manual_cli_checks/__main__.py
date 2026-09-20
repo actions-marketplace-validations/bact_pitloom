@@ -7,7 +7,7 @@
 Real ``loom`` processes, fixture projects in a fresh temp dir (never the
 repo tree), stdlib only, Linux/macOS/Windows. Three kinds of check:
 
-- ``1``-``10``, ``B1``-``B7``: the numbered checks of
+- ``1``-``11``, ``B1``-``B7``: the numbered checks of
   ``working-docs/implementation/manual-cli-checks.md`` (check 6, skills
   drift, needs judgement and stays manual);
 - ``M/<command>/<group>/<variant>``: the CLI matrix -- every subcommand
