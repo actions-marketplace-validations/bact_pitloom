@@ -57,9 +57,10 @@ and this project adheres to
 - `embed-wheel --project-dir`: `--content-type-method` and
   `--max-source-metadata-bytes` now reach the SBOM, as on `project` and
   the Hatchling hook; library `ConfigOverrides.provenance` now also
-  replaces the byte cap
+  replaces the byte cap ([#227])
 
 [#226]: https://github.com/bact/pitloom/pull/226
+[#227]: https://github.com/bact/pitloom/pull/227
 
 ## [0.19.0] - 2026-09-18
 
