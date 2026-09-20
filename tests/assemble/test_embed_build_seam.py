@@ -8,15 +8,18 @@
 ``content_type_method`` and ``provenance.max_source_metadata_bytes`` are
 resolved from the CLI flag / library override / ``[tool.pitloom]`` cascade
 by each surface, then handed to ``pitloom.assemble.spdx3.document.build()``.
-Each surface writes that hand-off itself, so one can drop a value the
-others keep -- ``embed-wheel`` did, and its own scan honoured the value
-while the assembler silently used the default.
+Three separate hand-offs feed it (``_generators.py``; the hook and
+``embed-wheel --project-dir``, via ``PitloomConfig.assemble_options``; the
+standalone-wheel path), so one can drop a value the others keep.
 
-The seam observed here is ``add_dependencies()``, the one function every
-surface's ``build()`` call ends in, so the spy needs no per-surface import
-site and survives a refactor of the hand-off.
+The seam observed here is ``add_dependencies()``, which every ``build()``
+call passes through, so the spy needs no per-surface import site and
+survives a refactor of the hand-off.
 
 See also:
+- :mod:`tests.assemble.embed_surfaces_shared` for the surfaces run here.
+- :mod:`tests.assemble.test_embed_authors_fetch` for what the assembler then
+  does with the method.
 - :mod:`tests.assemble.test_embed_overrides` for ``_apply_config_overrides``.
 - :mod:`tests.test_build_flag_warnings` for the surface x target matrix this
   module's runners are modelled on.
@@ -28,13 +31,13 @@ import dataclasses
 import inspect
 from pathlib import Path
 from typing import Any
+from unittest import mock
 
 import pytest
 
 from pitloom.assemble.spdx3 import document as spdx3_document
 from pitloom.assemble.spdx3.deps import add_dependencies
-from pitloom.core._config_types import AssembleOptions
-from pitloom.core.config import PitloomConfig
+from pitloom.core.config import AssembleOptions, PitloomConfig
 from pitloom.core.provenance import ProvenanceConfig
 from pitloom.embed import ConfigOverrides, _apply_config_overrides, embed_wheel_sbom
 from tests.assemble.conftest import _make_dummy_wheel
@@ -105,35 +108,36 @@ def test_content_type_method_reaches_assembler(
     assert calls.method() == expected
 
 
-@pytest.mark.parametrize("surface", ["lib-embed_wheel_sbom", "cli-embed-wheel"])
+# The hook has no per-run override to carry a byte cap.
+@pytest.mark.parametrize("surface", [s for s in sorted(RUNNERS) if s != "hatch-hook"])
 @pytest.mark.parametrize(
     "case",
     [
         pytest.param((None, 5000, 5000), id="override-only"),
         pytest.param((7000, None, 7000), id="config-only"),
         pytest.param((7000, 5000, 5000), id="override-beats-config"),
+        # 0 is falsy and the default: an explicit 0 must still clear the config's cap.
+        pytest.param((7000, 0, 0), id="override-zero-clears-config"),
     ],
 )
-def test_embed_max_source_metadata_bytes_reaches_assembler(
+def test_max_source_metadata_bytes_reaches_assembler(
     surface: str,
     case: tuple[int | None, int | None, int],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     calls: _Recorded,
 ) -> None:
-    """The byte cap set on ``embed-wheel`` is not lost between the override
-    and the assembler (``_apply_config_overrides`` copied four of the five
-    ``ProvenanceConfig`` fields)."""
+    """The byte cap is not lost between the override and the assembler."""
     config, override, expected = case
     RUNNERS[surface](tmp_path, monkeypatch, config_toml(None, config), None, override)
     assert calls.max_bytes() == expected
 
 
-def test_hatch_hook_reads_method_from_config(
+def test_hatch_hook_reads_config_values(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, calls: _Recorded
 ) -> None:
-    """Guards the assertion above against a vacuous pass for the hook: its
-    only input is the config file, and a non-default value must arrive."""
+    """The hook's only input is the config file: a non-default method and
+    byte cap must both arrive (the byte-cap test above excludes the hook)."""
     hatch_hook(tmp_path, monkeypatch, config_toml("extension", 4321), None, None)
     assert (calls.method(), calls.max_bytes()) == ("extension", 4321)
 
@@ -182,8 +186,8 @@ def test_embed_sbom_bytes_are_deterministic_with_method(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, calls: _Recorded
 ) -> None:
     """Two embeds under the same non-default method give identical bytes.
-    Offline, the method changes no output (see the module docstring), so
-    this only guards against the hand-off adding run-to-run variation."""
+    The method only affects the authors-file fetch, which offline skips, so
+    this guards against the hand-off adding run-to-run variation."""
     monkeypatch.setenv("SOURCE_DATE_EPOCH", "1700000000")
     outputs = []
     for run in ("a", "b"):
@@ -230,8 +234,9 @@ def _every_field_non_default(prov: ProvenanceConfig) -> ProvenanceConfig:
 
 
 def test_apply_config_overrides_round_trips_every_provenance_field() -> None:
-    """A field added to ``ProvenanceConfig`` but not copied by
-    ``_apply_config_overrides`` fails here, whatever its name."""
+    """A ``ProvenanceConfig`` field with no matching
+    ``PitloomConfig.provenance_<name>`` (or not read back by
+    ``PitloomConfig.provenance``) fails here, whatever its name."""
     prov = _every_field_non_default(ProvenanceConfig())
     assert all(
         getattr(prov, f.name) != getattr(ProvenanceConfig(), f.name)
@@ -287,3 +292,31 @@ def test_provenance_override_replaces_the_config_provenance_whole() -> None:
     )
     assert overridden.provenance == ProvenanceConfig(format="fields")
     assert cfg.provenance != overridden.provenance
+
+
+@dataclasses.dataclass(frozen=True)
+class _ExtendedProvenance(ProvenanceConfig):
+    """A caller's own subclass: its extra field has no config counterpart."""
+
+    note: str = "extra"
+
+
+def test_apply_config_overrides_reads_only_provenance_config_fields() -> None:
+    """An override that is not a plain ``ProvenanceConfig`` (a subclass, or a
+    ``Mock(spec=...)``) contributes its five known fields; extras are ignored,
+    not passed on to ``PitloomConfig``."""
+    subclass = _ExtendedProvenance(detail="full", max_source_metadata_bytes=4096)
+    overridden = _apply_config_overrides(
+        PitloomConfig(), ConfigOverrides(provenance=subclass)
+    )
+    assert overridden.provenance == ProvenanceConfig(
+        detail="full", max_source_metadata_bytes=4096
+    )
+
+    fake = mock.Mock(spec=ProvenanceConfig, **dataclasses.asdict(subclass))
+    overridden = _apply_config_overrides(
+        PitloomConfig(), ConfigOverrides(provenance=fake)
+    )
+    assert overridden.provenance == ProvenanceConfig(
+        detail="full", max_source_metadata_bytes=4096
+    )

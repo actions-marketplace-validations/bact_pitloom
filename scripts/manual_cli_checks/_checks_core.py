@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import re
 import shutil
 import subprocess  # nosec B404
@@ -331,7 +332,12 @@ def check_content_type_method_fetch(ctx: Context) -> None:
         "Project-URL: Repository, https://github.com/example/fakedep\n",
         encoding="utf-8",
     )
-    env = child_env(PYTHONPATH=str(dist_info.parent))
+    # Prepend: replacing an inherited PYTHONPATH could select another Pitloom.
+    env = child_env(
+        PYTHONPATH=os.pathsep.join(
+            p for p in (str(dist_info.parent), os.environ.get("PYTHONPATH", "")) if p
+        )
+    )
     project = write_project(ctx.work / "proj")
     pyproject = project / "pyproject.toml"
     pyproject.write_text(

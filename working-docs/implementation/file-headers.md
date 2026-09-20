@@ -1,6 +1,6 @@
 ---
 Created: 2026-08-12
-Last-Modified: 2026-08-25
+Last-Modified: 2026-09-20
 SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 SPDX-FileType: DOCUMENTATION
 SPDX-License-Identifier: CC0-1.0
@@ -217,7 +217,9 @@ correctness gap.
 | Surface | How to opt in |
 | :------ | :------------ |
 | CLI -- `loom project`/`loom generate` | `--extract-file-header`/`--no-extract-file-header`, `--content-type`/`--no-content-type`, `--content-type-method {auto,magika,extension}` (each defers to config when omitted) |
+| CLI -- `loom embed-wheel --project-dir` | the same three flags (each defers to config when omitted); without a project directory (no `--project-dir`, and the current directory is not a project) there are no source files to scan, so none of the three has an effect |
 | Python API -- `generate_project_sbom()`/`generate()` | `extract_file_header=True/False`, `content_type=True/False`, `content_type_method="auto"/"magika"/"extension"` keywords (`None` defers to config) |
+| Python API -- `embed_wheel_sbom(overrides=ConfigOverrides(...))` | `extract_file_header`, `content_type`, `content_type_method` fields (`None` defers to config) |
 | Hatchling build hook | Inherits the project's `[tool.pitloom]`/`[tool.pitloom.content-type]` automatically -- no separate hook-level key |
 | GitHub Action | `extract-file-header: "true"/"false"`, `content-type: "true"/"false"`, `content-type-method: "auto"/"magika"/"extension"` inputs, mapped to the CLI flags; empty (default) defers to config |
 | Content-type overrides | Config-only (`[[tool.pitloom.content-type.override]]`) -- no CLI flag, API parameter, or Action input; see above |

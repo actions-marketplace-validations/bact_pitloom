@@ -394,7 +394,8 @@ embed->verify->validate round trip, `--debug`/`PITLOOM_DEBUG` reaching
 every subcommand, skills/plugin surface drift, fragment merge
 determinism, offline-mode zero-network-calls, registry round trip,
 `--allow-build` with/without/ground-truth parity, and a setting that
-changes no bytes (`--content-type-method`) still reaching every surface.
+changes no bytes (`--content-type-method`) still reaching `project` and
+`embed-wheel`.
 Full commands for each in
 [working-docs/implementation/manual-cli-checks.md](working-docs/implementation/manual-cli-checks.md).
 Run them all with `.venv/bin/python scripts/manual_cli_checks` (add

@@ -7,9 +7,10 @@
 
 A dependency whose author is "and others (see AUTHORS.txt)" has its authors
 file fetched from the repository host, unless ``content_type_method`` is
-``extension`` (stdlib-only, no detector needing the content). The method
+``extension`` (stdlib-only, no detector needing the content) or the run is
+offline. The method
 reaches that decision only through the assembler, so a surface that drops it
-fetches anyway -- ``embed-wheel --project-dir`` did.
+fetches anyway.
 
 No real network access: ``urllib.request.urlopen`` is replaced and records
 every request. See :mod:`tests.assemble.test_embed_build_seam` for the
@@ -61,8 +62,9 @@ def _fresh_authors_cache() -> Iterator[None]:
 
 @pytest.fixture(name="requests")
 def _requests_fixture(monkeypatch: pytest.MonkeyPatch) -> list[str]:
-    """Record every URL opened; serve the authors host, refuse the rest
-    (PyPI's fallback lookup fails as it would offline)."""
+    """Record every URL opened and serve the authors host. The refusal of
+    any other host is a backstop: ``tests/conftest.py`` already stubs the
+    PyPI lookup, so nothing else is expected to reach ``urlopen``."""
     urls: list[str] = []
 
     def _urlopen(request: Any, *_args: Any, **_kwargs: Any) -> _Response:

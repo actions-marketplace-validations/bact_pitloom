@@ -3,8 +3,8 @@
 # SPDX-FileType: SOURCE
 # SPDX-License-Identifier: Apache-2.0
 
-"""One demo project, run through every surface that builds an SBOM from a
-resolved ``[tool.pitloom]`` config: ``generate_project_sbom``,
+"""One demo project, run through the surfaces that hand a resolved
+``[tool.pitloom]`` config to the assembler: ``generate_project_sbom``,
 ``embed_wheel_sbom``, ``loom embed-wheel`` and the Hatchling build hook.
 
 Shared by :mod:`tests.assemble.test_embed_build_seam` (what reaches the
@@ -56,7 +56,7 @@ def demo_project(tmp_path: Path, pitloom_toml: str = "") -> Path:
 
 
 def demo_wheel(tmp_path: Path) -> Path:
-    """Build the demo project's wheel under *tmp_path*."""
+    """Write a minimal wheel for the demo project under *tmp_path*."""
     return _make_dummy_wheel(
         tmp_path / "dist", "demo", "1.0.0", requires_dist=(f"{DEPENDENCY}==1.0",)
     )
@@ -87,12 +87,10 @@ def run_cli(argv: list[str], monkeypatch: pytest.MonkeyPatch) -> None:
 # surface needs all of them.
 Runner = Callable[..., None]
 
-# pylint: disable=unused-argument
-
 
 def _lib_project(
     tmp: Path,
-    mp: pytest.MonkeyPatch,
+    _mp: pytest.MonkeyPatch,
     toml: str,
     method: str | None,
     size: int | None,
@@ -102,14 +100,16 @@ def _lib_project(
     generate_project_sbom(
         demo_project(tmp, toml),
         content_type_method=method,
-        provenance=ProvenanceConfig(max_source_metadata_bytes=size) if size else None,
+        provenance=ProvenanceConfig(max_source_metadata_bytes=size)
+        if size is not None
+        else None,
         offline=offline,
     )
 
 
 def _lib_embed(
     tmp: Path,
-    mp: pytest.MonkeyPatch,
+    _mp: pytest.MonkeyPatch,
     toml: str,
     method: str | None,
     size: int | None,
@@ -156,7 +156,7 @@ def cli_embed(
 
 def hatch_hook(
     tmp: Path,
-    mp: pytest.MonkeyPatch,
+    _mp: pytest.MonkeyPatch,
     toml: str,
     method: str | None,
     size: int | None,

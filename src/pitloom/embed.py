@@ -383,8 +383,9 @@ def _apply_config_overrides(
     if overrides.provenance is not None:
         # Every ProvenanceConfig field maps to PitloomConfig.provenance_<name>;
         # a field without one fails in dataclasses.replace() below, never
-        # silently.
-        for prov_field in dataclasses.fields(overrides.provenance):
+        # silently. Fields are read from the class, so a subclass's extras
+        # are ignored.
+        for prov_field in dataclasses.fields(ProvenanceConfig):
             changes[f"provenance_{prov_field.name}"] = getattr(
                 overrides.provenance, prov_field.name
             )

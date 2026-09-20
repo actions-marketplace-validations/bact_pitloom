@@ -685,20 +685,22 @@ be built:
   top-level handler in `__main__.py` catches it, unlike every other
   failure mode (`ERROR:` via `cli_error_handler`). Found during a
   `--build-timeout` review, 2026-09-19.
-- [ ] **Shared options accepted, then silently ignored** -- the common
-  parent parser gives every SBOM subcommand `--extract-file-header`,
-  `--content-type` and `--content-type-method`, but `wheel`, `model`,
-  `enrich` and `env` never pass them on; `--describe-relationship` has
-  no effect on `embed-wheel` (not in `ConfigOverrides`), `model` or
-  `enrich`. Warn "has no effect" (as the build flags do) or stop
-  offering them there. Cells `M/{wheel,model,enrich,env}/opt/...` of
-  `scripts/manual_cli_checks`. Same gap: `env` passes the raw
-  `pitloom_config.provenance`, so `--max-source-metadata-bytes` skips
-  `resolve_effective_provenance` (no warning for a too-small value; it
-  has no other effect, as `env` has no AI artefacts to cap); and a
-  standalone-wheel `embed-wheel` (no `--project-dir`) never receives
-  `--content-type-method` (`_build_sbom_standalone_wheel` has no such
-  parameter), so `build()` uses `auto`.
+- [ ] **Shared options accepted, then silently ignored** -- `wheel`,
+  `model`, `enrich`, `env` and `embed-wheel --sbom` take shared options
+  they never use. Warn "has no effect" or stop offering them. See
+  [cli-shared-options-ignored.md](cli-shared-options-ignored.md).
+- [ ] **Immediate follow-ups (next PR): canonical output** -- sort
+  metadata keys for every file format, not only Safetensors (its
+  `safe_open().metadata()` order changes per call, so
+  `ai_AIPackage.comment` is non-deterministic); one name-normalisation
+  policy for every named thing (an AI model name with a space yields an
+  invalid IRI); every datetime UTC with `Z` (a pinned `Z` datetime fails
+  the Hatchling hook on Python 3.10, and offset forms are not converted).
+  See [canonical-output-followups.md](canonical-output-followups.md).
+- [ ] **`loom project` warns twice about a too-small
+  `[tool.pitloom.provenance] max-source-metadata-bytes`** (config, not
+  flag) -- it reads the config twice; `embed-wheel` warns once. Found
+  during a PR #227 review, 2026-09-20.
 - [ ] **`--max-source-metadata-bytes` accepts a negative value** -- `-1`
   runs like `0` (no cap) with no message; reject it at parse time.
 - [ ] **`enrich` and `merge` stdout is not `KEY=VALUE`** -- they print

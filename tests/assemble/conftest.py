@@ -242,6 +242,7 @@ def _embed_sbom_entry(
         zf.writestr(zinfo, content)
 
 
+# pylint: disable-next=too-many-locals
 def _make_dummy_wheel(
     directory: Path,
     name: str = "demo_pkg",

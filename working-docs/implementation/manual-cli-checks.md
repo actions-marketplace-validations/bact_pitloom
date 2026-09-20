@@ -35,7 +35,7 @@ unattended from one stdlib-only runner, on Linux, macOS and Windows:
 
 Use the checkout's own interpreter: the runner tests the `pitloom` that
 interpreter imports, and prints its path first. Besides the numbered
-checks (`1`-`10`, `B1`-`B7`) it runs:
+checks (`1`-`11`, `B1`-`B7`) it runs:
 
 - **The CLI matrix** (`M/<command>/<group>/<variant>`): every subcommand
   x its options x the environment variables that change it
@@ -211,10 +211,10 @@ project directory, an sdist archive, or a vendored fixture via
 "`--allow-build` build-and-read" round for a worked example and
 `scripts/compare_allow_build.py`'s own docstring for usage.
 
-**11. A setting reaches the assembler on every surface**: a byte-for-byte
+**11. A setting reaches the assembler on `project` and `embed-wheel`**: a byte-for-byte
 diff cannot see a setting that changes no bytes in an offline fixture
-(`--content-type-method` only decides whether a dependency's remote
-authors file is fetched), so count the fetch instead. Put a fake
+(with `--content-type` off, `--content-type-method` only decides whether
+a dependency's remote authors file is fetched), so count the fetch instead. Put a fake
 `fakedep-1.0.dist-info` (author `and others (see AUTHORS.txt)`, a GitHub
 `Project-URL`) on `PYTHONPATH`, declare `fakedep==1.0`, and run
 `loom project` and `loom embed-wheel --project-dir` with

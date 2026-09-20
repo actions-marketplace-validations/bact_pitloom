@@ -151,7 +151,7 @@ class PitloomConfig:
 
         One place to add a setting ``build()`` starts consuming, so a
         surface that already has a resolved config (the Hatchling hook,
-        ``embed-wheel``) cannot forget it.
+        ``embed-wheel --project-dir``) cannot forget it.
         """
         return AssembleOptions(
             provenance=self.provenance,
