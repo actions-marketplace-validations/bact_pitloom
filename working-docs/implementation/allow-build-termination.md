@@ -308,3 +308,45 @@ restoring only the guard's own handler, the phase in the `WARNING:`,
 Merkle errors propagating): 16 tests, new or with a sharpened assertion,
 fail against the previous round's code, and 19 of 19 targeted mutants
 were killed.
+
+## Measured end to end (PR #226, before the merge)
+
+Run by hand rather than derived from the code, so a future change can be
+re-checked the same way instead of re-argued. Two targets: a synthetic
+backend chaining six generations of nested subprocesses, and the real
+`uv_build` fixture `django-model-import-0.9.0`, whose build tree is
+`loom` -> `python -m build` -> `pip --python build-env-*/bin/python` ->
+`uv-build build-wheel`.
+
+- **The deadline bounds the whole tree, not each process.** Nested
+  children each individually under the limit do not extend it: ~80 s of
+  chained sleeps ended at the 6 s limit, and the real fixture's 20.2 s
+  build returned in 6.17 s at 6 s and 7.21 s at 7 s.
+- **Nothing is left running.** After every killed run `pgrep -g <pgid>`
+  was empty, sampled descendants raised `ProcessLookupError` (gone, not
+  zombies), and no `plb-*`, `uv-build`, `pyproject_hooks` or `-m build`
+  process survived anywhere, including reparented to `launchd`.
+- **The next run is unaffected.** A run killed mid `pip install`, with a
+  half-written pip HTTP cache, was followed by a normal run producing a
+  **bit-for-bit identical** SBOM in 2.03 s against a 2.29 s cold
+  reference. `TMPDIR` was empty (the child's `TMPDIR`/`TEMP`/`TMP` point
+  inside the work dir, so the isolated build venv dies with it), with no
+  `build/` and no `*.egg-info` in the project. The **uv cache is never
+  touched** on this path -- pip does the isolation and `uv-build` only
+  builds the wheel -- so a half-written uv cache is not a failure mode
+  here. A partial pip cache simply completes on the next run.
+- **A `setsid()` descendant escapes, silently.** A grandchild in its own
+  session was still running after the timeout. Both the kill and the
+  `INFO:`/`WARNING:` about leftovers are scoped to the process group, so
+  such a process is neither killed nor mentioned: absence of a warning
+  does not mean absence of survivors. Stated in
+  [docs/allow-build.md](../../docs/allow-build.md) and
+  [allow-build-timeout.md](allow-build-timeout.md).
+- **A timed-out run still exits 0, even with nothing to show for it.**
+  The fallback to static discovery can itself find nothing -- the
+  fixture's project name and module name differ, so the Hatchling
+  heuristic matches nothing: 16 files after a successful build, 0 after
+  a timeout, and the SBOM is still written with exit 0. Three `WARNING:`
+  lines say so on stderr; the exit status does not. Not specific to the
+  timeout. Tracked in
+  [../design/allow-build-followups.md](../design/allow-build-followups.md).
