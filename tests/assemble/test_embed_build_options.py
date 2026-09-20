@@ -10,6 +10,8 @@ batch's shared, at-most-once resolution of that rescan) behaves
 correctly.
 
 See also:
+- :mod:`tests.assemble.test_embed_file_cache_threads` for the cache
+  under threads, and for an interrupted block exit.
 - :mod:`tests.assemble.test_embed_overrides` for every other
   ``ConfigOverrides``/``embed_wheel_sbom`` test.
 - :mod:`tests.assemble.test_embed_cli` for the real
@@ -21,8 +23,6 @@ See also:
 from __future__ import annotations
 
 import signal
-import threading
-import time
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from unittest import mock
@@ -102,42 +102,6 @@ def test_embed_file_cache_resolves_get_wheel_files_at_most_once(
             cleanup.assert_not_called()
 
     cleanup.assert_called_once()
-
-
-def test_embed_file_cache_resolves_once_across_threads(tmp_path: Path) -> None:
-    """Threads sharing one batch get one discovery (one build) and one
-    cleanup: a second discovery's cleanup would overwrite the first's,
-    leaking its extraction dir."""
-    cleanups = [mock.Mock(), mock.Mock()]
-    all_cleanups = list(cleanups)
-
-    def cleanup_calls() -> int:
-        return sum(c.call_count for c in all_cleanups)
-
-    barrier = threading.Barrier(2)
-
-    def slow_get_wheel_files(*_args: object, **_kwargs: object) -> object:
-        time.sleep(0.3)  # both threads are past the barrier by now
-        return None, [], cleanups.pop()
-
-    with mock.patch(_GET_WHEEL_FILES, side_effect=slow_get_wheel_files) as mocked:
-        with EmbedFileCache() as cache:
-
-            def resolve() -> None:
-                barrier.wait(timeout=30)
-                cache.resolve(tmp_path, PitloomConfig(), BuildOptions())
-
-            threads = [threading.Thread(target=resolve) for _ in range(2)]
-            for thread in threads:
-                thread.start()
-            for thread in threads:
-                thread.join(timeout=30)
-        assert mocked.call_count == 1
-
-    # The one discovery's cleanup ran at the batch's exit; no other exists.
-    assert len(cleanups) == 1
-    assert all(c.call_count == 0 for c in cleanups)
-    assert cleanup_calls() == 1
 
 
 def test_embed_file_cache_cleans_up_once_when_the_batch_fails(

@@ -39,6 +39,7 @@ from tests.build_and_read_shared import (
     TEMP_PREFIXES,
     FakeBuildState,
     deliver_sigterm,
+    extract_dirs,
     install_fake_build,
     raising_build,
     spied_raise_signal,
@@ -287,6 +288,34 @@ def test_build_and_read_wheel_survives_raising_rmtree(
         assert f"could not fully remove temporary directory {sys_tmp / name}" in (
             caplog.text
         )
+
+
+@pytest.mark.usefixtures("fake_build")
+def test_work_dir_removal_raising_still_removes_the_extraction_dir(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    sys_tmp: Path,
+) -> None:
+    """The two removals are independent: one raising must not strand the
+    other directory. ``KeyboardInterrupt`` on the failure path is the case
+    only the removals' own nested ``finally`` covers -- the guard's
+    fallback cleanups suppress ``Exception``, not ``BaseException``."""
+    monkeypatch.setattr(
+        RUN_BUILD,
+        raising_build(BuildTimeoutError(42, tree_terminated=True), sys_tmp, set()),
+    )
+    real_removal = bar._remove_work_dir
+
+    def interrupted_removal(work: tempfile.TemporaryDirectory[str]) -> None:
+        real_removal(work)
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(bar, "_remove_work_dir", interrupted_removal)
+
+    with pytest.raises(KeyboardInterrupt):
+        build_and_read_wheel(tmp_path, timeout=42)
+
+    assert not extract_dirs(sys_tmp)
 
 
 @pytest.mark.usefixtures("fake_build")

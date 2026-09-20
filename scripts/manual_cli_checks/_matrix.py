@@ -240,9 +240,13 @@ def _cell_completeness(mx: Matrix) -> CheckFunc:
         def planned(cmd: str, opt: str) -> bool:
             entry = plan_for(cmd, opt)
             if isinstance(entry, str) and entry.startswith("group:"):
-                # A parent parser (loom, ids, fragment) runs no cells of
-                # its own; its subcommands' cells cover its options.
-                return cmd not in groups or entry[len("group:") :] in groups[cmd]
+                name = entry[len("group:") :]
+                if cmd not in groups:
+                    # A parent parser (loom, ids, fragment) runs no cells
+                    # of its own: covered only while some subcommand still
+                    # runs that group -- `--debug` lives only here.
+                    return any(name in cells for cells in groups.values())
+                return name in groups[cmd]
             return entry is not None
 
         missing = [

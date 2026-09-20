@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+import os
 from pathlib import Path
 
 from pitloom.core._models_wheel_types import (
@@ -33,6 +34,7 @@ from pitloom.core._models_wheel_types import (
     resolve_build_timeout,
     validate_build_timeout,
 )
+from pitloom.core.project import is_sdist_archive
 
 log = logging.getLogger(__name__)
 
@@ -141,15 +143,15 @@ class BuildOptions:
         return BuildOptions()
 
     def settle_target(self, target: Path) -> BuildOptions:
-        """Settle for a project-or-sdist *target* path: an existing file is
-        an sdist archive (:meth:`settle_not_applicable` with
-        :data:`SDIST_TARGET_REASON`), an existing directory a project
-        (:meth:`settle`). A missing path settles nothing and returns
-        ``self``: the caller's read then fails it with an ``ERROR:``
-        alone, with no build-flag warning ahead of it."""
-        if target.is_file():
+        """Settle for a project-or-sdist *target* path: an sdist archive
+        gets :meth:`settle_not_applicable` with :data:`SDIST_TARGET_REASON`,
+        a directory :meth:`settle`. Anything else (a missing path, a file
+        that is no sdist) settles nothing and returns ``self``: the
+        caller's read then fails it with an ``ERROR:`` alone, with no
+        build-flag warning ahead of it."""
+        if is_sdist_archive(target):
             return self.settle_not_applicable(target, SDIST_TARGET_REASON)
-        if target.is_dir():
+        if os.path.isdir(target):
             return self.settle(target)
         return self
 

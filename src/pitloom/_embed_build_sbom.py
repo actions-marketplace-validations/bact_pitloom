@@ -108,11 +108,16 @@ class EmbedFileCache:
     Use it as a context manager around the whole batch. Inside the block,
     :meth:`resolve` runs discovery (and any ``--allow-build`` build) on its
     first call only, and :meth:`settle` warns about each ineffective build
-    flag once. Leaving the block runs the discovery's cleanup once, after
-    every wheel is done -- never per wheel, as an earlier wheel's cleanup
-    would delete files a later one still reads. The block holds a
+    flag once -- both hold a lock, so threads sharing one batch still get
+    one discovery and one warning each. Leaving the block runs the
+    discovery's cleanup once, after every wheel is done -- never per
+    wheel, as an earlier wheel's cleanup would delete files a later one
+    still reads. The block holds a
     :class:`~pitloom.core.build_signals.TerminationGuard`, so a signal
-    during the batch still removes the build's temp directory.
+    during the batch still removes the build's temp directory -- for a
+    discovery run on the block's own thread; one a worker thread ran is
+    removed at the block's exit instead, the guard's ownership being
+    thread-local.
 
     Every call in a batch must use the same project directory, file-scan
     settings and build options: :meth:`resolve` raises :class:`ValueError`
@@ -146,22 +151,46 @@ class EmbedFileCache:
         exc: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        guard, self._guard = self._guard, None
-        self._settled.clear()
-        self._resolved_from = None
         try:
-            if self._resolved is not None:
-                _, cleanup = self._resolved
-                self._resolved = None
-                cleanup()
+            self._exit_locked(exc_type, exc, traceback)
         except BaseException as err:
-            # Hand the guard the cleanup's own failure (e.g. Ctrl-C during
-            # the rmtree), so it still runs its fallback removal.
-            exc_type, exc, traceback = type(err), err, err.__traceback__
-            raise
-        finally:
+            # Interrupted before the guard was released -- a Ctrl-C while
+            # waiting for a thread still inside resolve(), which holds the
+            # lock for a whole --allow-build build. Release it here, or its
+            # handlers stay installed and every later block in this thread
+            # nests under a dead owner.
+            guard, self._guard = self._guard, None
             if guard is not None:
-                guard.__exit__(exc_type, exc, traceback)
+                guard.__exit__(type(err), err, err.__traceback__)
+            raise
+
+    def _exit_locked(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        """:meth:`__exit__` once the lock is held: a thread still inside
+        resolve() finishes first, so its cleanup is never dropped, and it
+        then sees the closed block instead of caching a result nothing
+        will clean up."""
+        with self._lock:
+            guard, self._guard = self._guard, None
+            self._settled.clear()
+            self._resolved_from = None
+            try:
+                if self._resolved is not None:
+                    _, cleanup = self._resolved
+                    self._resolved = None
+                    cleanup()
+            except BaseException as err:
+                # Hand the guard the cleanup's own failure (e.g. Ctrl-C
+                # during the rmtree), so it still runs its fallback removal.
+                exc_type, exc, traceback = type(err), err, err.__traceback__
+                raise
+            finally:
+                if guard is not None:
+                    guard.__exit__(exc_type, exc, traceback)
 
     def resolve(
         self,
@@ -176,7 +205,6 @@ class EmbedFileCache:
         different project directory, file-scan settings or build options
         than the first -- the cached list would silently not match it.
         """
-        self._require_block("resolve")
         content_type = pitloom_config.content_type
         resolved_from = (
             project_dir,
@@ -187,6 +215,9 @@ class EmbedFileCache:
             build_options,
         )
         with self._lock:
+            # Inside the lock: the block may have closed while another
+            # thread's discovery held it.
+            self._require_block("resolve")
             if self._resolved is None:
                 _, project_files, cleanup = get_wheel_files(
                     project_dir,
@@ -197,6 +228,12 @@ class EmbedFileCache:
                     skip_merkle_root=True,
                     build_options=build_options,
                 )
+                if self._guard is None:
+                    # The block closed while this discovery held the lock
+                    # (an interrupt in __exit__): nothing else would run
+                    # this cleanup, and nothing may use the result.
+                    cleanup()
+                    self._require_block("resolve")
                 self._resolved = (project_files, cleanup)
                 self._resolved_from = resolved_from
             elif resolved_from != self._resolved_from:
@@ -219,15 +256,18 @@ class EmbedFileCache:
 
         Raises :class:`RuntimeError` outside a ``with`` block.
         """
-        self._require_block("settle")
-        key = (build_options, reason)
-        if key not in self._settled:
-            self._settled[key] = (
-                build_options.settle(subject)
-                if reason is None
-                else build_options.settle_not_applicable(subject, reason)
-            )
-        return self._settled[key]
+        with self._lock:
+            self._require_block("settle")
+            key = (build_options, reason)
+            if key not in self._settled:
+                # Under the lock: the warning is part of settling, so two
+                # threads must not both emit it.
+                self._settled[key] = (
+                    build_options.settle(subject)
+                    if reason is None
+                    else build_options.settle_not_applicable(subject, reason)
+                )
+            return self._settled[key]
 
     def _require_block(self, method: str) -> None:
         if self._guard is None:

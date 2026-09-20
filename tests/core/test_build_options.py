@@ -18,6 +18,8 @@ from __future__ import annotations
 import dataclasses
 import inspect
 import logging
+import os
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -267,6 +269,54 @@ def test_settle_target_missing_path_settles_nothing(
 
     assert not caplog.records
     assert settled is options
+
+
+@pytest.mark.parametrize(
+    ("name", "warns"),
+    [
+        ("demo-1.0.0.tar.gz", True),
+        ("demo-1.0.0.ZIP", True),
+        ("notes.txt", False),
+        ("demo-1.0.0-py3-none-any.whl", False),
+    ],
+)
+def test_settle_target_warns_for_an_sdist_archive_only(
+    caplog: pytest.LogCaptureFixture, tmp_path: Path, name: str, warns: bool
+) -> None:
+    """Only a real sdist archive gets the sdist reason. Any other file is
+    no project target either, so it settles nothing: a warning naming a
+    target kind the path never had would contradict the ``ERROR:`` the
+    caller's read prints right after it."""
+    target = tmp_path / name
+    target.write_text("x\n", encoding="utf-8")
+
+    with caplog.at_level(logging.WARNING, logger="pitloom"):
+        settled = _STRAY.settle_target(target)
+
+    assert bool(caplog.records) == warns
+    assert (settled is _STRAY) != warns
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX permission bits")
+@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores permission bits")
+def test_settle_target_unreadable_directory_does_not_raise(
+    caplog: pytest.LogCaptureFixture, tmp_path: Path
+) -> None:
+    """``Path.is_file()`` raises ``PermissionError`` on a path under an
+    unsearchable directory (PR #217's bug class); settling must not."""
+    parent = tmp_path / "locked"
+    parent.mkdir()
+    target = parent / "demo-1.0.0.tar.gz"
+    target.write_text("x\n", encoding="utf-8")
+    parent.chmod(0o000)
+    try:
+        with pytest.raises(PermissionError):
+            target.is_file()
+        with caplog.at_level(logging.WARNING, logger="pitloom"):
+            assert _STRAY.settle_target(target) is _STRAY
+        assert not caplog.records
+    finally:
+        parent.chmod(0o700)
 
 
 @pytest.mark.parametrize(

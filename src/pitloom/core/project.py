@@ -9,11 +9,28 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, ClassVar, TypedDict
 
 log = logging.getLogger(__name__)
+
+# The archive extensions an sdist is distributed as.
+SDIST_EXTENSIONS = (".tar.gz", ".tgz", ".tar.bz2", ".tar.xz", ".zip")
+
+
+def is_sdist_archive(path: Path) -> bool:
+    """Whether *path* is an existing sdist archive file.
+
+    One authority for every caller that branches on "sdist archive vs
+    project directory" (the project reader, the build-flag settle).
+    ``os.path.isfile``, not ``Path.is_file()``: never raises (e.g.
+    EACCES).
+    """
+    if not os.path.isfile(path):
+        return False
+    return path.name.lower().endswith(SDIST_EXTENSIONS)
 
 
 @dataclass

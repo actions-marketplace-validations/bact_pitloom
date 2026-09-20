@@ -20,7 +20,11 @@ import logging
 from pathlib import Path
 
 from pitloom.core.config import PitloomConfig
-from pitloom.core.project import ProjectMetadata, merge_project_metadata
+from pitloom.core.project import (
+    ProjectMetadata,
+    is_sdist_archive,
+    merge_project_metadata,
+)
 from pitloom.extract.lock import apply_locked_dependencies
 from pitloom.extract.project._installed_reconcile import reconcile_installed_metadata
 from pitloom.extract.project.installed import (
@@ -32,8 +36,6 @@ from pitloom.extract.project.sdist import read_sdist
 from pitloom.extract.project.setuptools import read_setuptools
 
 log = logging.getLogger(__name__)
-
-_SDIST_EXTENSIONS = (".tar.gz", ".tgz", ".tar.bz2", ".tar.xz", ".zip")
 
 
 def warn_use_lockfile_no_effect(subject: object, reason: str) -> None:
@@ -53,14 +55,6 @@ def warn_use_lockfile_no_effect(subject: object, reason: str) -> None:
         subject,
         reason,
     )
-
-
-def _is_sdist_archive(path: Path) -> bool:
-    """Return True if path points to an sdist file archive."""
-    if not path.is_file():
-        return False
-    name_lower = path.name.lower()
-    return any(name_lower.endswith(ext) for ext in _SDIST_EXTENSIONS)
 
 
 # pylint: disable-next=too-many-arguments,too-many-positional-arguments
@@ -208,7 +202,7 @@ def read_project(
     if not project_path.exists():
         raise FileNotFoundError(f"Project path not found: {project_path}")
 
-    if _is_sdist_archive(project_path):
+    if is_sdist_archive(project_path):
         metadata, files = read_sdist(project_path)
         metadata.files = files
         return metadata, PitloomConfig(), project_path
@@ -318,7 +312,7 @@ def resolve_project_with_lockfile(
     same accepted-cost umbrella as the static-metadata double-parse, not a
     separate tradeoff of its own.
     """
-    if _is_sdist_archive(project_path):
+    if is_sdist_archive(project_path):
         if use_lockfile is not None:
             warn_use_lockfile_no_effect(
                 project_path,
