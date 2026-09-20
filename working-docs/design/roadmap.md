@@ -692,7 +692,13 @@ be built:
   no effect on `embed-wheel` (not in `ConfigOverrides`), `model` or
   `enrich`. Warn "has no effect" (as the build flags do) or stop
   offering them there. Cells `M/{wheel,model,enrich,env}/opt/...` of
-  `scripts/manual_cli_checks`.
+  `scripts/manual_cli_checks`. Same gap: `env` passes the raw
+  `pitloom_config.provenance`, so `--max-source-metadata-bytes` skips
+  `resolve_effective_provenance` (no warning for a too-small value; it
+  has no other effect, as `env` has no AI artefacts to cap); and a
+  standalone-wheel `embed-wheel` (no `--project-dir`) never receives
+  `--content-type-method` (`_build_sbom_standalone_wheel` has no such
+  parameter), so `build()` uses `auto`.
 - [ ] **`--max-source-metadata-bytes` accepts a negative value** -- `-1`
   runs like `0` (no cap) with no message; reject it at parse time.
 - [ ] **`enrich` and `merge` stdout is not `KEY=VALUE`** -- they print

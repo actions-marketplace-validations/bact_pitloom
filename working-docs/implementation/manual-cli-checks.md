@@ -1,6 +1,6 @@
 ---
 Created: 2026-09-17
-Last-Modified: 2026-09-19
+Last-Modified: 2026-09-20
 SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 SPDX-FileType: DOCUMENTATION
 SPDX-License-Identifier: CC0-1.0
@@ -210,6 +210,20 @@ project directory, an sdist archive, or a vendored fixture via
 [allow-build-validation.md](allow-build-validation.md)'s
 "`--allow-build` build-and-read" round for a worked example and
 `scripts/compare_allow_build.py`'s own docstring for usage.
+
+**11. A setting reaches the assembler on every surface**: a byte-for-byte
+diff cannot see a setting that changes no bytes in an offline fixture
+(`--content-type-method` only decides whether a dependency's remote
+authors file is fetched), so count the fetch instead. Put a fake
+`fakedep-1.0.dist-info` (author `and others (see AUTHORS.txt)`, a GitHub
+`Project-URL`) on `PYTHONPATH`, declare `fakedep==1.0`, and run
+`loom project` and `loom embed-wheel --project-dir` with
+`--content-type-method auto` and `extension` behind the socket guard: `auto`
+must show one more blocked connection than `extension` on each surface
+(automated as check 11; found `embed-wheel` ignoring the flag). The
+argument-level counterpart is `tests/assemble/test_embed_build_seam.py`,
+and the same fixture without a socket guard is
+`tests/assemble/test_embed_authors_fetch.py`.
 
 For a change touching the build subprocess, its kill path or signal
 handling (`--build-timeout`), also run these against a scratch project

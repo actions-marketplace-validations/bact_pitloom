@@ -104,6 +104,9 @@ class ConfigOverrides:
     """Per-run overrides layered onto a project's ``[tool.pitloom]`` config.
 
     Attributes:
+        provenance: Replaces the config's whole provenance settings, not
+            field by field: a field left at its default resets the
+            config's value, including ``max_source_metadata_bytes``.
         build_options: ``--allow-build`` and its companion flags (see
             :class:`~pitloom.core.build_options.BuildOptions`). Unlike
             every other field here, deliberately has no
@@ -378,12 +381,13 @@ def _apply_config_overrides(
     """Apply per-run overrides to a PitloomConfig."""
     changes: dict[str, Any] = {}
     if overrides.provenance is not None:
-        changes["provenance_format"] = overrides.provenance.format
-        changes["provenance_schema"] = overrides.provenance.schema
-        changes["provenance_detail"] = overrides.provenance.detail
-        changes["provenance_preserve_source_metadata"] = (
-            overrides.provenance.preserve_source_metadata
-        )
+        # Every ProvenanceConfig field maps to PitloomConfig.provenance_<name>;
+        # a field without one fails in dataclasses.replace() below, never
+        # silently.
+        for prov_field in dataclasses.fields(overrides.provenance):
+            changes[f"provenance_{prov_field.name}"] = getattr(
+                overrides.provenance, prov_field.name
+            )
     if overrides.enrich is not None:
         changes["enrich_local"] = overrides.enrich
     if overrides.extract_file_header is not None:

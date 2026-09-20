@@ -54,6 +54,10 @@ and this project adheres to
 - `loom project <dir>`: a build flag given for a directory with no
   project config is now reported, as every other surface already did,
   instead of being dropped silently before the path check ([#226])
+- `embed-wheel --project-dir`: `--content-type-method` and
+  `--max-source-metadata-bytes` now reach the SBOM, as on `project` and
+  the Hatchling hook; library `ConfigOverrides.provenance` now also
+  replaces the byte cap
 
 [#226]: https://github.com/bact/pitloom/pull/226
 
