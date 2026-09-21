@@ -78,7 +78,8 @@ def test_generate_wheel_sbom_configures_logging(
 ) -> None:
     calls = []
     monkeypatch.setattr(
-        "pitloom.assemble._generators.configure_logging", lambda: calls.append(True)
+        "pitloom.assemble._generators_wheel.configure_logging",
+        lambda: calls.append(True),
     )
     with pytest.raises(FileNotFoundError):
         generate_wheel_sbom(tmp_path / "does-not-exist.whl")
@@ -88,7 +89,8 @@ def test_generate_wheel_sbom_configures_logging(
 def test_generate_env_sbom_configures_logging(monkeypatch: pytest.MonkeyPatch) -> None:
     calls = []
     monkeypatch.setattr(
-        "pitloom.assemble._generators.configure_logging", lambda: calls.append(True)
+        "pitloom.assemble._generators_env.configure_logging",
+        lambda: calls.append(True),
     )
 
     class _Sentinel(Exception):
@@ -97,7 +99,7 @@ def test_generate_env_sbom_configures_logging(monkeypatch: pytest.MonkeyPatch) -
     def _raise() -> None:
         raise _Sentinel
 
-    monkeypatch.setattr("pitloom.assemble._generators.read_environment", _raise)
+    monkeypatch.setattr("pitloom.assemble._generators_env.read_environment", _raise)
     with pytest.raises(_Sentinel):
         generate_env_sbom()
     assert calls == [True]

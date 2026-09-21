@@ -1,6 +1,6 @@
 ---
 Created: 2026-08-15
-Last-Modified: 2026-08-15
+Last-Modified: 2026-09-21
 SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 SPDX-FileType: DOCUMENTATION
 SPDX-License-Identifier: CC0-1.0
@@ -17,7 +17,7 @@ Open design question, not a committed plan.
 
 `ai_AIPackage` elements are currently excluded from the Loom ID
 registry's auto-harvest (`_sync_registry` in
-`src/pitloom/assemble/_generators.py`) because `ai_model.name` is
+`src/pitloom/assemble/_generators_shared.py`) because `ai_model.name` is
 extraction-dependent (varies with whether `ai` extras are installed),
 so a name-keyed harvest would write entries that never match
 `_lookup_ai_model_entity`'s lookup candidates. The only currently-stable

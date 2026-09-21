@@ -15,21 +15,16 @@ base document never actually used (see
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 
-import pytest
 from spdx_python_model.bindings import v3_0_1 as spdx3
 
 from pitloom.assemble._model_generator import (
     _project_doc_identity,
-    _resolve_local_offline_default,
-    _resolve_model_enrich_config,
 )
 from pitloom.assemble.spdx3.document import build
 from pitloom.core.creation import CreationMetadata
 from pitloom.core.document import DocumentModel
-from pitloom.core.enrich_config import EnrichConfig
 from pitloom.core.models import get_wheel_files
 from pitloom.extract.project import read_project
 from tests.fixtures.locked_deps import write_locked_deps_project
@@ -144,29 +139,3 @@ def test_project_doc_identity_auto_matches_config_default(tmp_path: Path) -> Non
     _doc_name, doc_uuid = _project_doc_identity(tmp_path)
 
     assert doc_uuid == expected_doc_uuid
-
-
-def test_resolve_local_offline_default_invalid_pyproject_warns(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
-) -> None:
-    """Invalid TOML in pyproject.toml logs warning and defaults to False."""
-    (tmp_path / "pyproject.toml").write_text(
-        "[tool.pitloom\ninvalid toml syntax", encoding="utf-8"
-    )
-    with caplog.at_level(logging.WARNING):
-        result = _resolve_local_offline_default(tmp_path)
-    assert result is False
-    assert "Ignoring invalid pyproject.toml" in caplog.text
-
-
-def test_resolve_model_enrich_config_invalid_pyproject_warns(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
-) -> None:
-    """Invalid TOML in pyproject.toml logs warning and returns default EnrichConfig."""
-    (tmp_path / "pyproject.toml").write_text(
-        "[tool.pitloom\ninvalid toml syntax", encoding="utf-8"
-    )
-    with caplog.at_level(logging.WARNING):
-        config = _resolve_model_enrich_config(tmp_path)
-    assert config == EnrichConfig()
-    assert "Ignoring invalid pyproject.toml" in caplog.text

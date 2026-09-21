@@ -28,7 +28,7 @@ from pitloom.assemble import (
     generate_project_sbom,
     generate_wheel_sbom,
 )
-from pitloom.assemble._generators import _sync_registry
+from pitloom.assemble._generators_shared import _sync_registry
 from pitloom.export.spdx3_json import Spdx3JsonExporter
 from pitloom.ids import IdRegistry
 
