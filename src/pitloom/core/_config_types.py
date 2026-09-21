@@ -19,6 +19,19 @@ _DEFAULT_PROVENANCE_SCHEMA = "pitloom/1"
 VALID_CONTENT_TYPE_METHODS: frozenset[str] = frozenset({"auto", "magika", "extension"})
 
 
+def _require_valid_content_type_method(value: str) -> None:
+    """Raise ``ValueError`` unless *value* is a valid content-type method.
+
+    The one spelling of this check for every caller that takes a method as
+    a parameter rather than reading it from a ``[tool.pitloom]`` table;
+    a table read reports the offending key's own path instead (see
+    ``pitloom.core._config_parse._require_choice``).
+    """
+    if value not in VALID_CONTENT_TYPE_METHODS:
+        valid = ", ".join(sorted(VALID_CONTENT_TYPE_METHODS))
+        raise ValueError(f"content_type_method must be one of {valid}, got {value!r}")
+
+
 class AssembleOptions(TypedDict):
     """The config-resolved settings ``build()`` takes as keyword arguments.
 

@@ -1,6 +1,6 @@
 ---
 Created: 2026-08-11
-Last-Modified: 2026-09-08
+Last-Modified: 2026-09-21
 SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 SPDX-FileType: DOCUMENTATION
 SPDX-License-Identifier: CC0-1.0
@@ -45,6 +45,12 @@ the table itself is what turns it on, even left empty.
 No separate `pip install` step is needed beyond that -- the build
 front-end (`pip`, `build`, `hatch`) installs `pitloom` as a build-time
 dependency automatically, the same way it installs Hatchling itself.
+
+> [!NOTE]
+> Hatchling 1.32.3 changed the build-hook plugin interface, and 1.32.4
+> reverted the change. Pitloom works with both, but other build-hook
+> plugins written for the usual interface may fail to import on 1.32.3.
+> If you pin Hatchling, prefer any version other than 1.32.3.
 
 ## Usage details
 

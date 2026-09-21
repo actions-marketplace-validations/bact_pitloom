@@ -339,9 +339,12 @@ def test_cli_embed_wheel_multi_resolves_project_files_once(
     wheel. See :class:`pitloom.embed.EmbedFileCache`.
 
     Also checks the two wheels' embedded SBOMs are byte-identical (same
-    project, same name/version, same batch-wide creation metadata) --
+    project, same name/version, pinned creation time) --
     the fix must not change per-wheel output, only how many times the
     shared discovery work runs."""
+    # Pin `created`: each wheel resolves it separately, so an unpinned
+    # wall clock can tick over between the two embeds.
+    monkeypatch.setenv("SOURCE_DATE_EPOCH", "1700000000")
     project_dir = tmp_path
     wheel1 = _make_ctpkg_project_and_wheel(project_dir)
     wheel2 = _make_dummy_wheel(project_dir / "dist2", "ctpkg", "1.0.0")

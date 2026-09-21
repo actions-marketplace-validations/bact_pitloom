@@ -213,14 +213,12 @@ def _stage_sbom_file(
 
 
 if TYPE_CHECKING:
-    # Static shape for type checkers only -- must match the installed
-    # Hatchling's actual BuildHookInterface arity. See
-    # _resolve_build_hook_base() below for the real, version-agnostic
-    # base used at runtime.
-    from hatchling.plugin.manager import PluginManager
-
+    # Static shape for type checkers only: the one-parameter interface every
+    # supported Hatchling except 1.32.3 declares. The ignore covers 1.32.3's
+    # two-parameter shape; "unused-ignore" keeps it silent elsewhere. See
+    # _resolve_build_hook_base() below for the base used at runtime.
     class _PitloomBuildHookBase(
-        BuildHookInterface[BuilderConfig[PluginManager], PluginManager]
+        BuildHookInterface[BuilderConfig]  # type: ignore[type-arg, unused-ignore]
     ):
         """Static shape for type checkers -- see :func:`_resolve_build_hook_base`."""
 

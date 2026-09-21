@@ -148,9 +148,13 @@ def _run_unify_pipeline(tmppath: Path) -> None:
 
 
 def _build_graph_for_files(files: list[ProjectFile]) -> list[dict[str, object]]:
-    """Build a minimal document from *files* and return its ``@graph``."""
+    """Build a minimal document from *files* and return its ``@graph``.
+
+    ``created`` is pinned so two calls compare equal across a second boundary.
+    """
     project = ProjectMetadata(name="file-headers-project", version="1.0.0", files=files)
-    doc = DocumentModel(project=project, creation_metadata=CreationMetadata())
+    creation = CreationMetadata(creation_datetime="2026-01-01T00:00:00+00:00")
+    doc = DocumentModel(project=project, creation_metadata=creation)
     exporter = build(doc)
     graph: list[dict[str, object]] = json.loads(exporter.to_json())["@graph"]
     return graph

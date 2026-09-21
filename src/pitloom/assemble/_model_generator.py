@@ -13,9 +13,8 @@ import sys
 from pathlib import Path
 
 from pitloom.assemble.spdx3.document import build_enrichment_fragment, build_model
-from pitloom.core.config import read_pitloom_config
+from pitloom.core.config_cascade import resolve_generator_config
 from pitloom.core.creation import CreationMetadata
-from pitloom.core.enrich_config import EnrichConfig
 from pitloom.core.models import compute_doc_uuid, get_wheel_files
 from pitloom.core.provenance import ProvenanceConfig
 from pitloom.enrich import run_enrichers
@@ -42,28 +41,6 @@ def _write_output_file(sbom_json: str, output_path: Path | None) -> None:
             sys.stdout.write("\n")
     else:
         output_path.write_text(sbom_json, encoding="utf-8")
-
-
-def _resolve_local_offline_default(directory: Path) -> bool:
-    """Read ``[tool.pitloom] offline`` from *directory*'s pyproject.toml."""
-    try:
-        return read_pitloom_config(directory / "pyproject.toml").offline
-    except FileNotFoundError:
-        return False
-    except ValueError as exc:
-        log.warning("Ignoring invalid pyproject.toml in %s: %s", directory, exc)
-        return False
-
-
-def _resolve_model_enrich_config(model_dir: Path) -> EnrichConfig:
-    """Read ``[tool.pitloom] enrich`` from a ``pyproject.toml`` in *model_dir*."""
-    try:
-        return read_pitloom_config(model_dir / "pyproject.toml").enrich
-    except FileNotFoundError:
-        return EnrichConfig()
-    except ValueError as exc:
-        log.warning("Ignoring invalid pyproject.toml in %s: %s", model_dir, exc)
-        return EnrichConfig()
 
 
 def _project_doc_identity(
@@ -136,7 +113,7 @@ def generate_model_sbom(
 
     if is_hf:
         effective_offline = (
-            _resolve_local_offline_default(Path.cwd()) if offline is None else offline
+            resolve_generator_config(Path.cwd()).offline if offline is None else offline
         )
         if effective_offline:
             raise ValueError(
@@ -156,7 +133,7 @@ def generate_model_sbom(
         )
 
         model_dir = model_path.parent
-        enrich_config = _resolve_model_enrich_config(model_dir)
+        enrich_config = resolve_generator_config(model_dir).enrich
         if enrich is not None:
             enrich_config = dataclasses.replace(enrich_config, local=enrich)
         enrichment_results = run_enrichers(model, enrich_config, model_dir)
@@ -211,7 +188,8 @@ def enrich_model(
     # test_enrich_model_writes_bare_graph_fragment's docstring). Only an
     # explicit enrich=False turns it back off.
     enrich_config = dataclasses.replace(
-        _resolve_model_enrich_config(model_dir), local=enrich is not False
+        resolve_generator_config(model_dir).enrich,
+        local=enrich is not False,
     )
     results = run_enrichers(model, enrich_config, model_dir)
 

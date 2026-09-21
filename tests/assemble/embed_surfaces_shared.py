@@ -5,7 +5,12 @@
 
 """One demo project, run through the surfaces that hand a resolved
 ``[tool.pitloom]`` config to the assembler: ``generate_project_sbom``,
-``embed_wheel_sbom``, ``loom embed-wheel`` and the Hatchling build hook.
+``generate_wheel_sbom``, ``generate_env_sbom``, ``embed_wheel_sbom``,
+``loom embed-wheel`` and the Hatchling build hook.
+
+The wheel and environment surfaces have no project of their own, so their
+cascade reads the *current directory*'s ``[tool.pitloom]``; their runners
+``chdir`` into the demo project to give them one.
 
 Shared by :mod:`tests.assemble.test_embed_build_seam` (what reaches the
 assembler) and :mod:`tests.assemble.test_embed_authors_fetch` (what the
@@ -17,6 +22,8 @@ it is inert unless a test supplies its installed metadata.
 
 from __future__ import annotations
 
+import json
+import subprocess
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -25,7 +32,11 @@ from typing import Any
 import pytest
 
 from pitloom import __main__
-from pitloom.assemble import generate_project_sbom
+from pitloom.assemble import (
+    generate_env_sbom,
+    generate_project_sbom,
+    generate_wheel_sbom,
+)
 from pitloom.core.provenance import ProvenanceConfig
 from pitloom.embed import ConfigOverrides, embed_wheel_sbom
 from tests.assemble.conftest import _make_dummy_wheel
@@ -131,6 +142,65 @@ def _lib_embed(
     )
 
 
+def _lib_wheel(
+    tmp: Path,
+    mp: pytest.MonkeyPatch,
+    toml: str,
+    method: str | None,
+    size: int | None,
+    *,
+    offline: bool = True,
+) -> None:
+    wheel = demo_wheel(tmp)
+    mp.chdir(demo_project(tmp, toml))
+    generate_wheel_sbom(
+        wheel,
+        content_type_method=method,
+        provenance=ProvenanceConfig(max_source_metadata_bytes=size)
+        if size is not None
+        else None,
+        offline=offline,
+    )
+
+
+def _lib_env(
+    tmp: Path,
+    mp: pytest.MonkeyPatch,
+    toml: str,
+    method: str | None,
+    size: int | None,
+    *,
+    offline: bool = True,
+) -> None:
+    mp.chdir(demo_project(tmp, toml))
+    # read_environment() shells out to pipdeptree; this stands in for it so
+    # the run depends on the same single declared dependency as every other
+    # surface here, not on whatever happens to be installed.
+    tree = [
+        {
+            "package": {
+                "key": DEPENDENCY,
+                "package_name": DEPENDENCY,
+                "installed_version": "1.0",
+            }
+        }
+    ]
+    mp.setattr(
+        subprocess,
+        "run",
+        lambda *_a, **_k: subprocess.CompletedProcess(
+            args=["pipdeptree"], returncode=0, stdout=json.dumps(tree), stderr=""
+        ),
+    )
+    generate_env_sbom(
+        content_type_method=method,
+        provenance=ProvenanceConfig(max_source_metadata_bytes=size)
+        if size is not None
+        else None,
+        offline=offline,
+    )
+
+
 def cli_embed(
     tmp: Path,
     mp: pytest.MonkeyPatch,
@@ -175,6 +245,8 @@ def hatch_hook(
 
 RUNNERS: dict[str, Runner] = {
     "lib-generate_project_sbom": _lib_project,
+    "lib-generate_wheel_sbom": _lib_wheel,
+    "lib-generate_env_sbom": _lib_env,
     "lib-embed_wheel_sbom": _lib_embed,
     "cli-embed-wheel": cli_embed,
     "hatch-hook": hatch_hook,

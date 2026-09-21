@@ -103,11 +103,14 @@ def _run_generate_command(args: argparse.Namespace) -> int:
         return 0
 
     # Every other target (env / wheel / model file / HF URL / sdist
-    # archive): generate()'s own read never re-parses the same file this
-    # peek reads (an sdist archive's real read parses its internal
-    # metadata via read_sdist(), not this peek's sibling pyproject.toml),
-    # so quieting the peek would silently drop its only WARNING: instead
-    # of deferring it to a re-emission that never happens.
+    # archive): quieting this peek would silently drop its WARNING: for a
+    # target whose real read parses something else entirely (an sdist
+    # archive's internal metadata via read_sdist(), not this peek's
+    # sibling pyproject.toml), deferring it to a re-emission that never
+    # happens. One overlap remains: this peek reads the target's own
+    # directory, and the wheel generator's cascade reads the current one,
+    # so for a .whl sitting in the current directory both read the same
+    # pyproject.toml and an invalid one is reported twice, in two wordings.
     build_options = build_options_from_args(args)
     if args.target is not None and not target_resolves_to_project(args.target):
         # env / wheel / model file / HF target: settle with the same reason

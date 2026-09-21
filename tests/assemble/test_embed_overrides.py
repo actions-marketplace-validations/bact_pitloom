@@ -28,13 +28,10 @@ from installer.sources import WheelFile
 
 from pitloom import __main__
 from pitloom._embed_build_sbom import _compute_wheel_merkle_root, _merge_file_extras
-from pitloom.core.config import PitloomConfig
 from pitloom.core.models import _build_merkle_tree
 from pitloom.core.project import ProjectFile, ProjectMetadata
-from pitloom.core.provenance import ProvenanceConfig
 from pitloom.embed import (
     ConfigOverrides,
-    _apply_config_overrides,
     _build_sbom_standalone_wheel,
     embed_wheel_sbom,
 )
@@ -90,43 +87,6 @@ type = "person"
         assert cli_record == api_record
 
     assert w_cli.read_bytes() == w_api.read_bytes()
-
-
-def test_apply_config_overrides_full() -> None:
-    """Test _apply_config_overrides applies all CLI override parameters."""
-    cfg = PitloomConfig()
-    prov = ProvenanceConfig(
-        format="fields",
-        schema="https://example.com/schema",
-        detail="full",
-        preserve_source_metadata="always",
-    )
-    overridden = _apply_config_overrides(
-        cfg,
-        ConfigOverrides(
-            provenance=prov,
-            enrich=True,
-            extract_file_header=False,
-            content_type=True,
-            content_type_method="extension",
-            offline=True,
-        ),
-    )
-    assert overridden.provenance_format == "fields"
-    assert overridden.provenance_schema == "https://example.com/schema"
-    assert overridden.provenance_detail == "full"
-    assert overridden.provenance_preserve_source_metadata == "always"
-    assert overridden.enrich_local is True
-    assert overridden.extract_file_header is False
-    assert overridden.content_type.enabled is True
-    assert overridden.content_type.method == "extension"
-    assert overridden.offline is True
-
-    with pytest.raises(ValueError, match="content_type_method must be one of"):
-        _apply_config_overrides(
-            cfg,
-            ConfigOverrides(content_type_method="invalid_method"),
-        )
 
 
 def test_embed_wheel_content_type_reaches_sbom_files(tmp_path: Path) -> None:

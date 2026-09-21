@@ -9,8 +9,8 @@
 Regression coverage for Hatchling 1.32.3's undocumented change of
 ``BuildHookInterface`` from ``Generic[BuilderConfigBound]`` (one type
 param) to ``Generic[BuilderConfigBound, PluginManagerBound]`` (two),
-which otherwise crashes ``PitloomBuildHook``'s class definition at
-import time.
+reverted in 1.32.4. A wrong-arity subscription crashes
+``PitloomBuildHook``'s class definition at import time.
 
 See also:
 - :mod:`tests.extract.project.test_hatch_hook_hook_basic` for hook
@@ -53,11 +53,11 @@ _V = TypeVar("_V")
 
 
 class _OneParamFakeInterface(Generic[_T]):
-    """Stands in for Hatchling < 1.32.3's single-type-param interface."""
+    """Stands in for the single-type-param interface (all but 1.32.3)."""
 
 
 class _TwoParamFakeInterface(Generic[_T, _U]):
-    """Stands in for Hatchling >= 1.32.3's two-type-param interface."""
+    """Stands in for Hatchling 1.32.3's two-type-param interface."""
 
 
 class _ThreeParamFakeInterface(Generic[_T, _U, _V]):
@@ -79,8 +79,8 @@ def test_resolve_build_hook_base_imported() -> None:
 
 
 def test_resolve_build_hook_base_one_param(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A single-type-param BuildHookInterface (Hatchling < 1.32.3) resolves
-    to a one-argument subscription."""
+    """A single-type-param BuildHookInterface (every Hatchling except
+    1.32.3) resolves to a one-argument subscription."""
     monkeypatch.setattr(hatch_module, "BuildHookInterface", _OneParamFakeInterface)
 
     base = _resolve_build_hook_base()
@@ -92,9 +92,9 @@ def test_resolve_build_hook_base_one_param(monkeypatch: pytest.MonkeyPatch) -> N
 
 
 def test_resolve_build_hook_base_two_params(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A two-type-param BuildHookInterface (Hatchling >= 1.32.3, the
-    undocumented break this fixes) resolves to a two-argument
-    subscription, using the concrete PluginManager class as the 2nd arg."""
+    """A two-type-param BuildHookInterface (Hatchling 1.32.3 only)
+    resolves to a two-argument subscription, using the concrete
+    PluginManager class as the 2nd arg."""
     monkeypatch.setattr(hatch_module, "BuildHookInterface", _TwoParamFakeInterface)
 
     base = _resolve_build_hook_base()

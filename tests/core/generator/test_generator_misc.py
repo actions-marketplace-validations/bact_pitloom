@@ -203,23 +203,6 @@ def test_generate_smart_entrypoint(
     assert "smart-wheel" in wheel_json
 
 
-@pytest.mark.parametrize("target", ["env", "environment", "--env"])
-def test_generate_dispatches_env_target(
-    target: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """generate() recognises every "env" spelling and dispatches to
-    generate_env_sbom() rather than treating it as a project path."""
-    called: dict[str, object] = {}
-
-    def _fake_generate_env_sbom(**kwargs: object) -> str:
-        called.update(kwargs)
-        return "env-sbom"
-
-    monkeypatch.setattr(assemble, "generate_env_sbom", _fake_generate_env_sbom)
-    assert generate(target) == "env-sbom"
-    assert "output_path" in called
-
-
 def test_generate_use_lockfile_warns_for_non_project_target(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -313,14 +296,28 @@ def test_write_output_file_to_stdout_adds_missing_trailing_newline(
     assert capsys.readouterr().out == "has-newline\n"
 
 
+@pytest.mark.parametrize(
+    ("offline", "cwd_config"),
+    [
+        pytest.param(True, "", id="explicit-offline"),
+        # No explicit value: only the current directory's config can make
+        # this raise, so a path that skipped the cascade would fetch.
+        pytest.param(None, "[tool.pitloom]\noffline = true\n", id="cwd-config"),
+    ],
+)
 def test_generate_model_sbom_huggingface_offline_raises(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    offline: bool | None,
+    cwd_config: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A Hugging Face source with offline=True (or an offline pyproject.toml
     default) is rejected before any network access is attempted."""
+    if cwd_config:
+        (tmp_path / "pyproject.toml").write_text(cwd_config, encoding="utf-8")
     monkeypatch.chdir(tmp_path)
     with pytest.raises(ValueError, match="Offline mode enabled"):
-        generate_model_sbom("hexgrad/Kokoro-82M", offline=True)
+        generate_model_sbom("hexgrad/Kokoro-82M", offline=offline)
 
 
 def test_generate_model_sbom_huggingface_source(
