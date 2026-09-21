@@ -19,12 +19,18 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from pitloom.core.config import PitloomConfig
+from pitloom.core.config import (
+    PYPROJECT_SOURCE,
+    PitloomConfig,
+    pyproject_config_applies,
+    select_project_config,
+)
 from pitloom.core.project import (
     ProjectMetadata,
     is_sdist_archive,
     merge_project_metadata,
 )
+from pitloom.extract._toml_io import load_toml_file
 from pitloom.extract.lock import apply_locked_dependencies
 from pitloom.extract.project._installed_reconcile import reconcile_installed_metadata
 from pitloom.extract.project.installed import (
@@ -48,6 +54,7 @@ def _fallback_to_setuptools(
     pyproject_path: Path,
     *,
     quiet: bool,
+    read_config: bool,
 ) -> tuple[ProjectMetadata, PitloomConfig, Path]:
     """``pyproject.toml`` exists but resolved no usable metadata -- no
     ``[project]`` table (e.g. a custom/legacy build backend declaring only
@@ -88,21 +95,27 @@ def _fallback_to_setuptools(
     # carry-over just below, generalized so a future field needing the
     # same treatment doesn't need a third hand-copied carry-over here.
     pre_setuptools_metadata = metadata
-    metadata, setuptools_pitloom_config = read_setuptools(project_path, quiet=quiet)
+    # Decide first: setup.cfg's [tool:pitloom] is parsed only when it is the
+    # one that applies, as for an sdist -- an unused one cannot fail the run.
+    pyproject_applies = read_config and pyproject_config_applies(
+        load_toml_file(pyproject_path)
+    )
+    metadata, setuptools_pitloom_config = read_setuptools(
+        project_path, quiet=quiet, read_config=read_config and not pyproject_applies
+    )
     metadata = merge_project_metadata(
         primary=metadata, secondary=pre_setuptools_metadata
     )
-    # [tool.pitloom] always lives in pyproject.toml, never
-    # setup.cfg/setup.py -- keep the one read_pyproject() already resolved
-    # from the real pyproject.toml unless it's untouched defaults, in
-    # which case fall back to whatever read_setuptools() found (its own
-    # setup.cfg-based [tool:pitloom] parsing, if any). Never silently
-    # drop a real [tool.pitloom] section just because metadata itself had
-    # to come from setup.cfg/setup.py instead.
-    if pitloom_config == PitloomConfig():
-        pitloom_config = setuptools_pitloom_config
-    config_path = setup_cfg if setup_cfg.exists() else setup_py
-    return metadata, pitloom_config, config_path
+    # pyproject.toml's [tool.pitloom] still applies when declared, though
+    # metadata came from setup.cfg/setup.py; else setup.cfg's [tool:pitloom].
+    # The rule an sdist archive shares. Without read_config both are
+    # placeholders for a config the caller replaces.
+    pitloom_config, source = select_project_config(
+        pitloom_config, pyproject_applies, lambda: setuptools_pitloom_config
+    )
+    if source == PYPROJECT_SOURCE:
+        return metadata, pitloom_config, pyproject_path
+    return metadata, pitloom_config, setup_cfg if setup_cfg.exists() else setup_py
 
 
 def read_project(
@@ -111,11 +124,14 @@ def read_project(
     include_locked_dependencies: bool = True,
     include_installed_metadata: bool = True,
     quiet: bool = False,
+    read_config: bool = True,
 ) -> tuple[ProjectMetadata, PitloomConfig, Path | None]:
     """Resolve project metadata and Pitloom config from *project_path*.
 
     If *project_path* is a source distribution archive (.tar.gz, .zip),
-    extracts metadata from its internal PKG-INFO or pyproject.toml.
+    extracts metadata from its internal PKG-INFO or pyproject.toml, and the
+    config from its root ``pyproject.toml``/``setup.cfg``, as for the
+    unpacked directory (see :func:`pitloom.extract.project.sdist.read_sdist`).
     Otherwise, treats *project_path* as a directory and tries
     ``pyproject.toml`` first, then ``setup.cfg``/``setup.py``.
 
@@ -165,6 +181,10 @@ def read_project(
             *project_path* a second time and only interested in a setting
             unrelated to the warning's cause -- never for a caller doing
             the only read that will happen.
+        read_config: Whether to parse the project's own ``[tool.pitloom]``
+            (default ``True``). Pass ``False`` when an explicit config
+            replaces it: the defaults are returned instead, so a fault in
+            the replaced config cannot fail the read.
 
     Returns:
         A 3-tuple of:
@@ -173,7 +193,9 @@ def read_project(
           metadata.
         * :class:`~pitloom.core.config.PitloomConfig` -- resolved
           ``[tool.pitloom]`` settings.
-        * The config file path used (or the archive path itself).
+        * The config file path used; for an sdist, ``<archive>/<member>``
+          (e.g. ``x.tar.gz/pyproject.toml``), or ``None`` when the archive
+          has no config member (or *read_config* is off).
 
     Raises:
         FileNotFoundError: If *project_path* does not exist or no valid project
@@ -184,9 +206,14 @@ def read_project(
         raise FileNotFoundError(f"Project path not found: {project_path}")
 
     if is_sdist_archive(project_path):
-        metadata, files = read_sdist(project_path)
-        metadata.files = files
-        return metadata, PitloomConfig(), project_path
+        contents = read_sdist(project_path, read_config=read_config)
+        contents.metadata.files = contents.files
+        member = contents.config_member
+        return (
+            contents.metadata,
+            contents.config,
+            None if member is None else project_path / member,
+        )
 
     setup_cfg = project_path / "setup.cfg"
     setup_py = project_path / "setup.py"
@@ -198,6 +225,7 @@ def read_project(
             pyproject_path,
             include_locked_dependencies=include_locked_dependencies,
             quiet=quiet,
+            read_config=read_config,
         )
         if not metadata.name and (setup_cfg.exists() or setup_py.exists()):
             metadata, pitloom_config, config_path = _fallback_to_setuptools(
@@ -208,11 +236,14 @@ def read_project(
                 setup_py,
                 pyproject_path,
                 quiet=quiet,
+                read_config=read_config,
             )
         else:
             config_path = pyproject_path
     elif setup_cfg.exists() or setup_py.exists():
-        metadata, pitloom_config = read_setuptools(project_path, quiet=quiet)
+        metadata, pitloom_config = read_setuptools(
+            project_path, quiet=quiet, read_config=read_config
+        )
         config_path = setup_cfg if setup_cfg.exists() else setup_py
     else:
         raise FileNotFoundError(
@@ -268,8 +299,9 @@ def resolve_project_with_lockfile(
     use-lockfile``.
 
     *explicit_config* (``--config``, ``pitloom_config=``) replaces the
-    project's own ``[tool.pitloom]`` and is returned as the config; the
-    returned path is still the project's own. This function never warns:
+    project's own ``[tool.pitloom]``, which is then not parsed at all, and
+    is returned as the config; the returned path is still the project's
+    own. This function never warns:
     a given *use_lockfile* that has no effect (an sdist) is settled by the
     caller's inert-option check.
 
@@ -304,14 +336,23 @@ def resolve_project_with_lockfile(
     same accepted-cost umbrella as the static-metadata double-parse, not a
     separate tradeoff of its own.
     """
+    # An explicit config replaces the project's own, which is then not
+    # parsed: a fault in it cannot fail a run that does not use it.
+    read_config = explicit_config is None
     if is_sdist_archive(project_path):
-        return _with_config(read_project(project_path), explicit_config)
+        return _with_config(
+            read_project(project_path, read_config=read_config), explicit_config
+        )
 
     if use_lockfile is None and explicit_config is not None:
         use_lockfile = explicit_config.use_lockfile
     if use_lockfile is not None:
         return _with_config(
-            read_project(project_path, include_locked_dependencies=use_lockfile),
+            read_project(
+                project_path,
+                include_locked_dependencies=use_lockfile,
+                read_config=read_config,
+            ),
             explicit_config,
         )
 

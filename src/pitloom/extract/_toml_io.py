@@ -14,11 +14,9 @@ since that policy differs per file (e.g. a missing ``pyproject.toml`` vs.
 a missing, purely-optional ``poetry.lock``).
 
 :mod:`pitloom.extract.project.sdist` parses TOML from in-memory archive-member
-bytes rather than a filesystem path, so :func:`load_toml_file` (which is
-hardwired to ``open(path, "rb")``) doesn't fit its case -- it instead
-imports the compat-resolved :data:`tomllib` module directly from here and
-calls ``tomllib.loads(...)`` itself, still sharing the one version-gated
-import this module resolves.
+bytes; :func:`load_toml_bytes` decodes them exactly as :func:`load_toml_file`
+decodes a file, so an archived ``pyproject.toml`` reads the same as the
+unpacked one.
 """
 
 from __future__ import annotations
@@ -31,7 +29,7 @@ if sys.version_info >= (3, 11):
 else:
     import tomli as tomllib
 
-__all__ = ["TOMLDecodeError", "load_toml_file", "tomllib"]
+__all__ = ["TOMLDecodeError", "load_toml_bytes", "load_toml_file", "tomllib"]
 
 TOMLDecodeError = tomllib.TOMLDecodeError
 
@@ -45,3 +43,13 @@ def load_toml_file(path: Path) -> dict[str, object]:
     """
     with open(path, "rb") as f:
         return tomllib.load(f)
+
+
+def load_toml_bytes(raw: bytes) -> dict[str, object]:
+    """Parse *raw* as TOML, decoded as :func:`load_toml_file` decodes a file
+    (strict UTF-8, as ``tomllib.load()`` does).
+
+    Propagates :data:`TOMLDecodeError` and ``UnicodeDecodeError`` (both
+    ``ValueError``) to the caller.
+    """
+    return tomllib.loads(raw.decode("utf-8"))

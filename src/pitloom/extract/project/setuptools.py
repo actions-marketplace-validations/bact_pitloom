@@ -190,7 +190,7 @@ def detect_build_backend(
 
 
 def read_setuptools(
-    project_dir: Path, *, quiet: bool = False
+    project_dir: Path, *, quiet: bool = False, read_config: bool = True
 ) -> tuple[ProjectMetadata, PitloomConfig]:
     """Read project metadata from ``setup.cfg`` and/or ``setup.py``.
 
@@ -200,6 +200,8 @@ def read_setuptools(
     ``quiet`` suppresses this read's own ``WARNING:`` lines (default
     ``False``) -- for a caller re-reading the same project a second time;
     see :func:`pitloom.extract.project.read_project`'s own ``quiet``.
+    Without *read_config*, ``[tool:pitloom]`` is not parsed (see
+    :func:`read_setup_cfg`).
     """
     setup_cfg = project_dir / "setup.cfg"
     setup_py = project_dir / "setup.py"
@@ -210,7 +212,9 @@ def read_setuptools(
 
     if setup_cfg.exists():
         try:
-            cfg_metadata, cfg_config = read_setup_cfg(project_dir)
+            cfg_metadata, cfg_config = read_setup_cfg(
+                project_dir, read_config=read_config
+            )
         except (FileNotFoundError, _NoProjectNameError):
             pass
 

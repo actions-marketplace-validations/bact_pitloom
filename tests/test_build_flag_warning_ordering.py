@@ -65,9 +65,9 @@ def _make_conflicting_pins_project(tmp_path: Path) -> Path:
 
 def _make_sdist_with_malformed_member_pyproject(tmp_path: Path) -> Path:
     """A minimal sdist archive with no ``PKG-INFO`` and a malformed
-    internal ``pyproject.toml`` -- ``read_sdist()``'s fallback parse
-    (``_parse_pyproject_bytes()``) logs one ``WARNING:`` while resolving
-    the archive's own metadata."""
+    internal ``pyproject.toml`` -- with the archive's config not read,
+    ``read_sdist()``'s metadata-only parse logs one ``WARNING:`` (read, the
+    config would raise instead)."""
     member_root = tmp_path / "sdist_src" / "demo-1.0.0"
     (member_root / "demo").mkdir(parents=True)
     (member_root / "demo" / "__init__.py").write_text("x = 1\n", encoding="utf-8")
@@ -189,10 +189,16 @@ def test_cli_project_sdist_build_flag_warning_precedes_metadata_warning(
     for an sdist archive target" build-flag warning must reach stderr
     before the archive's own malformed-``pyproject.toml`` metadata
     warning that ``_resolve_project_generation_settings()`` triggers
-    while resolving its metadata.
+    while resolving its metadata. The warning needs ``--config``: without
+    it the archive's config is read and the malformed member is an
+    ``ERROR:`` (see ``test_build_flag_target_kinds``).
     """
     sdist_path = _make_sdist_with_malformed_member_pyproject(tmp_path)
     output = tmp_path / "out.spdx3.json"
+    # With --config the archive's own config is not read, so the malformed
+    # member is parsed for metadata only: a WARNING:, not an ERROR:.
+    config = tmp_path / "config.toml"
+    config.write_text("[tool.pitloom]\n", encoding="utf-8")
     monkeypatch.setattr(
         sys,
         "argv",
@@ -202,6 +208,8 @@ def test_cli_project_sdist_build_flag_warning_precedes_metadata_warning(
             str(sdist_path),
             "--build-timeout",
             "5",
+            "--config",
+            str(config),
             "-o",
             str(output),
         ],

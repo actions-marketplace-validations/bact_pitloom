@@ -8,6 +8,7 @@
 
 import pytest
 
+from pitloom._embed_wheel import _validate_sbom_filename
 from pitloom.core.config import (
     VALID_CONTENT_TYPE_METHODS,
     FragmentConfig,
@@ -22,6 +23,7 @@ from pitloom.core.config import (
 )
 from pitloom.core.content_type_config import ContentTypeOverride
 from pitloom.core.creation import Creator, Tool
+from pitloom.core.file_names import is_plain_file_name
 
 # ---------------------------------------------------------------------------
 # _read_extract_file_header
@@ -541,3 +543,36 @@ def test_read_provenance_invalid_detail_raises() -> None:
     data = {"tool": {"pitloom": {"provenance": {"detail": "invalid"}}}}
     with pytest.raises(ValueError, match="must be one of"):
         parse_pitloom_config(data)
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["../escaped", "sub/name", "a\\b", "/abs", "C:name", ".", "..", "a\x00b", "  "],
+)
+def test_sbom_basename_must_be_a_file_name(value: str) -> None:
+    """A config -- possibly a third-party sdist's -- must not choose where
+    the SBOM is written."""
+    with pytest.raises(ValueError, match="'sbom-basename' must be a file name"):
+        parse_pitloom_config({"tool": {"pitloom": {"sbom-basename": value}}})
+
+
+def test_sbom_basename_plain_name_is_kept() -> None:
+    data = {"tool": {"pitloom": {"sbom-basename": "demo-1.0..sbom"}}}
+    assert parse_pitloom_config(data).sbom_basename == "demo-1.0..sbom"
+
+
+def test_config_and_embed_flag_share_one_file_name_rule() -> None:
+    """Drift guard: the ``sbom-basename`` key and the embedded name agree."""
+    for name in ("ok", "a:b", "a/b", "..", "a\x00b", "  ", "x.spdx3.json"):
+        data = {"tool": {"pitloom": {"sbom-basename": name}}}
+        try:
+            parse_pitloom_config(data)
+            key_ok = True
+        except ValueError:
+            key_ok = False
+        try:
+            _validate_sbom_filename(name)
+            flag_ok = True
+        except ValueError:
+            flag_ok = False
+        assert key_ok == flag_ok == is_plain_file_name(name), name

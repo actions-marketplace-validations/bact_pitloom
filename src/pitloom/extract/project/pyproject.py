@@ -187,6 +187,7 @@ def read_pyproject(
     *,
     include_locked_dependencies: bool = True,
     quiet: bool = False,
+    read_config: bool = True,
 ) -> tuple[ProjectMetadata, PitloomConfig]:
     """Read project metadata from a ``pyproject.toml`` file.
 
@@ -203,6 +204,9 @@ def read_pyproject(
     :func:`_parse_standard_metadata_with_retry`) -- for a caller re-reading
     the same file a second time and only interested in a setting unrelated
     to the warning's cause, not because the file's content changed.
+
+    Without ``read_config``, ``[tool.pitloom]`` is not parsed and the
+    defaults are returned: an explicit config replaces it.
     """
     if not pyproject_path.exists():
         raise FileNotFoundError(f"pyproject.toml not found at {pyproject_path}")
@@ -210,7 +214,9 @@ def read_pyproject(
     data: dict[str, Any] = load_toml_file(pyproject_path)
 
     project_data: dict[str, Any] = data.get("project", {})
-    pitloom_config = parse_pitloom_config(data)
+    # Without read_config an explicit config replaces [tool.pitloom], so a
+    # fault in it must not fail the read.
+    pitloom_config = parse_pitloom_config(data) if read_config else PitloomConfig()
 
     name: str = (project_data.get("name") or "").strip()
     if not project_data or not name:

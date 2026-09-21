@@ -118,7 +118,11 @@ On `generate_project_sbom()` specifically, passing `pitloom_config=`
 entirely (the caller is asserting the two are already consistent, e.g.
 re-using a prior resolution); passing `pitloom_config=` alone still
 re-reads `project_target`'s metadata fresh, but with the project's own
-`[tool.pitloom]` replaced by the value given.
+`[tool.pitloom]` replaced by the value given -- that replaced config is
+not parsed, so an invalid one in the project (or inside an sdist) does
+not fail the call. An sdist's own config is read as its unpacked
+directory's is (see [Where settings come
+from](configuration.md#where-settings-come-from)).
 
 `max_source_metadata_bytes=` is also new on `generate()`,
 `generate_wheel_sbom()`, `generate_env_sbom()` and

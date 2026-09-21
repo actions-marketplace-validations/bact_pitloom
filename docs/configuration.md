@@ -29,29 +29,45 @@ Precedence, on every surface: a per-run flag/parameter wins over
 `[tool.pitloom]` (where one applies), which wins over the hardcoded
 default. `--config`/`pitloom_config=` **replaces** the target's own
 config outright rather than merging with it -- a key the given file
-doesn't set reverts to the default, not to the target's own value.
+doesn't set reverts to the default, not to the target's own value. The
+replaced config is not parsed at all, so an invalid `[tool.pitloom]` in
+the target does not fail a run given `--config`.
 
-Only a project directory, an `embed-wheel --project-dir`, and the
-Hatchling build hook read a target's own `[tool.pitloom]`. A wheel, an
+Only a project directory, an sdist archive, an `embed-wheel
+--project-dir`, and the Hatchling build hook read a target's own
+`[tool.pitloom]`. A wheel, an
 installed environment, a model file, a Hugging Face model, `enrich`
 without `--project-dir`, and `embed-wheel` without `--project-dir` never
 read one -- not the current directory's, and not one beside the target --
 either could belong to an unrelated project; `--config`/`pitloom_config=`
-is the only config they can get. An sdist archive's own `[tool.pitloom]`
-is not read either (its bundled `pyproject.toml` is not opened for this
-purpose): a `project`/`generate` run against an sdist resolves the
-built-in defaults unless `--config` supplies one.
+is the only config they can get.
+
+An sdist archive's own config is read as its unpacked directory's is: the
+`[tool.pitloom]` of the `pyproject.toml` at the archive's root, else the
+`[tool:pitloom]` of its root `setup.cfg`. An invalid one fails the run,
+as a directory's does; so does one that cannot be read (not valid TOML,
+not UTF-8, or over 1 MiB -- a limit for archive members only). The error
+names the archive and member, e.g. `config file
+dist/demo-1.0.0.tar.gz:pyproject.toml: ...`; `--config` replaces it without reading it. Some keys cannot apply to
+an archive and are ignored without a warning:
+
+- `ids-file` (it could only name a file inside the archive) and
+  `[tool.pitloom.fragment]` (fragments merge only into a project
+  directory's SBOM, even from `--config`);
+- `use-lockfile`, `enrich`, `extract-file-header` and
+  `[tool.pitloom.content-type]` -- the settings whose flags warn for an
+  sdist (see [Options with no effect](cli.md#options-with-no-effect)).
 
 | Surface | Target's own config | `--config` / `pitloom_config=` | Current directory | Flags |
 | :--- | :--- | :--- | :--- | :--- |
 | `project`/`generate` (project dir) -- `generate_project_sbom()` | Read | Replaces it | Never read | Override |
-| `project`/`generate` (sdist archive) -- `generate_project_sbom()` | Never read (see above) | Only config source | Never read | Override |
+| `project`/`generate` (sdist archive) -- `generate_project_sbom()` | Read (root `pyproject.toml`, else `setup.cfg`; not `ids-file`/fragments) | Replaces it | Never read | Override |
 | `wheel`/`generate` (`.whl`) -- `generate_wheel_sbom()` | Never read | Only config source | Never read | Override |
 | `env`/`generate env` -- `generate_env_sbom()` | Never read | Only config source | Never read | Override |
 | `model` (local file)/`generate` -- `generate_model_sbom()` | Never read | Only config source | Never read | Override |
 | `model` (Hugging Face) -- `generate_model_sbom()` | Never read | Only config source | Never read | Override |
 | `enrich` (no `--project-dir`) -- `enrich_model()` | Never read | Only config source | Never read | Override |
-| `enrich --project-dir D` -- `enrich_model(project_target=D)` | Read, for document identity (`use-lockfile`) and the registry (`ids-file`) only | Replaces D's own | Never read | Override |
+| `enrich --project-dir D` -- `enrich_model(project_target=D)` | Read, for document identity (`use-lockfile`) and the registry (`ids-file`) only; for an sdist D neither applies, but an invalid config still fails the run | Replaces D's own | Never read | Override |
 | `embed-wheel --project-dir D` -- `embed_wheel_sbom(project_dir=D)` | Read | Replaces it | Never read | Override |
 | `embed-wheel` (no `--project-dir`) -- `embed_wheel_sbom()` | Never read | Only config source | Never read | Override |
 | `embed-wheel --sbom` -- `embed_wheel_sbom(sbom_path=...)` | Not read | Not read (`--config` warns, no effect) | Never read | Embedding flags only (`--sbom-basename`, `-o`, `--verify`, ...); every SBOM-generation flag warns, since the file is embedded as is |
@@ -94,7 +110,9 @@ doing nothing.
 `ValueError` at config-read time if set to a non-boolean (e.g. the TOML
 string `"true"` instead of the bare value `true`) -- no silent
 coercion. `sbom-basename`/`ids-file` raise `ValueError` if set to a
-non-string. `extract-file-header` off never errors and never blocks
+non-string, and `sbom-basename` also if it is a path rather than a file
+name (a `/`, `\`, `:` or NUL, or `.`/`..`) -- the same rule as
+`embed-wheel --sbom-basename`. `extract-file-header` off never errors and never blocks
 content-type detection -- see below.
 
 ## `[tool.pitloom.content-type]`

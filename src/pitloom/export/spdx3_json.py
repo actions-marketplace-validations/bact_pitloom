@@ -15,6 +15,8 @@ from typing import Any
 import rfc8785
 from spdx_python_model.bindings import v3_0_1 as spdx3
 
+from pitloom._sbom_io import write_text_lf
+
 # Pitloom's own file-naming convention for this exporter's output -- SPDX 3
 # itself doesn't mandate an extension. Canonical home for every module that
 # needs to name or recognize an SPDX3 JSON-LD SBOM file.
@@ -407,5 +409,4 @@ class Spdx3JsonExporter:
             pretty: If True, indent output with 2 spaces for human readability.
                     If False (default), produce RFC 8785 (JCS) canonical output.
         """
-        with open(file_path, "w", encoding="utf-8") as f:
-            f.write(self.to_json(pretty=pretty))
+        write_text_lf(file_path, self.to_json(pretty=pretty))

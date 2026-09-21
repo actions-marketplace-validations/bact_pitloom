@@ -117,8 +117,8 @@ def _default_run_comment() -> str:
 def _record_hyperparameter_provenance(
     provenance: dict[str, str], hyperparameters: dict[str, str], caller_info: str
 ) -> None:
-    """Record exact per-key provenance for hyperparameters."""
-    for key, _value in hyperparameters.items():
+    """Record exact per-key provenance for hyperparameters, in key order."""
+    for key in sorted(hyperparameters):
         safe_key = sanitize_provenance_text(str(key))
         provenance[f"hyperparameters.{key}"] = f"{caller_info} | Field: {safe_key}"
 

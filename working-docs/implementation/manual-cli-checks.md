@@ -240,6 +240,15 @@ creation comment (so the decoy is effective). Automated as check 12;
 the library-level counterpart is
 `tests/assemble/test_generator_no_implicit_config.py`.
 
+**13. An sdist reads its own config**: append a `[tool.pitloom]`
+(`pretty`, a creation comment) to the fixture project and pack it as
+`demo-0.1.tar.gz`. `loom project` on the directory and on the archive
+must both apply it; `-v` on the archive labels it
+`demo-0.1.tar.gz:pyproject.toml`. An archive whose config is invalid
+(`pretty = 'yes'`) is one `ERROR:` naming that member, and the same run
+with `--config good.toml` succeeds. Automated as check 13; the
+library-level counterpart is `tests/assemble/test_sdist_own_config.py`.
+
 For a change touching the build subprocess, its kill path or signal
 handling (`--build-timeout`), also run these against a scratch project
 with an in-tree backend (`requires = []`, `backend-path = ["."]`, run

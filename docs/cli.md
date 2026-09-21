@@ -369,7 +369,9 @@ Available on `project`/`generate`/`model`/`wheel`/`embed-wheel`/`env`
   directory or the target's own location. A relative path inside *FILE*
   (`ids-file`, a fragment's `path`) resolves against *FILE*'s own
   directory. A missing or invalid *FILE* is an `ERROR:`, except under
-  `embed-wheel --sbom`, where it is not read at all and only warns. See
+  `embed-wheel --sbom`, where it is not read at all and only warns. The
+  replaced project config is not parsed, so `--config` also rescues a
+  project or sdist whose own `[tool.pitloom]` is invalid. See
   [Where settings come from](configuration.md#where-settings-come-from)
   for the full precedence table.
 - `--pretty` -- indent the JSON for human reading (default: compact).
@@ -381,7 +383,9 @@ Available on `project`/`generate`/`model`/`wheel`/`embed-wheel`/`env`
   [Enrich an SBOM](#enrich-an-sbom)). On by default; see
   [Dependency sources and precedence](dependency-sources.md).
 - `-v` / `--verbose` -- on `project`/`generate` with a project directory
-  or sdist: print the effective options and where each came from.
+  or sdist: print the effective options and where each came from (a
+  value from an sdist's own `pyproject.toml` is labelled with the archive
+  member, e.g. `demo-1.0.0.tar.gz:pyproject.toml`).
   `wheel`/`env`/`model`/`enrich` print only the version, target and
   output path. `generate` on any other target and `embed-wheel` print
   nothing more and warn that `-v` has no effect.

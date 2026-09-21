@@ -11,6 +11,7 @@ See also: :mod:`pitloom.core._config_types` and :mod:`pitloom.core.config`.
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +27,7 @@ from pitloom.core._config_types import (
 )
 from pitloom.core.content_type_config import ContentTypeOverride
 from pitloom.core.creation import Creator, Tool
+from pitloom.core.file_names import is_plain_file_name
 from pitloom.core.provenance import normalize_max_source_metadata_bytes
 from pitloom.extract._toml_io import load_toml_file
 
@@ -414,6 +416,21 @@ def _apply_no_creation_tool(
     return [] if no_creation_tool else tools
 
 
+def _check_sbom_basename(value: str | None) -> str | None:
+    """A file name, never a path: a config (possibly a third-party sdist's)
+    must not choose a directory to write to
+    (:func:`pitloom.core.file_names.is_plain_file_name`).
+
+    Raises:
+        ValueError: *value* is not a plain file name.
+    """
+    if value is not None and not is_plain_file_name(value):
+        raise ValueError(
+            f"[tool.pitloom] 'sbom-basename' must be a file name, not a path: {value!r}"
+        )
+    return value
+
+
 def _pick_str(*sources: tuple[dict[str, Any], tuple[str, ...]]) -> str | None:
     """Return the first string found by key, scanning sources in order.
 
@@ -471,7 +488,9 @@ def parse_pitloom_config(data: dict[str, Any]) -> PitloomConfig:
                 f"[tool.pitloom] describe-relationship must be a boolean, got "
                 f"{type(desc_rel).__name__}: {desc_rel!r}"
             )
-    sbom_basename = _pick_str((pitloom_data, ("sbom-basename",))) or None
+    sbom_basename = _check_sbom_basename(
+        _pick_str((pitloom_data, ("sbom-basename",))) or None
+    )
     offline = _read_offline_setting(pitloom_data)
     use_lockfile = _read_use_lockfile_setting(pitloom_data)
 
@@ -521,3 +540,51 @@ def read_pitloom_config(pyproject_path: Path) -> PitloomConfig:
     data: dict[str, Any] = load_toml_file(pyproject_path)
 
     return parse_pitloom_config(data)
+
+
+#: Where :func:`select_project_config` took the config from.
+PYPROJECT_SOURCE = "pyproject.toml"
+SETUP_CFG_SOURCE = "setup.cfg"
+
+
+def pyproject_config_applies(data: Any) -> bool:
+    """Whether a parsed ``pyproject.toml`` holds the project's config: it
+    names the project (``[project]`` or ``[tool.poetry]`` ``name``) or
+    declares a ``[tool.pitloom]`` table -- present, even empty or set to the
+    defaults, is the user's config (never compared by value)."""
+    if not isinstance(data, dict):
+        return False
+    tool = data.get("tool")
+    if isinstance(tool, dict) and "pitloom" in tool:
+        return True
+    poetry = tool.get("poetry") if isinstance(tool, dict) else None
+    for table in (data.get("project"), poetry):
+        if isinstance(table, dict) and str(table.get("name") or "").strip():
+            return True
+    return False
+
+
+def select_project_config(
+    pyproject: PitloomConfig | None,
+    pyproject_applies: bool,
+    setup_cfg: Callable[[], PitloomConfig] | None,
+) -> tuple[PitloomConfig, str | None]:
+    """Which of a project's configs applies, and its source
+    (:data:`PYPROJECT_SOURCE`, :data:`SETUP_CFG_SOURCE` or ``None``): the one
+    rule a project directory and an sdist archive share.
+
+    *pyproject* is ``pyproject.toml``'s ``[tool.pitloom]`` (``None`` when
+    there is no ``pyproject.toml``); *pyproject_applies* is
+    :func:`pyproject_config_applies` for it; *setup_cfg* reads
+    ``setup.cfg``'s ``[tool:pitloom]`` (``None`` when there is no
+    ``setup.cfg``). ``pyproject.toml`` wins, unless it is absent, or neither
+    names the project nor declares ``[tool.pitloom]`` -- a legacy project
+    whose real metadata and config live in ``setup.cfg``.
+    """
+    if pyproject is not None and pyproject_applies:
+        return pyproject, PYPROJECT_SOURCE
+    if setup_cfg is not None:
+        return setup_cfg(), SETUP_CFG_SOURCE
+    if pyproject is not None:
+        return pyproject, PYPROJECT_SOURCE
+    return PitloomConfig(), None

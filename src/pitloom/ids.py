@@ -32,6 +32,7 @@ from pitloom._ids_types import (
     _sha256_from_verified_using,
     _type_id_prefix,
 )
+from pitloom._sbom_io import open_text_lf
 
 log = logging.getLogger(__name__)
 
@@ -267,7 +268,7 @@ class IdRegistry:
             },
         }
         target.parent.mkdir(parents=True, exist_ok=True)
-        with open(target, "w", encoding="utf-8") as f:
+        with open_text_lf(target) as f:
             json.dump(data, f, indent=2, sort_keys=True, ensure_ascii=False)
             f.write("\n")
         self.path = target

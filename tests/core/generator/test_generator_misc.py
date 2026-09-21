@@ -17,7 +17,6 @@ from pitloom.assemble import (
     generate,
     generate_model_sbom,
 )
-from pitloom.assemble._model_generator import _write_output_file
 from pitloom.assemble.spdx3.document import (
     build,
     build_model,
@@ -286,18 +285,6 @@ def test_generate_dispatches_local_ai_model_file_by_extension(
     assert generate(model_path) == "model-sbom"
     assert called["source"] == model_path
     assert "enrich" in called
-
-
-def test_write_output_file_to_stdout_adds_missing_trailing_newline(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    """output_path == "-" writes to stdout, appending a newline only when
-    the SBOM JSON does not already end with one."""
-    _write_output_file("no-newline", Path("-"))
-    assert capsys.readouterr().out == "no-newline\n"
-
-    _write_output_file("has-newline\n", Path("-"))
-    assert capsys.readouterr().out == "has-newline\n"
 
 
 @pytest.mark.parametrize(

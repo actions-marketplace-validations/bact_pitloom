@@ -51,7 +51,8 @@ def record_dict_field_provenance(
     not one shared note for the whole dict. Sets
     ``provenance["<field_name>.<key>"] = "<source> | Field: <location_prefix><key>"``
     for every key, so each property/hyperparameter is individually traceable
-    through both the Annotation ``statement`` and the ``comment``.
+    through both the Annotation ``statement`` and the ``comment``. Entries
+    are added in sorted key order.
 
     Use *location_prefix* when the dict key is a short name under a common
     origin path (e.g. ``"config.config."`` for a Keras hyperparameter stored
@@ -70,7 +71,9 @@ def record_dict_field_provenance(
         location_prefix: Prepended to each key to form the ``Field:`` location.
     """
     safe_source = sanitize_provenance_text(source)
-    for key in keys:
+    # Sorted: the source's own key order (a file header, a JSON object)
+    # must not change the output bytes.
+    for key in sorted(keys, key=str):
         safe_key = sanitize_provenance_text(str(key))
         provenance[f"{field_name}.{key}"] = (
             f"{safe_source} | Field: {location_prefix}{safe_key}"
