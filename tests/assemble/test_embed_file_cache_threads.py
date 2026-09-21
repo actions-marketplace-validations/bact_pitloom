@@ -130,8 +130,9 @@ def test_embed_file_cache_exit_waits_for_a_thread_still_resolving(
             worker.start()
             assert started.wait(timeout=30)
         # The exit waited: the discovery is done and its cleanup already
-        # ran here, on this thread, before the block was left.
-        assert not worker.is_alive()
+        # ran here, on this thread, before the block was left. Not
+        # `worker.is_alive()`: the exit waits for the lock, not for the
+        # thread to return from resolve() and terminate.
         cleanup.assert_called_once()
         assert cleanup_threads == [threading.current_thread()]
 

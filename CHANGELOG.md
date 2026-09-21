@@ -60,10 +60,13 @@ and this project adheres to
   `--max-source-metadata-bytes` now reach the SBOM, as on `project` ([#227])
 - Type checking no longer fails on Hatchling 1.32.4, which reverted 1.32.3's
   `BuildHookInterface` type-parameter change; 1.32.3 stays supported ([#229])
+- Flaky tests: two SBOM-equality tests now pin `created`; a thread test no longer
+  checks liveness before `join` ([#230])
 
 [#226]: https://github.com/bact/pitloom/pull/226
 [#227]: https://github.com/bact/pitloom/pull/227
 [#229]: https://github.com/bact/pitloom/pull/229
+[#230]: https://github.com/bact/pitloom/pull/230
 
 ## [0.19.0] - 2026-09-18
 

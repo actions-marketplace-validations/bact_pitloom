@@ -1,6 +1,6 @@
 ---
 Created: 2026-04-14
-Last-Modified: 2026-09-20
+Last-Modified: 2026-09-21
 SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 SPDX-FileType: DOCUMENTATION
 SPDX-License-Identifier: CC0-1.0
@@ -392,6 +392,12 @@ below, which is the actual commitment for what ships before mid-October):
 - [ ] **`embed-wheel --project-dir <sdist>` runs discovery on the
   archive path** (Hatchling fails on it with a `WARNING:`): read the
   sdist's own listing, as `loom project <sdist>` does, or reject it.
+- [ ] **Should a multi-wheel `embed-wheel` resolve "now" once per batch?**
+  The CLI resolves `CreationMetadata` once per batch, but leaves
+  `creation_datetime` unset, so each wheel calls `now()` for its own
+  `created`: two SBOMs from one command can differ by a second. Open: pin
+  the batch's `now` once (identical `created`, matching the batch-wide
+  file discovery) or leave per-wheel. Found de-flaking PR #230's tests.
 
 ### AI model id stability (follow-up to [#178](https://github.com/bact/pitloom/pull/178))
 
