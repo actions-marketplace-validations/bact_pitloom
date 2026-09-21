@@ -18,12 +18,18 @@ from pitloom.assemble import (
     generate_wheel_sbom,
 )
 from pitloom.cli.commands.embed_wheel import _report_embed_result
-from pitloom.cli.commands.utils import (
-    _print_sbom_output_path,
-    cli_error_handler,
-    resolve_effective_provenance,
+from pitloom.cli.commands.utils import _print_sbom_output_path, cli_error_handler
+from pitloom.cli.options import add_offline_argument
+from pitloom.cli.options_config import explicit_config_and_options
+from pitloom.core.inert_options import (
+    EMBED_STANDALONE,
+    EMBEDDED_SBOM_PARAMS,
+    INERT,
+    WHEEL,
+    forward_options,
+    settle_inert,
 )
-from pitloom.cli.options import _resolve_common_options, add_offline_argument
+from pitloom.embed import embed_filename
 from pitloom.export.spdx3_json import SPDX3_JSONLD_EXTENSION
 
 
@@ -45,11 +51,17 @@ def _run_wheel_command(args: argparse.Namespace) -> int:
         print(f"ERROR: wheel file not found: {wheel_path}", file=sys.stderr)
         return 1
 
-    pitloom_config, creation, effective_pretty, effective_describe = (
-        _resolve_common_options(args, load_project=False)
-    )
+    pitloom_config, options = explicit_config_and_options(args)
 
     embed = getattr(args, "embed", False)
+    if embed:
+        # The same SBOM, and the same warnings, as embed-wheel without a
+        # project: canonical, no relationship descriptions, no registry
+        # harvest. -o writes a copy of it.
+        inert = INERT[EMBED_STANDALONE]
+        settle_inert(EMBED_STANDALONE, target, {name: options[name] for name in inert})
+        options.update(dict.fromkeys(inert))
+        options.update(dict.fromkeys(EMBEDDED_SBOM_PARAMS, False))
     # With --embed, only write a standalone copy if the user explicitly
     # asked for one via -o; embedding into the wheel is the primary
     # output and shouldn't also litter cwd with a same-named file.
@@ -67,17 +79,19 @@ def _run_wheel_command(args: argparse.Namespace) -> int:
     sbom_json = generate_wheel_sbom(
         wheel_path,
         output_path=output_path,
-        creation_metadata=creation,
-        pretty=effective_pretty,
-        describe_relationship=effective_describe,
-        registry=args.registry,
-        update_registry=args.update_registry,
-        provenance=resolve_effective_provenance(pitloom_config, args),
-        offline=args.offline,
+        pitloom_config=pitloom_config,
+        # Subject as given, so the warning reads as `loom generate`'s does.
+        **forward_options(WHEEL, target, generate_wheel_sbom, options),
     )
 
     if embed:
-        _, arcname, removed, floored = embed_sbom_in_wheel(wheel_path, sbom_json)
+        _, arcname, removed, floored = embed_sbom_in_wheel(
+            wheel_path,
+            sbom_json,
+            sbom_filename=embed_filename(
+                pitloom_config.sbom_basename if pitloom_config else None
+            ),
+        )
         _report_embed_result(arcname, wheel_path.name, removed, floored)
 
     if output_path is not None:

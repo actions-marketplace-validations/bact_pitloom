@@ -29,13 +29,12 @@ from installer.sources import WheelFile
 from pitloom import __main__
 from pitloom._embed_build_sbom import _compute_wheel_merkle_root, _merge_file_extras
 from pitloom.core.models import _build_merkle_tree
-from pitloom.core.project import ProjectFile, ProjectMetadata
+from pitloom.core.project import ProjectFile
 from pitloom.embed import (
     ConfigOverrides,
-    _build_sbom_standalone_wheel,
     embed_wheel_sbom,
 )
-from pitloom.ids import IdRegistry
+from pitloom.ids import DEFAULT_REGISTRY_FILENAME, FileEntry, IdRegistry
 
 from .conftest import _make_dummy_wheel
 
@@ -70,7 +69,9 @@ type = "person"
     w_cli = _make_dummy_wheel(dir_cli, "identpkg", "1.0.0")
     w_api = _make_dummy_wheel(dir_api, "identpkg", "1.0.0")
 
-    monkeypatch.setattr(sys, "argv", ["loom", "embed-wheel", str(w_cli)])
+    monkeypatch.setattr(
+        sys, "argv", ["loom", "embed-wheel", str(w_cli), "--project-dir", str(tmp_path)]
+    )
     assert __main__.main() == 0
 
     _, arcname_api, sbom_json_api, _, _ = embed_wheel_sbom(w_api, project_dir=tmp_path)
@@ -496,18 +497,32 @@ packages = ["ctpkg"]
     assert not files_by_name["ctpkg/__init__.py"].get("contentType")
 
 
-def test_build_sbom_standalone_wheel_registry_options(tmp_path: Path) -> None:
-    """Test _build_sbom_standalone_wheel with various registry options."""
-    meta = ProjectMetadata(name="standalonereg", version="1.0.0", files=[])
+def test_embed_standalone_wheel_uses_only_an_explicit_registry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With no project directory, a ``loom-ids.json`` near the current
+    directory belongs to whatever project that is: it is never adopted. An
+    explicit registry is -- which also proves the seeded registry would
+    have shown up in the SBOM."""
+    wheel_path = _make_dummy_wheel(tmp_path / "dist", "standalonereg", "1.0.0")
+    namespace = "https://example.invalid/cwd-registry"
+    registry = IdRegistry(namespace=namespace)
+    member = "standalonereg/__init__.py"
+    with zipfile.ZipFile(wheel_path) as archive:
+        digest = hashlib.sha256(archive.read(member)).hexdigest()
+    registry.files[member] = FileEntry(
+        spdx_id=f"{namespace}#File-seeded", sha256=digest
+    )
+    registry.save(tmp_path / DEFAULT_REGISTRY_FILENAME)
+    monkeypatch.chdir(tmp_path)
 
-    reg = IdRegistry(namespace="https://example.com/spdx")
-    sbom_1 = _build_sbom_standalone_wheel(meta, None, reg, None, False)
-    assert "standalonereg" in sbom_1
+    *_, implicit, _, _ = embed_wheel_sbom(wheel_path)
+    *_, explicit, _, _ = embed_wheel_sbom(
+        wheel_path, registry=tmp_path / DEFAULT_REGISTRY_FILENAME
+    )
 
-    reg_file = tmp_path / "custom_ids.json"
-    reg.save(reg_file)
-    sbom_2 = _build_sbom_standalone_wheel(meta, None, str(reg_file), None, True)
-    assert "standalonereg" in sbom_2
+    assert namespace not in implicit
+    assert namespace in explicit
 
 
 def test_cli_wheel_embed_ignores_cwd_project(

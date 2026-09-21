@@ -53,6 +53,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import _checks_build  # noqa: F401  # pylint: disable=unused-import
+import _checks_config  # noqa: F401  # pylint: disable=unused-import
 import _checks_core  # noqa: F401  # pylint: disable=unused-import
 import _fixtures
 import _matrix

@@ -10,7 +10,7 @@ See also:
   other generators.
 - :mod:`pitloom.assemble._generators` for the project/sdist generator.
 - :mod:`pitloom.assemble._generators_env` for the installed-environment
-  generator, which resolves the same current-directory cascade.
+  generator, which resolves its settings the same way.
 """
 
 from __future__ import annotations
@@ -22,17 +22,14 @@ from spdx_python_model.bindings import v3_0_1 as spdx3_bindings
 from pitloom.assemble._generators_shared import _sync_registry
 from pitloom.assemble._model_generator import _write_output_file
 from pitloom.assemble.spdx3.document import build
-from pitloom.core.config_cascade import (
-    ConfigOverrides,
-    apply_overrides,
-    resolve_generator_config,
-)
+from pitloom.core.config import PitloomConfig
+from pitloom.core.config_cascade import ConfigOverrides, resolve_standalone_config
 from pitloom.core.creation import CreationMetadata
 from pitloom.core.document import DocumentModel
 from pitloom.core.provenance import ProvenanceConfig
 from pitloom.extract.binary import find_phantom_dependencies
 from pitloom.extract.wheel import read_wheel
-from pitloom.ids import IdRegistry, resolve_registry
+from pitloom.ids import IdRegistry, resolve_explicit_registry
 from pitloom.logging_config import configure_logging
 
 
@@ -49,37 +46,35 @@ def generate_wheel_sbom(
     offline: bool | None = None,
     content_type_method: str | None = None,
     update_registry: bool | None = None,
+    max_source_metadata_bytes: int | None = None,
+    pitloom_config: PitloomConfig | None = None,
 ) -> str:
     """Generate an Analyzed SPDX 3 SBOM for a built Python wheel.
 
-    A wheel carries no ``[tool.pitloom]`` of its own, so every unset
-    *setting* falls back to the current directory's ``pyproject.toml``
-    (:func:`~pitloom.core.config_cascade.resolve_generator_config`) before
-    the built-in defaults. That is the same set of settings the project
-    surface resolves, but read from the current directory rather than from
-    the target -- the two are unrelated when the wheel lives elsewhere.
+    A wheel has no ``[tool.pitloom]`` of its own, and none is borrowed: not
+    from the current directory, not from beside the wheel -- either may
+    belong to an unrelated project. Settings come from the arguments, then
+    *pitloom_config* when the caller names one explicitly, then the built-in
+    defaults. The same holds for the registry: *registry*, else the explicit
+    config's ``ids-file``; no ``loom-ids.json`` is searched for.
 
-    Two settings are deliberately *not* part of it. ``creation_metadata``
-    (``creators``/``creation-datetime``/``creation-comment``) asserts who
-    made this SBOM and when, so inheriting it from whichever project the
-    process happens to be standing in would attribute this wheel's SBOM to
-    a stranger. ``ids-file`` is excluded for the reason given at the
-    ``resolve_registry`` call below. Only policy settings cascade.
+    An explicit *pitloom_config* applies in full, identity included: its
+    creators, creation datetime and comment fill in when *creation_metadata*
+    is not given.
 
-    ``extract_file_header``/``content_type`` have no parameter here: both
-    govern per-``ProjectFile`` scanning inside ``get_wheel_files()``, which
-    reading a built wheel never performs. ``content_type_method`` does
-    apply, because it also steers whether dependency originator enrichment
-    fetches a remote authors file.
+    ``extract_file_header``/``content_type``/``enrich`` have no parameter
+    here: reading a built wheel scans no file contents and finds no AI
+    models (see :data:`pitloom.core.inert_options.INERT`).
+    ``content_type_method`` does apply, because it also steers whether
+    dependency originator enrichment fetches a remote authors file.
     """
     configure_logging()
     wheel_path_obj = Path(wheel_path)
     project_metadata, project_files = read_wheel(wheel_path_obj)
     phantom_deps = find_phantom_dependencies(project_files)
 
-    cwd = Path.cwd()
-    cfg = apply_overrides(
-        resolve_generator_config(cwd),
+    cfg = resolve_standalone_config(
+        pitloom_config,
         ConfigOverrides(
             provenance=provenance,
             offline=offline,
@@ -87,19 +82,14 @@ def generate_wheel_sbom(
             pretty=pretty,
             describe_relationship=describe_relationship,
             update_registry=update_registry,
+            max_source_metadata_bytes=max_source_metadata_bytes,
         ),
     )
-    # Deliberately not cascaded to cfg.ids_file, unlike every other setting
-    # here: adopting the cwd project's registry makes a second run of the
-    # same wheel mint ids from a counter that does not reserve the numbers
-    # the registry just supplied, so two software_File elements collide on
-    # one spdxId. It would also write this wheel's ids into an unrelated
-    # project's registry. An explicit registry= argument is still honoured.
-    resolved_registry = resolve_registry(cwd, registry)
+    resolved_registry = resolve_explicit_registry(registry, cfg.ids_file)
 
     doc = DocumentModel(
         project=project_metadata,
-        creation_metadata=creation_metadata or CreationMetadata(),
+        creation_metadata=creation_metadata or cfg.creation_metadata,
         ai_models=[],
         phantom_dependencies=phantom_deps,
     )

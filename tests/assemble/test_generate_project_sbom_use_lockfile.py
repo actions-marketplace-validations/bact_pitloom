@@ -20,6 +20,7 @@ from pathlib import Path
 import pytest
 
 from pitloom.assemble import generate_project_sbom
+from pitloom.core.config import PitloomConfig
 from pitloom.core.project import ProjectMetadata
 from pitloom.extract.project import read_project
 from tests.fixtures.locked_deps import write_locked_deps_project
@@ -106,10 +107,11 @@ def test_generate_project_sbom_use_lockfile_noop_when_metadata_presupplied(
 def test_generate_project_sbom_partial_presupply_warns_and_discards(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """Regression: supplying only ONE of project_metadata/pitloom_config
-    (not the documented both-or-neither contract) must not silently
-    re-resolve and discard the caller's supplied value -- a WARNING: has
-    to explain the deviation, per AGENTS.md's "no silent deviations" rule."""
+    """Regression: supplying project_metadata without pitloom_config (an
+    unsupported combination) must not silently re-resolve and discard the
+    caller's supplied value -- a WARNING: has to explain the deviation, per
+    AGENTS.md's "no silent deviations" rule. (pitloom_config alone is
+    supported: see the next test.)"""
     _write_project(tmp_path)
     caller_metadata = ProjectMetadata(name="caller-supplied-name")
 
@@ -124,5 +126,31 @@ def test_generate_project_sbom_partial_presupply_warns_and_discards(
     # discarded and re-resolved from disk instead -- "locked-app" wins.
     assert "caller-supplied-name" not in sbom_json
     assert "locked-app" in sbom_json
-    assert "must be supplied together" in caplog.text
-    assert "project_metadata" in caplog.text
+    assert "project_metadata needs pitloom_config" in caplog.text
+
+
+def test_generate_project_sbom_pitloom_config_alone_replaces_target_config(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """pitloom_config alone is an explicit config (``--config``): it
+    replaces the target's own ``[tool.pitloom]`` wholesale -- a key the
+    target sets and the explicit config does not is *absent* -- while the
+    project metadata is still read from the target. No warning."""
+    _write_project(tmp_path)
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(
+        pyproject.read_text(encoding="utf-8")
+        + '\n[tool.pitloom]\ncreation-comment = "from-target"\n',
+        encoding="utf-8",
+    )
+    explicit = PitloomConfig(creation_comment="from-explicit")
+
+    with caplog.at_level(logging.WARNING):
+        sbom_json = generate_project_sbom(
+            tmp_path, offline=True, pitloom_config=explicit
+        )
+
+    assert "from-explicit" in sbom_json
+    assert "from-target" not in sbom_json
+    assert "locked-app" in sbom_json
+    assert "project_metadata needs pitloom_config" not in caplog.text

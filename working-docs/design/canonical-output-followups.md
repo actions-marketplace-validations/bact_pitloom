@@ -1,6 +1,6 @@
 ---
 Created: 2026-09-20
-Last-Modified: 2026-09-20
+Last-Modified: 2026-09-21
 SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 SPDX-FileType: DOCUMENTATION
 SPDX-License-Identifier: CC0-1.0
@@ -78,3 +78,11 @@ one shared helper, then a test that runs every format/surface through it.
   `SOURCE_DATE_EPOCH`, file times, registry, fragments) for the same two calls.
 - **Test:** `Z`, `+07:00`, naive, fractional seconds, on Python 3.10 and 3.14,
   through the CLI, the library API and the hook; every output ends in `Z`.
+
+## 4. `\n` line endings on every platform
+
+- **Bug:** SBOM files are written in text mode (`Path.write_text()`), so a
+  pretty SBOM gets CRLF on Windows and differs from the POSIX bytes for the
+  same input. Seen in PR #231's Windows CI. Pre-existing.
+- **Fix:** write with `newline="\n"` (or bytes) at every SBOM write site.
+- **Test:** a pretty SBOM contains no `\r`, on the Windows leg.

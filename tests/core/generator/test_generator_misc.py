@@ -1,6 +1,7 @@
 # ruff: noqa: F403, F405
 from __future__ import annotations
 
+import functools
 import json
 import logging
 import tempfile
@@ -22,7 +23,7 @@ from pitloom.assemble.spdx3.document import (
     build_model,
 )
 from pitloom.assemble.spdx3.fragments import merge_fragments
-from pitloom.core.config import FragmentConfig
+from pitloom.core.config import FragmentConfig, PitloomConfig
 from pitloom.core.creation import CreationMetadata
 from pitloom.core.document import DocumentModel
 from pitloom.core.project import ProjectFile, ProjectMetadata
@@ -212,11 +213,14 @@ def test_generate_use_lockfile_warns_for_non_project_target(
     so passing it must log a WARNING: (matching the analogous sdist-archive
     no-op in resolve_project_with_lockfile()) instead of silently
     discarding the caller's explicit instruction."""
-    monkeypatch.setattr(
-        assemble,
-        "generate_env_sbom",
-        lambda **kwargs: "env-sbom",  # noqa: ARG005
-    )
+    real = assemble.generate_env_sbom
+
+    # wraps: the real signature, so generate() sees which options it drops.
+    @functools.wraps(real)
+    def fake(**_kwargs: object) -> str:
+        return "env-sbom"
+
+    monkeypatch.setattr(assemble, "generate_env_sbom", fake)
 
     with caplog.at_level(logging.WARNING):
         assert generate("env", use_lockfile=False) == "env-sbom"
@@ -297,27 +301,46 @@ def test_write_output_file_to_stdout_adds_missing_trailing_newline(
 
 
 @pytest.mark.parametrize(
-    ("offline", "cwd_config"),
+    ("offline", "pitloom_config"),
     [
-        pytest.param(True, "", id="explicit-offline"),
-        # No explicit value: only the current directory's config can make
-        # this raise, so a path that skipped the cascade would fetch.
-        pytest.param(None, "[tool.pitloom]\noffline = true\n", id="cwd-config"),
+        pytest.param(True, None, id="explicit-offline"),
+        # No per-run value: only the explicitly named config can make this
+        # raise, so a path that skipped the cascade would fetch.
+        pytest.param(None, PitloomConfig(offline=True), id="explicit-config"),
     ],
 )
 def test_generate_model_sbom_huggingface_offline_raises(
-    offline: bool | None,
-    cwd_config: str,
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    offline: bool | None, pitloom_config: PitloomConfig | None
 ) -> None:
-    """A Hugging Face source with offline=True (or an offline pyproject.toml
-    default) is rejected before any network access is attempted."""
-    if cwd_config:
-        (tmp_path / "pyproject.toml").write_text(cwd_config, encoding="utf-8")
-    monkeypatch.chdir(tmp_path)
+    """A Hugging Face source with offline=True (or an explicitly named
+    config that sets it) is rejected before any network access is
+    attempted."""
     with pytest.raises(ValueError, match="Offline mode enabled"):
-        generate_model_sbom("hexgrad/Kokoro-82M", offline=offline)
+        generate_model_sbom(
+            "hexgrad/Kokoro-82M", offline=offline, pitloom_config=pitloom_config
+        )
+
+
+def test_generate_model_sbom_huggingface_ignores_cwd_offline_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The current directory's ``offline = true`` belongs to whatever project
+    that is, not to this model: it no longer blocks the fetch. The fetch is
+    stubbed, so reaching it is the proof."""
+    (tmp_path / "pyproject.toml").write_text(
+        "[tool.pitloom]\noffline = true\n", encoding="utf-8"
+    )
+    monkeypatch.chdir(tmp_path)
+    fetched: list[str] = []
+
+    def _fake_read_huggingface(source: str) -> object:
+        fetched.append(source)
+        raise RuntimeError("stop after the fetch was attempted")
+
+    monkeypatch.setattr(_model_generator, "read_huggingface", _fake_read_huggingface)
+    with pytest.raises(RuntimeError, match="stop after the fetch"):
+        generate_model_sbom("hexgrad/Kokoro-82M")
+    assert fetched == ["hexgrad/Kokoro-82M"]
 
 
 def test_generate_model_sbom_huggingface_source(

@@ -17,9 +17,10 @@ from pitloom import __main__
 from pitloom.assemble import target_resolves_to_project
 from pitloom.cli.commands import env as mod_env
 from pitloom.cli.commands import generate as mod_generate
+from pitloom.cli.commands import project as mod_project
 from pitloom.core.creation import CreationMetadata
 from pitloom.ids import IdRegistry
-from tests.cli.shared import _make_simple_project
+from tests.cli.shared import _make_simple_project, effective_setting
 
 FIXTURE_DIR = Path(__file__).parent.parent / "fixtures"
 SAFETENSORS_FIXTURE = (
@@ -63,16 +64,19 @@ creation-comment = "configured in pyproject"
         registry: object = None,
         **kwargs: object,
     ) -> str:
-        _ = (registry, kwargs)
+        _ = registry
+        config = kwargs["pitloom_config"]
         captured["target"] = target
         captured["output_path"] = output_path
         captured["creation_metadata"] = creation_metadata
-        captured["pretty"] = pretty
-        captured["describe_relationship"] = describe_relationship
+        captured["pretty"] = effective_setting(pretty, config, "pretty")
+        captured["describe_relationship"] = effective_setting(
+            describe_relationship, config, "describe_relationship"
+        )
         return "{}"
 
     output_path = tmp_path / "out.spdx3.json"
-    monkeypatch.setattr(mod_generate, "generate_project_sbom", _fake_generate)
+    monkeypatch.setattr(mod_project, "generate_project_sbom", _fake_generate)
     monkeypatch.setattr(
         sys, "argv", ["loom", "generate", str(project_dir), "-o", str(output_path)]
     )
@@ -107,7 +111,7 @@ def test_generate_command_default_file_headers_and_content_type_are_none(
         return "{}"
 
     output_path = tmp_path / "out.spdx3.json"
-    monkeypatch.setattr(mod_generate, "generate_project_sbom", _fake_generate)
+    monkeypatch.setattr(mod_project, "generate_project_sbom", _fake_generate)
     monkeypatch.setattr(
         sys, "argv", ["loom", "generate", str(project_dir), "-o", str(output_path)]
     )
@@ -147,7 +151,7 @@ def test_generate_command_file_headers_content_type_flags_passed_through(
         return "{}"
 
     output_path = tmp_path / "out.spdx3.json"
-    monkeypatch.setattr(mod_generate, "generate_project_sbom", _fake_generate)
+    monkeypatch.setattr(mod_project, "generate_project_sbom", _fake_generate)
     monkeypatch.setattr(
         sys,
         "argv",
@@ -172,7 +176,7 @@ def test_generate_command_content_type_method_flag_passed_through(
         return "{}"
 
     output_path = tmp_path / "out.spdx3.json"
-    monkeypatch.setattr(mod_generate, "generate_project_sbom", _fake_generate)
+    monkeypatch.setattr(mod_project, "generate_project_sbom", _fake_generate)
     monkeypatch.setattr(
         sys,
         "argv",
@@ -267,14 +271,12 @@ def test_ids_generate_cli_end_to_end(
 def test_generate_command_does_not_duplicate_project_warning(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """Regression: for a plain project-directory target,
-    `_run_generate_command()` calls `resolve_project_with_lockfile()` +
-    `generate_project_sbom()` directly -- the same single-read pattern
-    `loom project` uses -- rather than going through `_resolve_common_options()`'s
-    own config-only peek followed by `generate()`'s real read. Only
-    `resolve_project_with_lockfile()`'s own peek-then-quiet-reread can emit
-    a WARNING: here (e.g. the PEP 639 transitional license/classifier
-    conflict), so it must never double-fire end to end via the CLI."""
+    """Regression: for a plain project-directory target, `loom generate`
+    shares `loom project`'s single-read path (one
+    `resolve_project_with_lockfile()` read, pre-supplied to
+    `generate_project_sbom()`), so a metadata WARNING: (e.g. the PEP 639
+    transitional license/classifier conflict) fires exactly once end to
+    end via the CLI."""
     project_dir = tmp_path / "proj"
     project_dir.mkdir()
     (project_dir / "pyproject.toml").write_text(
@@ -296,17 +298,13 @@ def test_generate_command_does_not_duplicate_project_warning(
     assert caplog.text.count("PEP 639 transitional state") == 1
 
 
-def test_generate_command_sdist_target_does_not_drop_sibling_project_warning(
+def test_generate_command_sdist_target_ignores_sibling_pyproject(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """Regression: an sdist-archive target isn't a directory, so it takes
-    `_run_generate_command()`'s fallback branch -- a plain, always
-    non-quiet `_resolve_common_options()` peek followed by `generate()`'s
-    real read. That real read (`generate_project_sbom()` -> `read_sdist()`)
-    never touches `read_pyproject()` at all -- it parses the archive's own
-    internal PKG-INFO, not the *sibling* pyproject.toml the peek read to
-    resolve [tool.pitloom] config -- so the peek's WARNING: is this
-    invocation's only possible emission of it and must not be lost."""
+    """Regression: an sdist archive's config is its own. A pyproject.toml
+    beside the archive may belong to anything, so ``loom generate`` reads
+    it no more than ``loom project`` does -- its PEP 639 warning (which a
+    read would emit) must not appear."""
     import io
     import tarfile
 
@@ -333,7 +331,7 @@ def test_generate_command_sdist_target_does_not_drop_sibling_project_warning(
     with caplog.at_level(logging.WARNING):
         assert __main__.main() == 0
 
-    assert caplog.text.count("PEP 639 transitional state") == 1
+    assert "PEP 639 transitional state" not in caplog.text
 
 
 @pytest.mark.parametrize(

@@ -57,15 +57,14 @@ def _check_moved_creation_keys(
         ):
             continue
         raise ValueError(
-            f"[tool.pitloom] {key!r} has moved to {moved_to}. "
-            "Update your pyproject.toml."
+            f"[tool.pitloom] {key!r} has moved to {moved_to}. Update your config."
         )
     for key in creation_data:
         moved_to = _MOVED_CREATION_KEYS.get(key)
         if moved_to is not None:
             raise ValueError(
                 f"[tool.pitloom.creation] {key!r} has moved to {moved_to}. "
-                "Update your pyproject.toml."
+                "Update your config."
             )
 
 
@@ -74,12 +73,11 @@ def _check_moved_top_level_tables(pitloom_data: dict[str, Any]) -> None:
     for key, moved_to in _MOVED_TOP_LEVEL_TABLES.items():
         if key in pitloom_data:
             raise ValueError(
-                f"[tool.pitloom.{key}] has moved to {moved_to}. "
-                "Update your pyproject.toml."
+                f"[tool.pitloom.{key}] has moved to {moved_to}. Update your config."
             )
     enrich = pitloom_data.get("enrich")
     if isinstance(enrich, dict):
         raise ValueError(
             "[tool.pitloom.enrich] has moved to [tool.pitloom] enrich "
-            "(a flat boolean, not a table). Update your pyproject.toml."
+            "(a flat boolean, not a table). Update your config."
         )

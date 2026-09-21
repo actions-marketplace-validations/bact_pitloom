@@ -26,7 +26,6 @@ import argparse
 from pitloom.cli.options_resolve import (
     _load_pitloom_tool_section,
     _quote_optional,
-    _resolve_common_options,
     _resolve_creation_metadata,
     _resolve_describe_relationship,
     _resolve_hf_output_path,
@@ -47,7 +46,6 @@ from pitloom.core.build_options import BuildOptions
 __all__ = [
     "_load_pitloom_tool_section",
     "_quote_optional",
-    "_resolve_common_options",
     "_resolve_creation_metadata",
     "_resolve_describe_relationship",
     "_resolve_hf_output_path",

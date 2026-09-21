@@ -25,6 +25,7 @@ import pytest
 from pitloom.assemble import generate_model_sbom
 from pitloom.assemble.spdx3.document import build, build_model
 from pitloom.core.ai_metadata import AiModelFormat, AiModelFormatInfo, AiModelMetadata
+from pitloom.core.config_cascade import load_config_file
 from pitloom.core.creation import CreationMetadata
 from pitloom.core.dataset_metadata import DatasetMetadata, DatasetReference
 from pitloom.core.document import DocumentModel
@@ -240,7 +241,9 @@ def test_generate_model_sbom_readme_enrichment_end_to_end() -> None:
         )
         (tmppath / "pyproject.toml").write_text("[tool.pitloom]\nenrich = true\n")
 
-        sbom_json = generate_model_sbom(model_path)
+        sbom_json = generate_model_sbom(
+            model_path, pitloom_config=load_config_file(tmppath / "pyproject.toml")
+        )
 
         graph = json.loads(sbom_json)["@graph"]
         ai_pkg = next(e for e in graph if e.get("type") == "ai_AIPackage")
@@ -314,7 +317,12 @@ def test_generate_model_sbom_field_only_enrichment_has_own_creation_info() -> No
         (tmppath / "README.md").write_text("---\nlicense: apache-2.0\n---\n")
         (tmppath / "pyproject.toml").write_text("[tool.pitloom]\nenrich = true\n")
 
-        graph = json.loads(generate_model_sbom(model_path))["@graph"]
+        graph = json.loads(
+            generate_model_sbom(
+                model_path,
+                pitloom_config=load_config_file(tmppath / "pyproject.toml"),
+            )
+        )["@graph"]
 
         ai_pkg = next(e for e in graph if e.get("type") == "ai_AIPackage")
         assert not [e for e in graph if e.get("type") == "dataset_DatasetPackage"]
@@ -374,10 +382,9 @@ def test_generate_model_sbom_default_off_even_with_readme() -> None:
 
 
 def test_generate_model_sbom_enrich_local_false_disables_readme_enrichment() -> None:
-    """`[tool.pitloom] enrich = false` in a pyproject.toml next to
-    the model file turns off README enrichment explicitly (same outcome as
-    the default, but exercised independently in case the default changes
-    again)."""
+    """`[tool.pitloom] enrich = false` in an explicitly named config turns
+    off README enrichment (same outcome as the default, but exercised
+    independently in case the default changes again)."""
     fixture = _AI_MODEL_ROOT / "safetensors" / "phi-tiny-random.safetensors"
     with tempfile.TemporaryDirectory() as tmpdir:
         tmppath = Path(tmpdir)
@@ -386,7 +393,37 @@ def test_generate_model_sbom_enrich_local_false_disables_readme_enrichment() -> 
         (tmppath / "README.md").write_text("---\ndatasets:\n  - tiny-imagenet\n---\n")
         (tmppath / "pyproject.toml").write_text("[tool.pitloom]\nenrich = false\n")
 
-        sbom_json = generate_model_sbom(model_path)
+        sbom_json = generate_model_sbom(
+            model_path, pitloom_config=load_config_file(tmppath / "pyproject.toml")
+        )
 
         graph = json.loads(sbom_json)["@graph"]
         assert not [e for e in graph if e.get("type") == "dataset_DatasetPackage"]
+
+
+def test_generate_model_sbom_ignores_a_config_beside_the_model() -> None:
+    """A ``pyproject.toml`` next to the model file may belong to an
+    unrelated project, so it is never read implicitly: ``enrich = true``
+    there does not switch enrichment on. The same file named explicitly
+    does -- which also proves the setup would have enriched."""
+    fixture = _AI_MODEL_ROOT / "safetensors" / "phi-tiny-random.safetensors"
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmppath = Path(tmpdir)
+        model_path = tmppath / "model.safetensors"
+        model_path.write_bytes(fixture.read_bytes())
+        (tmppath / "README.md").write_text("---\ndatasets:\n  - tiny-imagenet\n---\n")
+        config_path = tmppath / "pyproject.toml"
+        config_path.write_text("[tool.pitloom]\nenrich = true\n")
+
+        implicit = json.loads(generate_model_sbom(model_path))["@graph"]
+        explicit = json.loads(
+            generate_model_sbom(
+                model_path, pitloom_config=load_config_file(config_path)
+            )
+        )["@graph"]
+
+        def datasets(graph: list[dict[str, object]]) -> list[object]:
+            return [e for e in graph if e.get("type") == "dataset_DatasetPackage"]
+
+        assert not datasets(implicit)
+        assert datasets(explicit)

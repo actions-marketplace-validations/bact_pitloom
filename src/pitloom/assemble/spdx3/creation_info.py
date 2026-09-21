@@ -263,9 +263,10 @@ def build_enrichment_creation_info(
     :func:`build_creator_agents` -- so enrichment doesn't invent a
     fictitious second "Pitloom" identity alongside the one the rest of
     the document already uses. ``createdUsing`` is a fresh ``Tool`` named
-    after the enricher (e.g. ``"pitloom.enrich.readme"``), and ``created``
-    is the enrichment run's own timestamp (now), distinct from the main
-    document's creation time.
+    after the enricher (e.g. ``"pitloom.enrich.readme"``). ``created`` is
+    the main ``CreationInfo``'s: the enrichment runs in the same invocation,
+    and that value is already resolved from ``--creation-datetime``, then
+    ``SOURCE_DATE_EPOCH``, so the output stays reproducible.
 
     SPDX 3.0.1 has no native ``Tool.version`` (added in 3.1-dev); version
     info goes in ``Tool.summary`` instead, same workaround
@@ -274,7 +275,7 @@ def build_enrichment_creation_info(
     Pitloom PURL is also attached as ``externalIdentifier`` -- see
     :data:`_PITLOOM_PURL`.
     """
-    ci = spdx3.CreationInfo(specVersion="3.0.1", created=spdx3_utc_now())
+    ci = spdx3.CreationInfo(specVersion="3.0.1", created=main_creation_info.created)
     tool = spdx3.Tool(
         spdxId=generate_spdx_id("Tool", doc_name=doc_name, doc_uuid=doc_uuid),
         name=tool_name,

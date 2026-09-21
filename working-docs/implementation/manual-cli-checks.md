@@ -1,6 +1,6 @@
 ---
 Created: 2026-09-17
-Last-Modified: 2026-09-20
+Last-Modified: 2026-09-21
 SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 SPDX-FileType: DOCUMENTATION
 SPDX-License-Identifier: CC0-1.0
@@ -35,7 +35,7 @@ unattended from one stdlib-only runner, on Linux, macOS and Windows:
 
 Use the checkout's own interpreter: the runner tests the `pitloom` that
 interpreter imports, and prints its path first. Besides the numbered
-checks (`1`-`11`, `B1`-`B7`) it runs:
+checks (`1`-`12`, `B1`-`B7`) it runs:
 
 - **The CLI matrix** (`M/<command>/<group>/<variant>`): every subcommand
   x its options x the environment variables that change it
@@ -62,7 +62,10 @@ item's title (`_known.py`) -- only when its failure text is the tracked
 one, so any other failure in that cell still fails; drop the entry when
 the item is done. To
 cover a new option, add it to `PLAN` in `_matrix_plan.py` -- a variant
-with an expectation, a group, or an exclusion with its reason.
+with an expectation, a group, or an exclusion with its reason. The
+`warns:` variants per command are derived from
+`pitloom.core.inert_options.INERT`, not listed by hand, so the matrix
+cannot disagree with the library on which options have no effect.
 
 ## The checks
 
@@ -224,6 +227,18 @@ must show one more blocked connection than `extension` on each surface
 argument-level counterpart is `tests/assemble/test_embed_build_seam.py`,
 and the same fixture without a socket guard is
 `tests/assemble/test_embed_authors_fetch.py`.
+
+**12. No implicit config for a non-project target**: from an empty
+directory and from a decoy project directory (a `[tool.pitloom]` with
+`pretty`, `enrich`, `update-registry`, a relative `ids-file` and a
+creation comment, plus a seeded `loom-ids.json`; the model file's own
+directory gets the same decoy), run `loom wheel`, `generate <wheel>`,
+`env`, `model`, `enrich` (no `--project-dir`) and `embed-wheel` (no
+`--project-dir`). Each pair of SBOMs must be byte-identical and the
+registry untouched; naming the decoy with `--config` must apply its
+creation comment (so the decoy is effective). Automated as check 12;
+the library-level counterpart is
+`tests/assemble/test_generator_no_implicit_config.py`.
 
 For a change touching the build subprocess, its kill path or signal
 handling (`--build-timeout`), also run these against a scratch project

@@ -29,3 +29,11 @@ version = "1.0.0"
         encoding="utf-8",
     )
     return project_dir
+
+
+def effective_setting(value: object, config: object, name: str) -> object:
+    """The value a library generator resolves a CLI flag to: the flag when
+    given, else *config*'s own setting. The CLI passes an omitted flag as
+    ``None`` and leaves this resolution to the library, so a fake standing
+    in for a generator applies it to assert on the effective setting."""
+    return value if value is not None else getattr(config, name)

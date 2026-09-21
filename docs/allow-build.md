@@ -65,10 +65,10 @@ it executes third-party build-time code from the project being scanned
   project *directory* -- for any other target, including an sdist
   archive (whose file list comes from the archive's own listing, not a
   build), they're a no-op and Pitloom prints a `WARNING:` saying so.
-  The same applies to `embed-wheel` when it can't resolve a project
-  directory to rescan (no `--project-dir`, and the current directory
-  is not a project; for the library, no `project_dir`) or when `--sbom`
-  supplies an already-generated SBOM to embed verbatim.
+  The same applies to `embed-wheel` without `--project-dir` (for the
+  library, no `project_dir`) -- the current directory is never used as
+  the project -- or when `--sbom` supplies an already-generated SBOM to
+  embed verbatim.
 
 ```bash
 loom project . --allow-build -o sbom.json

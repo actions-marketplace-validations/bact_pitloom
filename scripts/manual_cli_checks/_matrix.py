@@ -50,6 +50,20 @@ from _harness import (
 from _matrix_plan import COMMANDS, NETWORK_VARIANTS, Command, Variant, plan_for
 from _matrix_run import DATETIME_2, Matrix, cli_surface, created, normalise, universal
 
+from pitloom.core.no_effect import INERT_LOG_PREFIX
+
+_INERT_WARNING = f"WARNING: {INERT_LOG_PREFIX}"
+
+
+def _names_flag(line: str, flag: str) -> bool:
+    """Whether an ``Options:`` warning names *flag*, alone or as either
+    half of a ``--x/--no-x`` pair."""
+    return any(
+        f"{head}{flag}{tail}" in line
+        for head in (": ", "/")
+        for tail in (" has no effect", "/")
+    )
+
 
 def _cell_debug(
     mx: Matrix, command: Command, flag: str | None, env_value: str | None
@@ -191,6 +205,21 @@ def _cell_variant(
         )
         effect = "same" if artefact == base else "changes"
         ctx.note(f"effect: {effect}")
+        inert = [ln for ln in result.stderr_lines if ln.startswith(_INERT_WARNING)]
+        if kind == "warns":
+            # An option the target cannot use: one warning naming it, and
+            # the artefact exactly as if it had not been given.
+            named = [ln for ln in inert if _names_flag(ln, value)]
+            expect(len(named) == 1, f"want one {value} warning, got {inert}")
+            expect(effect == "same", "an inert option changed the artefact")
+            return
+        # Every other expectation is a live option: it must not also warn
+        # that it has no effect. Only warnings naming this variant's own
+        # flags count -- a cell's fixed flags (e.g. --offline) may be inert
+        # for its target, and warn rightly.
+        flags = [arg for arg in args if arg.startswith("--")]
+        own = [ln for ln in inert if any(_names_flag(ln, f) for f in flags)]
+        expect(not own, f"a live option warned: {own}")
         if kind in ("same", "changes"):
             expect(effect == kind, f"expected {kind}, got {effect}")
         elif kind == "contains":

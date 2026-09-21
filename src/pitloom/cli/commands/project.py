@@ -14,11 +14,7 @@ from typing import Any
 from pitloom.assemble import (
     generate_project_sbom,
 )
-from pitloom.cli.commands.utils import (
-    _print_sbom_output_path,
-    cli_error_handler,
-    resolve_effective_provenance,
-)
+from pitloom.cli.commands.utils import _print_sbom_output_path, cli_error_handler
 from pitloom.cli.options import (
     _resolve_output_path,
     _resolve_project_generation_settings,
@@ -30,7 +26,40 @@ from pitloom.cli.options import (
     add_use_lockfile_argument,
     build_options_from_args,
 )
+from pitloom.cli.options_config import run_options
 from pitloom.cli.verbose import _print_verbose
+from pitloom.core.build_options import BuildOptions
+
+
+def generate_project_from_args(
+    args: argparse.Namespace, project_dir: Path, build_options: BuildOptions
+) -> Path:
+    """Generate the SBOM for a project directory or sdist *project_dir* from
+    parsed arguments; return the output path it was written to.
+
+    Shared by ``loom project`` and ``loom generate`` on a project target, so
+    the two resolve config, output name, ``--verbose`` and every option the
+    same way. *build_options* must already be settled for *project_dir*.
+    """
+    project_metadata, pitloom_config, config_path, creation = (
+        _resolve_project_generation_settings(args, project_dir)
+    )
+    output_path = _resolve_output_path(args.output, project_metadata, pitloom_config)
+    if args.verbose:
+        _print_verbose(
+            args, project_dir, output_path, pitloom_config, config_path, creation
+        )
+    options = run_options(args, pitloom_config)
+    options["creation_metadata"] = creation.to_creation_metadata()
+    generate_project_sbom(
+        project_dir,
+        output_path=output_path,
+        project_metadata=project_metadata,
+        pitloom_config=pitloom_config,
+        build_options=build_options,
+        **options,
+    )
+    return output_path
 
 
 @cli_error_handler("SBOM generation failed")
@@ -46,50 +75,13 @@ def _run_project_command(args: argparse.Namespace) -> int:
         args.project_dir.resolve()
     )
 
-    project_dir, config_path = _resolve_project_paths(args)
+    project_dir, _config_path = _resolve_project_paths(args)
     if project_dir is None:
         return 1
 
-    (
-        project_metadata,
-        pitloom_config,
-        config_path,
-        creation,
-        effective_pretty,
-        effective_describe_relationship,
-    ) = _resolve_project_generation_settings(args, project_dir)
-
-    output_path = _resolve_output_path(args.output, project_metadata, pitloom_config)
-
-    if args.verbose:
-        _print_verbose(
-            args,
-            project_dir,
-            output_path,
-            pitloom_config,
-            config_path,
-            creation,
-        )
-
-    generate_project_sbom(
-        project_dir,
-        output_path=output_path,
-        creation_metadata=creation.to_creation_metadata(),
-        pretty=effective_pretty,
-        describe_relationship=effective_describe_relationship,
-        project_metadata=project_metadata,
-        pitloom_config=pitloom_config,
-        registry=args.registry,
-        update_registry=args.update_registry,
-        provenance=resolve_effective_provenance(pitloom_config, args),
-        enrich=args.enrich,
-        offline=args.offline,
-        extract_file_header=args.extract_file_header,
-        content_type=args.content_type,
-        content_type_method=args.content_type_method,
-        build_options=build_options,
+    _print_sbom_output_path(
+        generate_project_from_args(args, project_dir, build_options)
     )
-    _print_sbom_output_path(output_path)
     return 0
 
 

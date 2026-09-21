@@ -32,6 +32,7 @@ from pitloom.core.config import PitloomConfig
 from pitloom.core.config_cascade import ConfigOverrides, apply_overrides
 from pitloom.core.creation import CreationMetadata
 from pitloom.core.document import DocumentModel
+from pitloom.core.inert_options import SDIST, settle_inert
 from pitloom.core.models import get_wheel_files
 from pitloom.core.project import ProjectMetadata
 from pitloom.core.provenance import ProvenanceConfig
@@ -39,33 +40,30 @@ from pitloom.enrich import run_enrichers_for_models
 from pitloom.extract._license import resolve_license_file_entries
 from pitloom.extract.project import resolve_project_with_lockfile
 from pitloom.extract.scanner import scan_project_for_ai_models
-from pitloom.ids import IdRegistry, resolve_registry
+from pitloom.ids import IdRegistry, resolve_explicit_registry, resolve_registry
 from pitloom.logging_config import configure_logging
 
 log = logging.getLogger(__name__)
 
 
-def _warn_if_partial_presupply(
+def _warn_if_metadata_without_config(
     project_metadata: ProjectMetadata | None,
     pitloom_config: PitloomConfig | None,
     target_path: Path,
 ) -> None:
-    """Warn when exactly one of project_metadata/pitloom_config is
-    pre-supplied to generate_project_sbom() -- the pair is re-resolved and
-    the one supplied value is discarded either way (see that function's
-    docstring), so silently doing so would violate "no silent deviations".
+    """Warn when *project_metadata* is pre-supplied without *pitloom_config*
+    -- the metadata is re-read from *target_path* and the supplied value
+    discarded, so silently doing so would violate "no silent deviations".
 
-    Only called from within generate_project_sbom()'s own
-    ``project_metadata is None or pitloom_config is None`` guard, so
-    "both supplied" can never reach here -- no need to re-check it.
+    *pitloom_config* alone is supported: it replaces the target's own
+    ``[tool.pitloom]`` (an explicit ``--config``).
     """
-    if project_metadata is None and pitloom_config is None:
+    if project_metadata is None or pitloom_config is not None:
         return
     log.warning(
-        "generate_project_sbom(): project_metadata and pitloom_config "
-        "must be supplied together, or neither -- the %s you passed alone "
-        "is being discarded and both are re-resolved from %s",
-        "project_metadata" if project_metadata is not None else "pitloom_config",
+        "generate_project_sbom(): project_metadata needs pitloom_config "
+        "supplied with it -- the project_metadata you passed alone is "
+        "being discarded and re-read from %s",
         target_path,
     )
 
@@ -90,6 +88,7 @@ def generate_project_sbom(
     update_registry: bool | None = None,
     use_lockfile: bool | None = None,
     build_options: BuildOptions = BuildOptions(),
+    max_source_metadata_bytes: int | None = None,
 ) -> str:
     """Generate a Source SPDX 3 SBOM for a Python project or sdist archive.
 
@@ -103,14 +102,24 @@ def generate_project_sbom(
     silently opt itself into code execution. For an sdist archive target
     every given build flag is ignored with one ``WARNING:`` each.
 
+    Settings come from the arguments, then *pitloom_config*, then the
+    target's own ``[tool.pitloom]``, then the built-in defaults.
+    *pitloom_config* alone replaces the target's config (``--config``); the
+    project metadata is still read from *project_target*, and its lock-file
+    cascade follows ``use_lockfile``, else *pitloom_config*'s
+    ``use-lockfile``.
+
     ``use_lockfile`` only affects metadata resolved by this call: if the
     caller pre-supplies BOTH ``project_metadata`` and ``pitloom_config``
     together, this parameter has no effect -- the lock-file cascade
-    decision was already made when that metadata was produced. Supplying
-    only one of the two is not a supported combination: both are
-    re-resolved from *project_target* and the one you did supply is
-    discarded, with a ``WARNING:`` explaining why (see "no silent
+    decision was already made when that metadata was produced.
+    *project_metadata* alone is not supported: it is re-read from
+    *project_target*, with a ``WARNING:`` explaining why (see "no silent
     deviations" in AGENTS.md).
+
+    For an sdist archive, ``extract_file_header``/``content_type`` have no
+    effect and warn when given (see
+    :data:`pitloom.core.inert_options.INERT`).
     """
     configure_logging()
     target_path = Path(project_target)
@@ -119,10 +128,32 @@ def generate_project_sbom(
     # build-flag WARNING: is the first thing this call logs.
     build_options = build_options.settle_target(target_path)
 
+    if target_path.is_file():
+        # Every option, not only today's inert ones, so a new INERT[SDIST]
+        # row entry needs no change here.
+        settle_inert(
+            SDIST,
+            target_path,
+            {
+                "pretty": pretty,
+                "describe_relationship": describe_relationship,
+                "enrich": enrich,
+                "extract_file_header": extract_file_header,
+                "content_type": content_type,
+                "content_type_method": content_type_method,
+                "max_source_metadata_bytes": max_source_metadata_bytes,
+                "offline": offline,
+                "registry": registry,
+                "update_registry": update_registry,
+                "creation_metadata": creation_metadata,
+                "use_lockfile": use_lockfile,
+            },
+        )
+
     if project_metadata is None or pitloom_config is None:
-        _warn_if_partial_presupply(project_metadata, pitloom_config, target_path)
+        _warn_if_metadata_without_config(project_metadata, pitloom_config, target_path)
         project_metadata, pitloom_config, _ = resolve_project_with_lockfile(
-            target_path, use_lockfile
+            target_path, use_lockfile, pitloom_config
         )
 
     cfg = apply_overrides(
@@ -137,6 +168,7 @@ def generate_project_sbom(
             pretty=pretty,
             describe_relationship=describe_relationship,
             update_registry=update_registry,
+            max_source_metadata_bytes=max_source_metadata_bytes,
         ),
     )
 
@@ -211,8 +243,14 @@ def generate_project_sbom(
         finally:
             cleanup_discovery()
 
-    resolved_registry = resolve_registry(
-        search_root, registry if registry is not None else cfg.ids_file
+    # An sdist's directory is not its project: only a given registry is
+    # used, resolved as for any target without a project directory.
+    resolved_registry = (
+        resolve_explicit_registry(registry, cfg.ids_file)
+        if target_path.is_file()
+        else resolve_registry(
+            search_root, registry if registry is not None else cfg.ids_file
+        )
     )
 
     doc = DocumentModel(

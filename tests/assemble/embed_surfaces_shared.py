@@ -37,6 +37,8 @@ from pitloom.assemble import (
     generate_project_sbom,
     generate_wheel_sbom,
 )
+from pitloom.core.config import PitloomConfig
+from pitloom.core.config_cascade import load_config_file
 from pitloom.core.provenance import ProvenanceConfig
 from pitloom.embed import ConfigOverrides, embed_wheel_sbom
 from tests.assemble.conftest import _make_dummy_wheel
@@ -99,6 +101,11 @@ def run_cli(argv: list[str], monkeypatch: pytest.MonkeyPatch) -> None:
 Runner = Callable[..., None]
 
 
+def _explicit_config(tmp: Path, toml: str) -> PitloomConfig:
+    """The demo project's config, named explicitly (``--config``)."""
+    return load_config_file(demo_project(tmp, toml) / "pyproject.toml")
+
+
 def _lib_project(
     tmp: Path,
     _mp: pytest.MonkeyPatch,
@@ -144,22 +151,22 @@ def _lib_embed(
 
 def _lib_wheel(
     tmp: Path,
-    mp: pytest.MonkeyPatch,
+    _mp: pytest.MonkeyPatch,
     toml: str,
     method: str | None,
     size: int | None,
     *,
     offline: bool = True,
 ) -> None:
+    # A wheel has no config of its own: the project's is named explicitly,
+    # as --config would, and the cap goes through the field-level override.
     wheel = demo_wheel(tmp)
-    mp.chdir(demo_project(tmp, toml))
     generate_wheel_sbom(
         wheel,
         content_type_method=method,
-        provenance=ProvenanceConfig(max_source_metadata_bytes=size)
-        if size is not None
-        else None,
+        max_source_metadata_bytes=size,
         offline=offline,
+        pitloom_config=_explicit_config(tmp, toml),
     )
 
 
@@ -172,7 +179,7 @@ def _lib_env(
     *,
     offline: bool = True,
 ) -> None:
-    mp.chdir(demo_project(tmp, toml))
+    config = _explicit_config(tmp, toml)
     # read_environment() shells out to pipdeptree; this stands in for it so
     # the run depends on the same single declared dependency as every other
     # surface here, not on whatever happens to be installed.
@@ -194,10 +201,9 @@ def _lib_env(
     )
     generate_env_sbom(
         content_type_method=method,
-        provenance=ProvenanceConfig(max_source_metadata_bytes=size)
-        if size is not None
-        else None,
+        max_source_metadata_bytes=size,
         offline=offline,
+        pitloom_config=config,
     )
 
 

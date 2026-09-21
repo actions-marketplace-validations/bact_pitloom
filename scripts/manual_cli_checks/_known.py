@@ -15,8 +15,6 @@ from __future__ import annotations
 
 import fnmatch
 
-_IGNORED = "Shared options accepted, then silently ignored"
-_IGNORED_SIGN = "expected changes, got same"
 _PIPED = "`loom <cmd> -o -` corrupts piped JSON"
 _KV = "`enrich` and `merge` stdout is not `KEY=VALUE`"
 
@@ -33,22 +31,6 @@ KNOWN: dict[str, tuple[str, str]] = {
         "`--max-source-metadata-bytes` accepts a negative value",
         "exit 0, want 2",
     ),
-    **{
-        f"M/{cmd}/opt/{variant}": (_IGNORED, _IGNORED_SIGN)
-        for cmd in ("wheel", "model", "enrich", "env")
-        for variant in (
-            "--extract-file-header=--no-extract-file-header",
-            "--content-type=--content-type",
-            "--content-type-method=extension",
-        )
-    },
-    **{
-        f"M/{cmd}/opt/--describe-relationship=--describe-relationship": (
-            _IGNORED,
-            _IGNORED_SIGN,
-        )
-        for cmd in ("embed-wheel", "model", "enrich")
-    },
     "S2": (
         "Re-embedding lists the previous embedded SBOM",
         "re-embedding changed the SBOM",
