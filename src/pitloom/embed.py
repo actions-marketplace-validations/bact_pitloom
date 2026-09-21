@@ -12,10 +12,8 @@ from a project directory's rescan and the wheel's own files.
 
 from __future__ import annotations
 
-import dataclasses
 import logging
 from pathlib import Path
-from typing import Any
 
 from spdx_python_model.bindings import v3_0_1 as spdx3
 
@@ -56,7 +54,8 @@ from pitloom.core.build_options import (
     BuildOptions,
     target_settle_plan,
 )
-from pitloom.core.config import VALID_CONTENT_TYPE_METHODS, PitloomConfig
+from pitloom.core.config import PitloomConfig
+from pitloom.core.config_cascade import ConfigOverrides, apply_overrides
 from pitloom.core.creation import CreationMetadata
 from pitloom.core.document import DocumentModel
 from pitloom.core.project import ProjectMetadata
@@ -79,7 +78,6 @@ __all__ = [
     "RECOMMENDED_EXTENSIONS",
     "VALIDATED_FORMATS",
     "_ZIP_EPOCH_FLOOR",
-    "_apply_config_overrides",
     "_build_sbom_from_project_and_wheel",
     "_build_sbom_standalone_wheel",
     "_calculate_record_hash",
@@ -97,42 +95,6 @@ __all__ = [
     "embed_wheel_sbom",
     "find_embedded_sbom",
 ]
-
-
-@dataclasses.dataclass(frozen=True)
-class ConfigOverrides:
-    """Per-run overrides layered onto a project's ``[tool.pitloom]`` config.
-
-    Attributes:
-        provenance: Replaces the config's whole provenance settings, not
-            field by field: a field left at its default resets the
-            config's value, including ``max_source_metadata_bytes``.
-        build_options: ``--allow-build`` and its companion flags (see
-            :class:`~pitloom.core.build_options.BuildOptions`). Unlike
-            every other field here, deliberately has no
-            ``[tool.pitloom]`` cascade to defer to. Threaded into
-            ``_build_sbom_from_project_and_wheel()``'s own project-dir
-            rescan, whose only use for the resulting file list is
-            layering content-type/file-header extras onto the wheel's
-            already-known files (see that function's own comment on
-            discarding the rescan's ``merkle_root``/digests) -- so on a
-            project whose backend has no static discovery module (or
-            whose static discovery fails), enabling this runs a full,
-            real, potentially slow PEP 517 build *purely* to compute
-            those extras more accurately, not to learn the file list
-            itself (the wheel's own ``read_wheel()`` result already has
-            that). Deliberate: this is the only way ``embed-wheel``
-            avoids silently staying stuck on the Hatchling-heuristic
-            rescan for such a project's content-type/header extras.
-    """
-
-    provenance: ProvenanceConfig | None = None
-    enrich: bool | None = None
-    extract_file_header: bool | None = None
-    content_type: bool | None = None
-    content_type_method: str | None = None
-    offline: bool | None = None
-    build_options: BuildOptions = BuildOptions()
 
 
 def _enforce_sbom_name_version(
@@ -360,7 +322,7 @@ def _generate_embed_sbom_json(
     else:
         cfg = pitloom_config
 
-    cfg = _apply_config_overrides(cfg, overrides)
+    cfg = apply_overrides(cfg, overrides)
     eff_registry = registry if registry is not None else cfg.ids_file
     reg = resolve_registry(proj_root, eff_registry)
     sbom_json = _build_sbom_from_project_and_wheel(
@@ -373,39 +335,6 @@ def _generate_embed_sbom_json(
         file_cache=file_cache,
     )
     return sbom_json, sbom_basename or cfg.sbom_basename
-
-
-def _apply_config_overrides(
-    cfg: PitloomConfig, overrides: ConfigOverrides
-) -> PitloomConfig:
-    """Apply per-run overrides to a PitloomConfig."""
-    changes: dict[str, Any] = {}
-    if overrides.provenance is not None:
-        # Every ProvenanceConfig field maps to PitloomConfig.provenance_<name>;
-        # a field without one fails in dataclasses.replace() below, never
-        # silently. Fields are read from the class, so a subclass's extras
-        # are ignored.
-        for prov_field in dataclasses.fields(ProvenanceConfig):
-            changes[f"provenance_{prov_field.name}"] = getattr(
-                overrides.provenance, prov_field.name
-            )
-    if overrides.enrich is not None:
-        changes["enrich_local"] = overrides.enrich
-    if overrides.extract_file_header is not None:
-        changes["extract_file_header"] = overrides.extract_file_header
-    if overrides.content_type is not None:
-        changes["content_type_enabled"] = overrides.content_type
-    if overrides.content_type_method is not None:
-        if overrides.content_type_method not in VALID_CONTENT_TYPE_METHODS:
-            raise ValueError(
-                "content_type_method must be one of "
-                f"{sorted(VALID_CONTENT_TYPE_METHODS)}, got "
-                f"{overrides.content_type_method!r}"
-            )
-        changes["content_type_method"] = overrides.content_type_method
-    if overrides.offline is not None:
-        changes["offline"] = overrides.offline
-    return dataclasses.replace(cfg, **changes)
 
 
 def _build_sbom_standalone_wheel(

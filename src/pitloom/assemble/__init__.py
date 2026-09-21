@@ -6,7 +6,10 @@
 """SBOM assemblers for different output specifications.
 
 See also:
-- :mod:`pitloom.assemble._generators` for project, wheel, and environment generators.
+- :mod:`pitloom.assemble._generators` for the project/sdist generator.
+- :mod:`pitloom.assemble._generators_wheel` /
+  :mod:`pitloom.assemble._generators_env` for the wheel and environment
+  generators, and :mod:`pitloom.assemble._generators_shared` for what they share.
 - :mod:`pitloom.assemble._model_generator` for AI model SBOM generation and enrichment.
 """
 
@@ -14,23 +17,21 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pitloom.assemble._generators import (
-    generate_env_sbom,
-    generate_project_sbom,
-    generate_wheel_sbom,
-)
+from pitloom.assemble._generators import generate_project_sbom
+from pitloom.assemble._generators_env import generate_env_sbom
+from pitloom.assemble._generators_wheel import generate_wheel_sbom
 from pitloom.assemble._model_generator import (
     enrich_model,
     generate_model_sbom,
 )
 from pitloom.assemble.spdx3.fragments import FragmentMergeError, merge_fragments
 from pitloom.core.build_options import NON_PROJECT_TARGET_REASON, BuildOptions
+from pitloom.core.config_cascade import ConfigOverrides
 from pitloom.core.creation import CreationMetadata
 from pitloom.core.provenance import ProvenanceConfig
 from pitloom.embed import (
     RECOMMENDED_EXTENSIONS,
     VALIDATED_FORMATS,
-    ConfigOverrides,
     EmbeddedSbomLocation,
     detect_sbom_format,
     embed_sbom_in_wheel,
@@ -182,6 +183,7 @@ def generate(
             registry=registry,
             provenance=provenance,
             offline=offline,
+            content_type_method=content_type_method,
             update_registry=update_registry,
         )
 
@@ -195,6 +197,7 @@ def generate(
             registry=registry,
             provenance=provenance,
             offline=offline,
+            content_type_method=content_type_method,
             update_registry=update_registry,
         )
 

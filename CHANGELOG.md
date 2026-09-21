@@ -26,6 +26,12 @@ and this project adheres to
 - `--build-timeout DURATION` for `--allow-build` (CLI, Action input,
   library `BuildOptions.timeout`); default 20m, max 7 days;
   falls back to static discovery on expiry ([#226])
+- `content_type_method` parameter on `generate_wheel_sbom()`,
+  `generate_env_sbom()` and `build_deployed()` ([#228])
+- `pitloom.core.config_cascade`: `ConfigOverrides` (moved from
+  `pitloom.embed`, still re-exported), `apply_overrides()` (was
+  `pitloom.embed._apply_config_overrides`) and
+  `resolve_generator_config()` ([#228])
 
 ### Changed
 
@@ -41,9 +47,28 @@ and this project adheres to
   silently dropping it ([#226])
 - Library `ConfigOverrides.provenance` now replaces every provenance
   setting, including the byte cap, not four of five ([#227])
+- `generate_wheel_sbom()`/`generate_env_sbom()` now resolve every policy
+  setting through the working directory's `[tool.pitloom]`, not just
+  `offline`; creation metadata and `ids-file` are excluded ([#228])
+- `loom wheel`/`loom env`/`loom generate <whl|env>` now honour the working
+  directory's `update-registry` and `content-type.method` ([#228])
+- `ConfigOverrides` gained `pretty`, `describe_relationship` and
+  `update_registry`, read by the project/wheel/env generators; inert on
+  `embed_wheel_sbom(overrides=...)` ([#228])
+- `embed_wheel_sbom(project_dir=..., pitloom_config=...)`: an invalid
+  `content_type_method` in the supplied config now raises, as it already
+  did on `generate_project_sbom()` ([#228])
+- `pitloom.embed._apply_config_overrides` removed; import
+  `apply_overrides` from `pitloom.core.config_cascade` ([#228])
 
 ### Fixed
 
+- `build_deployed()` no longer drops `content_type_method`, so an
+  environment SBOM stops fetching remote authors files under
+  `extension` ([#228])
+- An unreadable (not missing) `pyproject.toml` in a wheel/env/model
+  generator's working directory is now one `WARNING:` and defaults,
+  instead of an uncaught `PermissionError` ([#228])
 - `embed-wheel <wheel1> <wheel2> ...`: the project directory's file list
   is now resolved (and, with `--allow-build`, built) once per command,
   not once per wheel ([#226])
@@ -63,6 +88,7 @@ and this project adheres to
 
 [#226]: https://github.com/bact/pitloom/pull/226
 [#227]: https://github.com/bact/pitloom/pull/227
+[#228]: https://github.com/bact/pitloom/pull/228
 [#229]: https://github.com/bact/pitloom/pull/229
 
 ## [0.19.0] - 2026-09-18

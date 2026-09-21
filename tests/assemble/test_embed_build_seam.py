@@ -7,20 +7,22 @@
 
 ``content_type_method`` and ``provenance.max_source_metadata_bytes`` are
 resolved from the CLI flag / library override / ``[tool.pitloom]`` cascade
-by each surface, then handed to ``pitloom.assemble.spdx3.document.build()``.
-Three separate hand-offs feed it (``_generators.py``; the hook and
-``embed-wheel --project-dir``, via ``PitloomConfig.assemble_options``; the
-standalone-wheel path), so one can drop a value the others keep.
+by each surface, then handed to ``build()`` or ``build_deployed()``. Each
+surface reaches that hand-off by its own route, so one can drop a value the
+others keep.
 
-The seam observed here is ``add_dependencies()``, which every ``build()``
-call passes through, so the spy needs no per-surface import site and
-survives a refactor of the hand-off.
+The seam observed here is ``_finish_dependency_enrichment()``, the one leaf
+both ``add_dependencies()`` (``build()``) and ``_build_deployed_package()``
+(``build_deployed()``) funnel each dependency through. Spying there, rather
+than at either assembler's entry, is what makes a value *accepted and then
+dropped* visible: a parameter that never arrives at the leaf fails here even
+though every signature still names it.
 
 See also:
 - :mod:`tests.assemble.embed_surfaces_shared` for the surfaces run here.
 - :mod:`tests.assemble.test_embed_authors_fetch` for what the assembler then
   does with the method.
-- :mod:`tests.assemble.test_embed_overrides` for ``_apply_config_overrides``.
+- :mod:`tests.core.test_config_cascade` for ``apply_overrides`` itself.
 - :mod:`tests.test_build_flag_warnings` for the surface x target matrix this
   module's runners are modelled on.
 """
@@ -36,36 +38,56 @@ from unittest import mock
 import pytest
 
 from pitloom.assemble.spdx3 import document as spdx3_document
-from pitloom.assemble.spdx3.deps import add_dependencies
+from pitloom.assemble.spdx3.deps import _finish_dependency_enrichment
 from pitloom.core.config import AssembleOptions, PitloomConfig
+from pitloom.core.config_cascade import apply_overrides
 from pitloom.core.provenance import ProvenanceConfig
-from pitloom.embed import ConfigOverrides, _apply_config_overrides, embed_wheel_sbom
+from pitloom.embed import ConfigOverrides, embed_wheel_sbom
 from tests.assemble.conftest import _make_dummy_wheel
 from tests.assemble.embed_surfaces_shared import (
+    DEPENDENCY,
     RUNNERS,
     cli_embed,
     config_toml,
     demo_project,
+    demo_wheel,
     hatch_hook,
     run_cli,
 )
 
 
 class _Recorded:
-    """The ``add_dependencies()`` calls one surface run made."""
+    """The ``_finish_dependency_enrichment()`` calls one surface run made."""
 
     def __init__(self, calls: list[dict[str, Any]]) -> None:
         self.calls = calls
 
     def method(self) -> str:
-        methods = {c["content_type_method"] for c in self.calls}
+        # A call site that omits the keyword leaves it to the leaf's own
+        # "auto" default -- the silent drop under test -- so read it as
+        # absent rather than letting it read back as a deliberate "auto".
+        methods = {c.get("content_type_method", "<not passed>") for c in self.calls}
         assert len(methods) == 1, methods
         return str(methods.pop())
 
     def max_bytes(self) -> int:
+        # Read like method(): a call site that omits the keyword is the
+        # silent drop under test, not a legitimate "no cap".
+        assert all("provenance_config" in c for c in self.calls), (
+            "a call site reached the leaf without passing provenance_config"
+        )
         sizes = {c["provenance_config"].max_source_metadata_bytes for c in self.calls}
         assert len(sizes) == 1, sizes
         return int(sizes.pop())
+
+
+# Both call sites hold their own reference to the leaf, so one patch cannot
+# cover both: deps.py calls it as a module global, _document_deployed.py
+# imported it by name.
+_SPY_TARGETS = (
+    "pitloom.assemble.spdx3.deps._finish_dependency_enrichment",
+    "pitloom.assemble.spdx3._document_deployed._finish_dependency_enrichment",
+)
 
 
 @pytest.fixture(name="calls")
@@ -74,9 +96,10 @@ def _calls_fixture(monkeypatch: pytest.MonkeyPatch) -> _Recorded:
 
     def _spy(*args: Any, **kwargs: Any) -> Any:
         calls.append(kwargs)
-        return add_dependencies(*args, **kwargs)
+        return _finish_dependency_enrichment(*args, **kwargs)
 
-    monkeypatch.setattr("pitloom.assemble.spdx3.document.add_dependencies", _spy)
+    for target in _SPY_TARGETS:
+        monkeypatch.setattr(target, _spy)
     return _Recorded(calls)
 
 
@@ -149,7 +172,13 @@ def test_embed_batch_passes_method_for_every_wheel(
     not just the first (the cache holds per-batch state)."""
     project = demo_project(tmp_path, config_toml("extension", None))
     wheels = [
-        _make_dummy_wheel(tmp_path / f"dist{i}", "demo", "1.0.0") for i in range(2)
+        _make_dummy_wheel(
+            tmp_path / f"dist{i}",
+            "demo",
+            "1.0.0",
+            requires_dist=(f"{DEPENDENCY}==1.0",),
+        )
+        for i in range(2)
     ]
     run_cli(
         [
@@ -193,7 +222,7 @@ def test_embed_sbom_bytes_are_deterministic_with_method(
     for run in ("a", "b"):
         base = tmp_path / run
         project = demo_project(base, config_toml("extension", None))
-        wheel = _make_dummy_wheel(base / "dist", "demo", "1.0.0")
+        wheel = demo_wheel(base)
         _, _, sbom_json, _, _ = embed_wheel_sbom(
             wheel,
             project_dir=project,
@@ -233,7 +262,7 @@ def _every_field_non_default(prov: ProvenanceConfig) -> ProvenanceConfig:
     return dataclasses.replace(prov, **changed)
 
 
-def test_apply_config_overrides_round_trips_every_provenance_field() -> None:
+def test_apply_overrides_round_trips_every_provenance_field() -> None:
     """A ``ProvenanceConfig`` field with no matching
     ``PitloomConfig.provenance_<name>`` (or not read back by
     ``PitloomConfig.provenance``) fails here, whatever its name."""
@@ -243,9 +272,7 @@ def test_apply_config_overrides_round_trips_every_provenance_field() -> None:
         for f in dataclasses.fields(prov)
     ), "the input must differ from the default in every field"
 
-    overridden = _apply_config_overrides(
-        PitloomConfig(), ConfigOverrides(provenance=prov)
-    )
+    overridden = apply_overrides(PitloomConfig(), ConfigOverrides(provenance=prov))
     assert overridden.provenance == prov
 
 
@@ -287,7 +314,7 @@ def test_provenance_override_replaces_the_config_provenance_whole() -> None:
     cfg = PitloomConfig(
         provenance_detail="full", provenance_max_source_metadata_bytes=8192
     )
-    overridden = _apply_config_overrides(
+    overridden = apply_overrides(
         cfg, ConfigOverrides(provenance=ProvenanceConfig(format="fields"))
     )
     assert overridden.provenance == ProvenanceConfig(format="fields")
@@ -301,22 +328,18 @@ class _ExtendedProvenance(ProvenanceConfig):
     note: str = "extra"
 
 
-def test_apply_config_overrides_reads_only_provenance_config_fields() -> None:
+def test_apply_overrides_reads_only_provenance_config_fields() -> None:
     """An override that is not a plain ``ProvenanceConfig`` (a subclass, or a
     ``Mock(spec=...)``) contributes its five known fields; extras are ignored,
     not passed on to ``PitloomConfig``."""
     subclass = _ExtendedProvenance(detail="full", max_source_metadata_bytes=4096)
-    overridden = _apply_config_overrides(
-        PitloomConfig(), ConfigOverrides(provenance=subclass)
-    )
+    overridden = apply_overrides(PitloomConfig(), ConfigOverrides(provenance=subclass))
     assert overridden.provenance == ProvenanceConfig(
         detail="full", max_source_metadata_bytes=4096
     )
 
     fake = mock.Mock(spec=ProvenanceConfig, **dataclasses.asdict(subclass))
-    overridden = _apply_config_overrides(
-        PitloomConfig(), ConfigOverrides(provenance=fake)
-    )
+    overridden = apply_overrides(PitloomConfig(), ConfigOverrides(provenance=fake))
     assert overridden.provenance == ProvenanceConfig(
         detail="full", max_source_metadata_bytes=4096
     )

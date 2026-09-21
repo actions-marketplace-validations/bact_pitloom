@@ -1,0 +1,123 @@
+# SPDX-FileContributor: Arthit Suriyawongkul
+# SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
+# SPDX-FileType: SOURCE
+# SPDX-License-Identifier: Apache-2.0
+
+"""Analyzed SBOM generator for a built Python wheel.
+
+See also:
+- :mod:`pitloom.assemble._generators_shared` for the helpers shared with the
+  other generators.
+- :mod:`pitloom.assemble._generators` for the project/sdist generator.
+- :mod:`pitloom.assemble._generators_env` for the installed-environment
+  generator, which resolves the same current-directory cascade.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from spdx_python_model.bindings import v3_0_1 as spdx3_bindings
+
+from pitloom.assemble._generators_shared import _sync_registry
+from pitloom.assemble._model_generator import _write_output_file
+from pitloom.assemble.spdx3.document import build
+from pitloom.core.config_cascade import (
+    ConfigOverrides,
+    apply_overrides,
+    resolve_generator_config,
+)
+from pitloom.core.creation import CreationMetadata
+from pitloom.core.document import DocumentModel
+from pitloom.core.provenance import ProvenanceConfig
+from pitloom.extract.binary import find_phantom_dependencies
+from pitloom.extract.wheel import read_wheel
+from pitloom.ids import IdRegistry, resolve_registry
+from pitloom.logging_config import configure_logging
+
+
+# pylint: disable=too-many-arguments,too-many-locals,too-many-positional-arguments
+def generate_wheel_sbom(
+    wheel_path: Path | str,
+    *,
+    output_path: Path | None = None,
+    creation_metadata: CreationMetadata | None = None,
+    pretty: bool | None = None,
+    describe_relationship: bool | None = None,
+    registry: str | Path | IdRegistry | None = None,
+    provenance: ProvenanceConfig | None = None,
+    offline: bool | None = None,
+    content_type_method: str | None = None,
+    update_registry: bool | None = None,
+) -> str:
+    """Generate an Analyzed SPDX 3 SBOM for a built Python wheel.
+
+    A wheel carries no ``[tool.pitloom]`` of its own, so every unset
+    *setting* falls back to the current directory's ``pyproject.toml``
+    (:func:`~pitloom.core.config_cascade.resolve_generator_config`) before
+    the built-in defaults. That is the same set of settings the project
+    surface resolves, but read from the current directory rather than from
+    the target -- the two are unrelated when the wheel lives elsewhere.
+
+    Two settings are deliberately *not* part of it. ``creation_metadata``
+    (``creators``/``creation-datetime``/``creation-comment``) asserts who
+    made this SBOM and when, so inheriting it from whichever project the
+    process happens to be standing in would attribute this wheel's SBOM to
+    a stranger. ``ids-file`` is excluded for the reason given at the
+    ``resolve_registry`` call below. Only policy settings cascade.
+
+    ``extract_file_header``/``content_type`` have no parameter here: both
+    govern per-``ProjectFile`` scanning inside ``get_wheel_files()``, which
+    reading a built wheel never performs. ``content_type_method`` does
+    apply, because it also steers whether dependency originator enrichment
+    fetches a remote authors file.
+    """
+    configure_logging()
+    wheel_path_obj = Path(wheel_path)
+    project_metadata, project_files = read_wheel(wheel_path_obj)
+    phantom_deps = find_phantom_dependencies(project_files)
+
+    cwd = Path.cwd()
+    cfg = apply_overrides(
+        resolve_generator_config(cwd),
+        ConfigOverrides(
+            provenance=provenance,
+            offline=offline,
+            content_type_method=content_type_method,
+            pretty=pretty,
+            describe_relationship=describe_relationship,
+            update_registry=update_registry,
+        ),
+    )
+    # Deliberately not cascaded to cfg.ids_file, unlike every other setting
+    # here: adopting the cwd project's registry makes a second run of the
+    # same wheel mint ids from a counter that does not reserve the numbers
+    # the registry just supplied, so two software_File elements collide on
+    # one spdxId. It would also write this wheel's ids into an unrelated
+    # project's registry. An explicit registry= argument is still honoured.
+    resolved_registry = resolve_registry(cwd, registry)
+
+    doc = DocumentModel(
+        project=project_metadata,
+        creation_metadata=creation_metadata or CreationMetadata(),
+        ai_models=[],
+        phantom_dependencies=phantom_deps,
+    )
+    exporter = build(
+        doc,
+        merkle_root=None,
+        sbom_type=spdx3_bindings.software_SbomType.analyzed,
+        registry=resolved_registry,
+        **cfg.assemble_options,
+    )
+
+    _sync_registry(exporter, resolved_registry, cfg.update_registry)
+
+    sbom_json = exporter.to_json(
+        pretty=cfg.pretty,
+        describe_relationship=bool(cfg.describe_relationship),
+    )
+
+    _write_output_file(sbom_json, output_path)
+
+    return sbom_json

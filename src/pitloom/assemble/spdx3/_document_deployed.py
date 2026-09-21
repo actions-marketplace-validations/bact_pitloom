@@ -47,6 +47,7 @@ def _build_deployed_package(
     prov_cfg: ProvenanceConfig,
     encoder: ProvenanceEncoder,
     offline: bool,
+    content_type_method: str,
 ) -> tuple[str, str]:
     """Create, enrich, and register a software_Package element for a deployed dep."""
     pkg_info = node.get("package", {})
@@ -82,6 +83,7 @@ def _build_deployed_package(
         release_info_cache=release_info_cache,
         provenance_config=prov_cfg,
         encoder=encoder,
+        content_type_method=content_type_method,
     )
 
     exporter.add_package(dep_package)
@@ -206,8 +208,14 @@ def build_deployed(
     registry: IdRegistry | None = None,
     provenance: ProvenanceConfig | None = None,
     offline: bool = False,
+    content_type_method: str = "auto",
 ) -> Spdx3JsonExporter:
-    """Assemble SPDX 3 elements for a deployed environment."""
+    """Assemble SPDX 3 elements for a deployed environment.
+
+    *content_type_method* reaches each installed package's originator
+    enrichment, which may fetch a remote authors file -- the same
+    decision it drives on every other surface.
+    """
     # pylint: disable=import-outside-toplevel,cyclic-import
     from pitloom.assemble.spdx3.document import (
         _build_creation_bundle,
@@ -272,6 +280,7 @@ def build_deployed(
             prov_cfg,
             encoder,
             offline,
+            content_type_method,
         )
         package_spdx_ids[lookup_key] = spdx_id
 
