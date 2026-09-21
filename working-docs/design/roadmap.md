@@ -700,13 +700,10 @@ be built:
   [config-sources.md](../implementation/config-sources.md); remaining
   open gap in
   [cli-shared-options-ignored.md](cli-shared-options-ignored.md).
-- [ ] **Immediate follow-ups (next PR): canonical output** -- sort
-  metadata keys for every file format, not only Safetensors (its
-  `safe_open().metadata()` order changes per call, so
-  `ai_AIPackage.comment` is non-deterministic); one name-normalisation
-  policy for every named thing (an AI model name with a space yields an
-  invalid IRI); every datetime UTC with `Z` (a pinned `Z` datetime fails
-  the Hatchling hook on Python 3.10, and offset forms are not converted).
+- [ ] **Canonical output follow-ups** -- one name-normalisation policy for
+  every named thing (an AI model name with a space yields an invalid IRI);
+  key-order audit of project-metadata sources. Sorted keys, UTC `Z` and LF
+  were built in step 6.5.
   See [canonical-output-followups.md](canonical-output-followups.md).
 - [ ] **`loom project` warns twice about a too-small
   `[tool.pitloom.provenance] max-source-metadata-bytes`** (config, not
@@ -734,7 +731,9 @@ be built:
 - [ ] **11 small findings from the `--config`/`pitloom_config=` change**
   (a `-v`/Hatchling-hook gap, an import cycle, a widened id-minting
   collision, ...). See [config-sources.md](../implementation/config-sources.md#found-not-fixed-here).
-  An sdist's own config: **step 6.5**, [sdist-own-config.md](sdist-own-config.md).
+  An sdist's own config: done in step 6.5, [sdist-own-config.md](../implementation/sdist-own-config.md).
+- [ ] **3 small findings from step 6.5.** See
+  [sdist-own-config.md](../implementation/sdist-own-config.md#found-not-fixed-here).
 
 ### Internal codenames
 

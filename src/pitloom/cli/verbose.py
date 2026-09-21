@@ -20,7 +20,7 @@ from pitloom.cli.options import (
     _resolve_pretty,
     _ResolvedCreationMetadata,
 )
-from pitloom.cli.options_resolve import config_source_label
+from pitloom.cli.options_resolve import config_file_display, config_source_label
 
 
 def _build_creation_option_rows(
@@ -102,7 +102,7 @@ def _print_verbose(
 
     top_rows: list[tuple[str, str, str]] = [
         ("Project directory", str(project_dir), "command-line"),
-        ("Config file", str(config_path) if config_path else "(none)", "command-line"),
+        ("Config file", config_file_display(config_path), "command-line"),
         ("Output path", str(output_path), out_src),
     ]
     option_rows = _build_creation_option_rows(

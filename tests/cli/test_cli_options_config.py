@@ -26,6 +26,7 @@ from pitloom.cli.options_config import (
     overrides_from_options,
     run_options,
 )
+from pitloom.cli.options_resolve import config_file_display
 from pitloom.cli.parser import _build_parser
 from pitloom.core.config import PitloomConfig
 from pitloom.core.config_cascade import ConfigOverrides
@@ -260,20 +261,22 @@ def test_config_fragment_path_resolves_beside_the_config(
     assert str(config_dir) not in sbom
 
 
-def test_verbose_on_sdist_names_no_config_file(
+def test_verbose_on_sdist_names_its_own_config_member(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """An sdist's own [tool.pitloom] is not read, so ``-v`` must not name the
-    archive as the config file."""
-    sdist = _make_sdist(tmp_path)
+    """An sdist's own [tool.pitloom] applies, so ``-v`` names the archive
+    member as the config file and labels a value taken from it."""
+    sdist = _make_sdist(tmp_path, '[tool.pitloom]\ncreation-comment = "from-sdist"\n')
     argv = ["project", str(sdist), "-v", "-o", str(tmp_path / "o.json")]
     assert _loom(argv, monkeypatch) == 0
-    row = next(
-        line
-        for line in capsys.readouterr().out.splitlines()
-        if line.strip().startswith("Config file")
-    )
-    assert "(none)" in row
-    assert sdist.name not in row
+    out = capsys.readouterr().out.splitlines()
+    config_row = next(line for line in out if line.strip().startswith("Config file"))
+    assert f"{sdist}:pyproject.toml" in config_row
+    comment_row = next(line for line in out if "from-sdist" in line)
+    assert f"{sdist.name}:pyproject.toml" in comment_row
+
+
+def test_config_file_row_without_a_config_says_none() -> None:
+    assert config_file_display(None) == "(none)"

@@ -45,7 +45,11 @@ from pitloom.assemble.spdx3._document_model import (
     build_model,
 )
 from pitloom.assemble.spdx3.ai import add_ai_models
-from pitloom.assemble.spdx3.creation_info import build_creation_info
+from pitloom.assemble.spdx3.creation_info import (
+    build_creation_info,
+    parse_iso_datetime,
+    to_spdx3_datetime,
+)
 from pitloom.assemble.spdx3.deps import add_dependencies, add_phantom_dependencies
 from pitloom.assemble.spdx3.deps_installed import _DEFAULT_LOCKED_PROVENANCE
 from pitloom.assemble.spdx3.deps_license import attach_main_package_license
@@ -131,8 +135,10 @@ def _build_main_package(
     )
     main_package.software_primaryPurpose = spdx3.software_SoftwarePurpose.library
     if creation_metadata.build_datetime:
-        main_package.builtTime = datetime.fromisoformat(
-            creation_metadata.build_datetime
+        # The same parse as CreationInfo.created: "Z" on every Python,
+        # offsets converted to UTC, whole seconds.
+        main_package.builtTime = to_spdx3_datetime(
+            parse_iso_datetime(creation_metadata.build_datetime)
         )
 
     # packageUrl -- PyPI PURL (pkg:pypi/<name>@<version>), only when a real

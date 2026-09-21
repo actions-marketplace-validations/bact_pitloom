@@ -15,8 +15,10 @@ from pitloom.extract.project.reader import (
     read_project,
     resolve_project_with_lockfile,
 )
+from pitloom.extract.project.sdist import sdist_config_source
 
 __all__ = [
     "read_project",
     "resolve_project_with_lockfile",
+    "sdist_config_source",
 ]

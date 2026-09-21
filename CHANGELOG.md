@@ -82,6 +82,13 @@ and this project adheres to
 - A relative `--registry` on the command line now resolves against the
   current directory on every command, not the project directory
   ([#231])
+- An sdist reads its own `[tool.pitloom]` (root `pyproject.toml`, else
+  `setup.cfg`) as its unpacked directory does; `ids-file` and fragments
+  do not apply to it
+- AI model hyperparameters and per-key provenance are emitted in sorted
+  key order, whatever the model file's own order
+- SBOM, fragment and registry files are written with LF line endings and
+  UTF-8 on every platform, stdout included
 
 ### Fixed
 
@@ -97,6 +104,10 @@ and this project adheres to
   reproducible ([#231])
 - `embed-wheel --sbom` warns that `--config`/`--project-dir` have no
   effect, without reading them ([#231])
+- `--config`/`pitloom_config=` no longer parses the target's own
+  config it replaces, so an invalid one no longer fails the run
+- `builtTime` is UTC with `Z`: a `Z` or offset `creation-datetime` no
+  longer fails the Hatchling build on Python 3.10 or keeps its offset
 - A wrong-shaped `[tool.pitloom]` value (e.g. `fragment.files = "a"`,
   `sbom-basename = 3`) raises, instead of being dropped or crashing later
   ([#231])

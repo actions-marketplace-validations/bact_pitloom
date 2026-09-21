@@ -11,6 +11,7 @@ See also: :mod:`pitloom.core._config_types` and :mod:`pitloom.core.config`.
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -521,3 +522,28 @@ def read_pitloom_config(pyproject_path: Path) -> PitloomConfig:
     data: dict[str, Any] = load_toml_file(pyproject_path)
 
     return parse_pitloom_config(data)
+
+
+def select_project_config(
+    pyproject: PitloomConfig | None,
+    pyproject_names_project: bool,
+    setup_cfg: Callable[[], PitloomConfig] | None,
+) -> PitloomConfig:
+    """Which of a project's configs applies: the one rule a project
+    directory and an sdist archive share.
+
+    *pyproject* is ``pyproject.toml``'s ``[tool.pitloom]`` (``None`` when
+    there is no ``pyproject.toml``); *pyproject_names_project* whether that
+    file names the project (``[project]`` or ``[tool.poetry]`` ``name``);
+    *setup_cfg* reads ``setup.cfg``'s ``[tool:pitloom]`` (``None`` when
+    there is no ``setup.cfg``). ``pyproject.toml`` wins, unless it is absent,
+    or neither names the project nor sets anything -- a legacy project
+    whose real metadata and config live in ``setup.cfg``.
+    """
+    if pyproject is not None and (
+        pyproject_names_project or pyproject != PitloomConfig()
+    ):
+        return pyproject
+    if setup_cfg is not None:
+        return setup_cfg()
+    return pyproject if pyproject is not None else PitloomConfig()

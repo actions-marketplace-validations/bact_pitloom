@@ -68,3 +68,29 @@ def test_the_scan_sees_a_wall_clock_read() -> None:
     ):
         assert _WALL_CLOCK.search(code), code
     assert not _WALL_CLOCK.search("to_spdx3_datetime(created)")
+
+
+_RAW_PARSE = re.compile(r"\.fromisoformat\(|\.strptime\(")
+
+
+def test_datetime_strings_are_parsed_only_by_parse_iso_datetime() -> None:
+    """A raw ``fromisoformat()`` rejects ``Z`` on Python 3.10 and keeps an
+    offset as given; ``parse_iso_datetime()`` (then ``to_spdx3_datetime()``)
+    is the one parse that gives an SPDX 3 DateTime. ``builtTime`` once used a
+    raw parse and failed the Hatchling build on 3.10."""
+    found: dict[str, int] = {}
+    for path in sorted(_SRC.rglob("*.py")):
+        code = "\n".join(
+            line.split("#", 1)[0]
+            for line in path.read_text(encoding="utf-8").splitlines()
+        )
+        if count := len(_RAW_PARSE.findall(code)):
+            found[path.relative_to(_SRC).as_posix()] = count
+    assert found == {"assemble/spdx3/creation_info.py": 1}
+    for code in (
+        "datetime.fromisoformat(s)",
+        "date.fromisoformat(s)",
+        "dt.fromisoformat(s)",
+        "datetime.strptime(s, f)",
+    ):
+        assert _RAW_PARSE.search(code), code

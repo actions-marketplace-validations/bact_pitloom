@@ -297,17 +297,43 @@ def _make_dummy_wheel(
     return wheel_path
 
 
-def _make_sdist(tmp_path: Path) -> Path:
-    """Create a minimal ``demo-1.0.0.tar.gz`` sdist with PKG-INFO and
-    pyproject.toml."""
+def _make_sdist(
+    tmp_path: Path,
+    pyproject_tail: str = "",
+    *,
+    members: dict[str, bytes | None] | None = None,
+    fmt: str = "tar",
+) -> Path:
+    """Create a minimal ``demo-1.0.0`` sdist with PKG-INFO and pyproject.toml.
+
+    *pyproject_tail* is appended to its ``pyproject.toml`` (e.g. a
+    ``[tool.pitloom]`` table); *members* adds or replaces members by path
+    under ``demo-1.0.0/`` (a name with ``/`` nests; a leading ``/`` puts it
+    at the archive root instead; ``None`` drops it). *fmt* is ``"tar"`` (``.tar.gz``) or
+    ``"zip"``.
+    """
+    entries = {
+        "PKG-INFO": b"Metadata-Version: 2.1\nName: demo\nVersion: 1.0.0\n",
+        "pyproject.toml": (
+            '[project]\nname = "demo"\nversion = "1.0.0"\n' + pyproject_tail
+        ).encode("utf-8"),
+        **(members or {}),
+    }
+    names = {
+        (name[1:] if name.startswith("/") else f"demo-1.0.0/{name}"): data
+        for name, data in entries.items()
+        if data is not None
+    }
+    if fmt == "zip":
+        sdist_path = tmp_path / "demo-1.0.0.zip"
+        with zipfile.ZipFile(sdist_path, "w") as zf:
+            for name, data in names.items():
+                zf.writestr(name, data)
+        return sdist_path
     sdist_path = tmp_path / "demo-1.0.0.tar.gz"
     with tarfile.open(sdist_path, "w:gz") as tf:
-        pkg_info = b"Metadata-Version: 2.1\nName: demo\nVersion: 1.0.0\n"
-        ti = tarfile.TarInfo(name="demo-1.0.0/PKG-INFO")
-        ti.size = len(pkg_info)
-        tf.addfile(ti, io.BytesIO(pkg_info))
-        pyproject = b'[project]\nname = "demo"\nversion = "1.0.0"\n'
-        ti2 = tarfile.TarInfo(name="demo-1.0.0/pyproject.toml")
-        ti2.size = len(pyproject)
-        tf.addfile(ti2, io.BytesIO(pyproject))
+        for name, data in names.items():
+            info = tarfile.TarInfo(name=name)
+            info.size = len(data)
+            tf.addfile(info, io.BytesIO(data))
     return sdist_path

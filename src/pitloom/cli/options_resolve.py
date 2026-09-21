@@ -42,7 +42,10 @@ from pitloom.core.creation import (
 from pitloom.core.project import ProjectMetadata, is_sdist_archive
 from pitloom.export.spdx3_json import SPDX3_JSONLD_EXTENSION
 from pitloom.extract._toml_io import load_toml_file
-from pitloom.extract.project import resolve_project_with_lockfile
+from pitloom.extract.project import (
+    resolve_project_with_lockfile,
+    sdist_config_source,
+)
 
 
 @dataclass(frozen=True)
@@ -233,29 +236,45 @@ def _resolve_project_generation_settings(
     )
     if explicit is not None:
         config_path = args.config
-    elif is_sdist_archive(project_dir):
-        config_path = None  # an sdist's own [tool.pitloom] is not read
     creation = _resolve_creation_metadata(
         args, pitloom_config, config_source_label(config_path)
     )
     return project_metadata, pitloom_config, config_path, creation
 
 
+def config_file_display(config_path: Path | None) -> str:
+    """The ``--verbose`` "Config file" value: the path, or for an sdist
+    archive member ``<archive path>:<member>`` (the member is not a file)."""
+    if config_path is None:
+        return "(none)"
+    if is_sdist_archive(config_path.parent):
+        return f"{config_path.parent}:{config_path.name}"
+    return str(config_path)
+
+
 def config_source_label(config_path: Path | None) -> str:
     """The ``--verbose`` label for a value taken from the config at
-    *config_path* -- the project's own or a ``--config`` file."""
-    return config_path.name if config_path else _PROJECT_PYPROJECT_SOURCE
+    *config_path* -- the project's own, a ``--config`` file, or a member of
+    an sdist archive (``<archive>/<member>``, labelled ``x.tar.gz:member``)."""
+    if config_path is None:
+        return _PROJECT_PYPROJECT_SOURCE
+    if is_sdist_archive(config_path.parent):
+        return f"{config_path.parent.name}:{config_path.name}"
+    return config_path.name
 
 
 def _load_pitloom_tool_section(config_path: Path | None) -> dict[str, Any]:
     """Load ``[tool.pitloom]`` keys for verbose source reporting, from a
-    project's ``pyproject.toml`` or a ``--config`` file of any name."""
+    project's ``pyproject.toml``, a ``--config`` file of any name, or an sdist
+    archive's own ``pyproject.toml`` member."""
     if (
         config_path is None
         or config_path.name in (_PROJECT_SETUP_CFG_SOURCE, _PROJECT_SETUP_PY_SOURCE)
         or is_sdist_archive(config_path)
     ):
         return {}
+    if is_sdist_archive(config_path.parent):
+        return dict(sdist_config_source(config_path.parent)[1])
 
     try:
         raw_toml = load_toml_file(config_path)

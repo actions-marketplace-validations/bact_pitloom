@@ -256,7 +256,10 @@ def _populate_ai_pkg_hyperparameters(
         hyperparameter_entries.append(
             spdx3.DictionaryEntry(key="quantization", value=ai_model.quantization)
         )
-    for key, val in ai_model.hyperparameters.items():
+    # Sorted by key: the source's own order must not change the output.
+    for key, val in sorted(
+        ai_model.hyperparameters.items(), key=lambda item: str(item[0])
+    ):
         hyperparameter_entries.append(
             spdx3.DictionaryEntry(key=str(key), value=str(val))
         )

@@ -31,8 +31,8 @@ only a project directory's own `pyproject.toml` was reachable.
 
 - **Precedence**: per-run flag/parameter > `--config FILE`/
   `pitloom_config=` > the target's own `[tool.pitloom]` (project
-  directory, `embed-wheel --project-dir`, the Hatchling hook only; an
-  sdist's is not read yet -- step 6.5) > hardcoded default.
+  directory, an sdist archive (step 6.5), `embed-wheel --project-dir`,
+  the Hatchling hook) > hardcoded default.
 - **Replace, not merge**: `--config`/`pitloom_config=` replaces the
   target's own config outright. A field the given config leaves unset
   reverts to the built-in default, never to the target's own value --
@@ -209,6 +209,10 @@ only a project directory's own `pyproject.toml` was reachable.
   `core.config`. Not exercised today only because `core.config` happens
   to finish importing before `extract` does in every current entry
   point.
+- **A second import cycle**: `import pitloom._loom_active_run` as the
+  first Pitloom import fails (it imports `pitloom.loom`, which imports it
+  back). Every entry point imports `pitloom.loom` first. Found in step
+  6.5; also on `main` before it.
 - **`--describe-relationship` warns on `embed-wheel`/`enrich`.** A
   current decision (a wheel-embedded SBOM is always canonical; a
   fragment has no relationships of its own to describe), not
@@ -222,18 +226,9 @@ only a project directory's own `pyproject.toml` was reachable.
   (`pretty=False`) JSON with no relationship descriptions, per PEP 770,
   regardless of what the project's own config sets (already noted in
   the hook's own docstring, `plugins/hatch.py`).
-- **An sdist archive's own `[tool.pitloom]` is never read.** Its
-  bundled `pyproject.toml`/`PKG-INFO` is read for project metadata
-  only; `read_project()` returns `PitloomConfig()` (defaults) for an
-  sdist target. Only `--config`/`pitloom_config=` can set one.
-  Planned as step 6.5, with the next item:
-  [sdist-own-config.md](../design/sdist-own-config.md).
-- **An invalid target `[tool.pitloom]` still fails `project --config
-  C`.** `resolve_project_with_lockfile()`'s real metadata read
-  (`read_project()`/`read_pyproject()`) always runs first and can raise
-  `ValueError` on malformed TOML; the config swap in `_with_config()`
-  happens only after that succeeds, so `--config` cannot rescue a
-  target with its own broken `pyproject.toml`.
+- ~~An sdist archive's own `[tool.pitloom]` is never read; an invalid
+  target `[tool.pitloom]` still fails `project --config C`.~~ Both fixed
+  in step 6.5: [sdist-own-config.md](sdist-own-config.md).
 - **A no-effect warning's subject differs by command.** `wheel`/`model`
   use the target as typed on the command line (not resolved to an
   absolute path) for `wheel`, but a resolved absolute `Path` for a

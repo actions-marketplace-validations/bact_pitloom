@@ -36,8 +36,8 @@ _SDIST_REASON = "for an sdist archive target"
 
 
 def _make_sdist_with_malformed_pyproject(tmp_path: Path) -> Path:
-    """An sdist whose member ``pyproject.toml`` is malformed, so reading it
-    warns -- the warning a build-flag warning must precede."""
+    """An sdist whose member ``pyproject.toml`` is malformed, so reading its
+    config fails -- the ``ERROR:`` a build-flag warning must precede."""
     root = tmp_path / "src" / "demo-1.0.0"
     root.mkdir(parents=True)
     (root / "pyproject.toml").write_text("[project\nname =\n", encoding="utf-8")
@@ -76,10 +76,11 @@ def test_cli_embed_wheel_sdist_project_dir_warns_before_the_read(
     build = [i for i, line in enumerate(stderr) if _BUILD_WARNING in line]
     assert len(build) == 1, stderr
     assert _SDIST_REASON in stderr[build[0]]
-    # Non-vacuous: the read's own warning is there, and comes after.
-    read_warnings = [i for i, line in enumerate(stderr) if "sdist member" in line]
-    assert read_warnings, stderr
-    assert all(i > build[0] for i in read_warnings), stderr
+    # Non-vacuous: the read's own error is there, and comes after.
+    read_errors = [i for i, line in enumerate(stderr) if "tar.gz:pyproject" in line]
+    assert read_errors, stderr
+    assert all(stderr[i].startswith("ERROR:") for i in read_errors), stderr
+    assert all(i > build[0] for i in read_errors), stderr
 
 
 @pytest.mark.parametrize("kind", ["missing", "plain_file"])

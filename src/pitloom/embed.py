@@ -43,6 +43,7 @@ from pitloom._sbom_format import (
     detect_sbom_format,
     format_name_version_mismatch,
 )
+from pitloom._sbom_io import write_text_lf
 from pitloom._wheel_sbom_location import (
     EmbeddedSbomLocation,
     _find_dist_info_prefix,
@@ -249,7 +250,7 @@ def embed_wheel_sbom(
     )
 
     if output_path is not None:
-        Path(output_path).write_text(sbom_json, encoding="utf-8")
+        write_text_lf(output_path, sbom_json)
 
     return res_path, arcname, sbom_json, removed_arcnames, timestamp_floored
 

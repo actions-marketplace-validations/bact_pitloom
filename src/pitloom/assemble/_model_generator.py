@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import dataclasses
 import logging
-import sys
 from pathlib import Path
 
+from pitloom._sbom_io import write_sbom_output
 from pitloom.assemble.spdx3.document import build_enrichment_fragment, build_model
 from pitloom.core.config import PitloomConfig
 from pitloom.core.config_cascade import ConfigOverrides, resolve_standalone_config
@@ -37,18 +37,6 @@ from pitloom.ids import IdRegistry, resolve_explicit_registry, resolve_registry
 from pitloom.logging_config import configure_logging
 
 log = logging.getLogger(__name__)
-
-
-def _write_output_file(sbom_json: str, output_path: Path | None) -> None:
-    """Write SBOM output to file or stdout if output_path is '-'."""
-    if output_path is None:
-        return
-    if str(output_path) == "-":
-        sys.stdout.write(sbom_json)
-        if not sbom_json.endswith("\n"):
-            sys.stdout.write("\n")
-    else:
-        output_path.write_text(sbom_json, encoding="utf-8")
 
 
 def _project_doc_identity(
@@ -192,7 +180,7 @@ def generate_model_sbom(
         describe_relationship=bool(cfg.describe_relationship),
     )
 
-    _write_output_file(sbom_json, output_path)
+    write_sbom_output(sbom_json, output_path)
 
     return sbom_json
 
@@ -280,6 +268,6 @@ def enrich_model(
 
     fragment_json = exporter.to_json(pretty=cfg.pretty)
 
-    _write_output_file(fragment_json, output_path)
+    write_sbom_output(fragment_json, output_path)
 
     return fragment_json

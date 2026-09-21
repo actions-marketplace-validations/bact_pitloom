@@ -3,22 +3,37 @@
 # SPDX-FileType: SOURCE
 # SPDX-License-Identifier: Apache-2.0
 
-"""Extractor for Python project metadata from an sdist archive
-(``PKG-INFO``, falling back to ``pyproject.toml``)."""
+"""Extractor for an sdist archive: project metadata (``PKG-INFO``, falling
+back to ``pyproject.toml``) and the project's own Pitloom config (the root
+``pyproject.toml``'s ``[tool.pitloom]``, else ``setup.cfg``'s
+``[tool:pitloom]``), read as for the unpacked project directory.
+
+See also: :mod:`pitloom.extract.project.reader` (the directory counterpart)
+and :func:`pitloom.core.config.select_project_config` (the rule both share).
+"""
 
 from __future__ import annotations
 
+import dataclasses
 import email
+import functools
 import hashlib
 import logging
 import tarfile
 import zipfile
+from collections.abc import Callable, Iterator
 from pathlib import Path
-from typing import Any
+from typing import IO, Any, NamedTuple, TypeVar
 
+from pitloom.core.config import (
+    PitloomConfig,
+    parse_pitloom_config,
+    select_project_config,
+)
 from pitloom.core.project import ProjectFile, ProjectMetadata
 from pitloom.extract._core_metadata import parse_project_urls
-from pitloom.extract._toml_io import tomllib
+from pitloom.extract._toml_io import load_toml_bytes
+from pitloom.extract.project.setuptools_cfg import setup_cfg_pitloom_config
 from pitloom.logging_config import field_loss_suffix
 
 log = logging.getLogger(__name__)
@@ -73,169 +88,283 @@ def _parse_pkg_info(pkg_info_text: str, source_label: str) -> ProjectMetadata:
     return metadata
 
 
-def _parse_pyproject_bytes(pyproject_content: bytes) -> ProjectMetadata:
-    """Parse fallback ProjectMetadata from pyproject.toml bytes."""
-    try:
-        data = tomllib.loads(pyproject_content.decode("utf-8", errors="replace"))
-        proj = data.get("project", {})
-        return ProjectMetadata(
-            name=proj.get("name", "unknown"),
-            version=proj.get("version"),
-            description=proj.get("description"),
-            dependencies=proj.get("dependencies", []),
-        )
-    # pylint: disable=broad-exception-caught
-    except Exception as exc:
-        msg = (
-            "Failed to parse pyproject.toml from sdist member: %s"
-            + field_loss_suffix(
-                "skipped", "name", "version", "description", "dependencies"
-            )
-        )
-        log.warning(msg, exc)
-        return ProjectMetadata(name="unknown")
+#: Root members read whole: metadata and the project's own config.
+_PKG_INFO = "PKG-INFO"
+_PYPROJECT = "pyproject.toml"
+_SETUP_CFG = "setup.cfg"
+_ROOT_MEMBERS = (_PKG_INFO, _PYPROJECT, _SETUP_CFG)
+
+#: Largest ``pyproject.toml``/``setup.cfg`` member read into memory. Real
+#: ones are a few KiB; a larger one is a read failure, as invalid TOML is.
+CONFIG_MEMBER_MAX_BYTES = 1024 * 1024
+
+_METADATA_FIELDS = ("name", "version", "description", "dependencies")
 
 
-def _read_tar_member_bytes(
-    extracted: Any, is_special: bool
-) -> tuple[bytes | None, str]:
-    """Read tar member content and compute SHA-256 digest."""
+class SdistContents(NamedTuple):
+    """What :func:`read_sdist` found in an archive."""
+
+    metadata: ProjectMetadata
+    files: list[ProjectFile]
+    #: The project's own config; the defaults when it has none (or when
+    #: :func:`read_sdist` was told not to read it).
+    config: PitloomConfig
+    #: The member the config came from (``"pyproject.toml"``/
+    #: ``"setup.cfg"``), or ``None``.
+    config_member: str | None
+
+
+class _Members(NamedTuple):
+    """Root members read whole (by basename), and every file's entry. A
+    root member over :data:`CONFIG_MEMBER_MAX_BYTES` maps to ``None``."""
+
+    root: dict[str, bytes | None]
+    files: list[ProjectFile]
+
+
+def _read_member(name: str, stream: IO[bytes], keep: bool) -> tuple[bytes | None, str]:
+    """Hash *stream* in chunks; return its bytes too when *keep* (``None``
+    past :data:`CONFIG_MEMBER_MAX_BYTES` for a config member)."""
     hasher = hashlib.sha256()
-    with extracted:
-        if is_special:
-            content = extracted.read()
-            hasher.update(content)
-            return content, hasher.hexdigest()
-        while chunk := extracted.read(8192):
+    kept: bytearray | None = bytearray() if keep else None
+    limit = None if Path(name).name == _PKG_INFO else CONFIG_MEMBER_MAX_BYTES
+    with stream:
+        while chunk := stream.read(8192):
             hasher.update(chunk)
-    return None, hasher.hexdigest()
+            if kept is None:
+                continue
+            kept += chunk
+            if limit is not None and len(kept) > limit:
+                kept = None
+    return (bytes(kept) if kept is not None else None), hasher.hexdigest()
 
 
-# pylint: disable-next=too-many-locals
-def _read_tar_sdist(sdist_path: Path) -> tuple[ProjectMetadata, list[ProjectFile]]:
-    """Extract metadata and files from a tar-based sdist (.tar.gz, .tgz)."""
-    project_files: list[ProjectFile] = []
-    pkg_info_content: str | None = None
-    pyproject_content: bytes | None = None
-    source_label = f"Source: sdist PKG-INFO | File: {sdist_path.name}"
+def _scan(
+    entries: Iterator[tuple[str, Callable[[], IO[bytes] | None]]],
+    *,
+    root_only: bool = False,
+) -> _Members:
+    """Hash every member; keep the first root-level member of each
+    :data:`_ROOT_MEMBERS` basename, archive order deciding a tie. With
+    *root_only*, open only those members and list no files."""
+    root: dict[str, bytes | None] = {}
+    files: list[ProjectFile] = []
+    for name, open_member in entries:
+        parts = Path(name).parts
+        wanted = len(parts) == 2 and parts[1] in _ROOT_MEMBERS and parts[1] not in root
+        if root_only and not wanted:
+            continue
+        stream = open_member()
+        if stream is None:
+            continue
+        content, digest = _read_member(name, stream, wanted)
+        if wanted:
+            root[parts[1]] = content
+        if not root_only:
+            files.append(
+                ProjectFile(
+                    physical_path=name, distribution_path=name, digest_sha256=digest
+                )
+            )
+    return _Members(root, files)
 
+
+def _tar_entries(
+    tf: tarfile.TarFile,
+) -> Iterator[tuple[str, Callable[[], IO[bytes] | None]]]:
+    for member in tf.getmembers():
+        if member.isfile():
+            yield member.name, functools.partial(tf.extractfile, member)
+
+
+def _zip_entries(
+    zf: zipfile.ZipFile,
+) -> Iterator[tuple[str, Callable[[], IO[bytes] | None]]]:
+    for info in zf.infolist():
+        if not info.is_dir():
+            yield info.filename, functools.partial(zf.open, info)
+
+
+def _scan_archive(sdist_path: Path, *, root_only: bool = False) -> _Members:
+    if sdist_path.name.lower().endswith(".zip"):
+        with zipfile.ZipFile(sdist_path, "r") as zf:
+            return _scan(_zip_entries(zf), root_only=root_only)
     with tarfile.open(sdist_path, "r:*") as tf:
-        for member in tf.getmembers():
-            if not member.isfile():
-                continue
-
-            extracted = tf.extractfile(member)
-            if extracted is None:
-                continue
-
-            parts = Path(member.name).parts
-            basename = Path(member.name).name
-            is_pkg_info = (
-                basename == "PKG-INFO" and pkg_info_content is None and len(parts) == 2
-            )
-            is_pyproject = (
-                basename == "pyproject.toml"
-                and pyproject_content is None
-                and len(parts) == 2
-            )
-
-            content, digest = _read_tar_member_bytes(
-                extracted, is_pkg_info or is_pyproject
-            )
-            if is_pkg_info and content is not None:
-                pkg_info_content = content.decode("utf-8", errors="replace")
-            elif is_pyproject and content is not None:
-                pyproject_content = content
-
-            project_files.append(
-                ProjectFile(
-                    physical_path=member.name,
-                    distribution_path=member.name,
-                    digest_sha256=digest,
-                )
-            )
-
-        if pkg_info_content is not None:
-            metadata = _parse_pkg_info(pkg_info_content, source_label)
-        elif pyproject_content is not None:
-            metadata = _parse_pyproject_bytes(pyproject_content)
-        else:
-            metadata = ProjectMetadata(name="unknown")
-
-    return metadata, project_files
+        return _scan(_tar_entries(tf), root_only=root_only)
 
 
-# pylint: disable-next=too-many-locals
-def _read_zip_sdist(sdist_path: Path) -> tuple[ProjectMetadata, list[ProjectFile]]:
-    """Extract metadata and files from a zip-based sdist (.zip)."""
-    metadata = ProjectMetadata(name="unknown")
-    project_files: list[ProjectFile] = []
-    source_label = f"Source: sdist PKG-INFO | File: {sdist_path.name}"
-    pkg_info_content: str | None = None
-    pyproject_content: bytes | None = None
-
-    with zipfile.ZipFile(sdist_path, "r") as zf:
-        for info in zf.infolist():
-            if info.is_dir():
-                continue
-
-            parts = Path(info.filename).parts
-            basename = Path(info.filename).name
-
-            is_pkg_info = (
-                basename == "PKG-INFO" and pkg_info_content is None and len(parts) == 2
-            )
-            is_pyproject = (
-                basename == "pyproject.toml"
-                and pyproject_content is None
-                and len(parts) == 2
-            )
-
-            hasher = hashlib.sha256()
-            with zf.open(info) as f:
-                if is_pkg_info or is_pyproject:
-                    content = f.read()
-                    hasher.update(content)
-                    if is_pkg_info:
-                        pkg_info_content = content.decode("utf-8", errors="replace")
-                    else:
-                        pyproject_content = content
-                else:
-                    while chunk := f.read(8192):
-                        hasher.update(chunk)
-
-            digest = hasher.hexdigest()
-            project_files.append(
-                ProjectFile(
-                    physical_path=info.filename,
-                    distribution_path=info.filename,
-                    digest_sha256=digest,
-                )
-            )
-
-        if pkg_info_content is not None:
-            metadata = _parse_pkg_info(pkg_info_content, source_label)
-        elif pyproject_content is not None:
-            metadata = _parse_pyproject_bytes(pyproject_content)
-        else:
-            metadata = ProjectMetadata(name="unknown")
-
-    return metadata, project_files
+def _member_bytes(root: dict[str, bytes | None], member: str, sdist_name: str) -> bytes:
+    """A present root member's bytes; over the cap is a read failure."""
+    raw = root[member]
+    if raw is None:
+        raise ValueError(
+            f"config file {sdist_name}:{member}: "
+            f"over {CONFIG_MEMBER_MAX_BYTES} bytes, not read"
+        )
+    return raw
 
 
-def read_sdist(sdist_path: Path) -> tuple[ProjectMetadata, list[ProjectFile]]:
-    """Read metadata and files from an sdist archive (.tar.gz, .tgz, .zip).
+def _metadata_pyproject(raw: bytes | None, sdist_name: str) -> Any:
+    """The root ``pyproject.toml`` parsed for metadata only (no PKG-INFO,
+    config not read), or ``None`` with one ``WARNING:`` when it cannot be."""
+    try:
+        if raw is None:
+            raise ValueError(f"over {CONFIG_MEMBER_MAX_BYTES} bytes")
+        return load_toml_bytes(raw)
+    except ValueError as exc:  # TOMLDecodeError, UnicodeDecodeError
+        log.warning(
+            "Failed to parse pyproject.toml from sdist member: %s%s",
+            f"{sdist_name}: {exc}",
+            field_loss_suffix("skipped", *_METADATA_FIELDS),
+        )
+        return None
 
-    Args:
-        sdist_path: Path to the sdist archive.
 
-    Returns:
-        Tuple of (ProjectMetadata, list of ProjectFile).
+def _metadata_from_pyproject(data: Any) -> ProjectMetadata:
+    """Fallback ProjectMetadata from a parsed ``pyproject.toml``."""
+    proj = data.get("project", {}) if isinstance(data, dict) else {}
+    if not isinstance(proj, dict):
+        proj = {}
+    return ProjectMetadata(
+        name=proj.get("name", "unknown"),
+        version=proj.get("version"),
+        description=proj.get("description"),
+        dependencies=proj.get("dependencies", []),
+    )
+
+
+def _names_project(data: Any) -> bool:
+    """Whether a parsed ``pyproject.toml`` names the project, as a
+    directory's ``read_pyproject()`` finds a name: ``[project]`` or
+    ``[tool.poetry]``."""
+    if not isinstance(data, dict):
+        return False
+    tool = data.get("tool")
+    poetry = tool.get("poetry") if isinstance(tool, dict) else None
+    for table in (data.get("project"), poetry):
+        if isinstance(table, dict) and str(table.get("name") or "").strip():
+            return True
+    return False
+
+
+_T = TypeVar("_T")
+
+
+def _member_config(sdist_name: str, member: str, parse: Callable[[], _T]) -> _T:
+    """*parse*, with a failure naming the archive member (as
+    :func:`pitloom.core.config_cascade.load_config_file` names a file)."""
+    try:
+        return parse()
+    except ValueError as exc:
+        raise ValueError(f"config file {sdist_name}:{member}: {exc}") from exc
+
+
+def _config(
+    root: dict[str, bytes | None], pyproject: Any, sdist_name: str
+) -> tuple[PitloomConfig, str | None]:
+    """The archive's own config and the member it came from, chosen by the
+    rule a directory uses (:func:`~pitloom.core.config.select_project_config`).
+    *pyproject* is the parsed root ``pyproject.toml``, ``None`` when absent."""
+    pyproject_config = (
+        None
+        if pyproject is None
+        else _member_config(
+            sdist_name, _PYPROJECT, lambda: parse_pitloom_config(pyproject)
+        )
+    )
+    used_setup_cfg: list[bool] = []
+
+    def read_setup_cfg() -> PitloomConfig:
+        used_setup_cfg.append(True)
+        raw = _member_bytes(root, _SETUP_CFG, sdist_name)
+        return _member_config(
+            sdist_name,
+            _SETUP_CFG,
+            lambda: setup_cfg_pitloom_config(raw.decode("utf-8")),
+        )
+
+    config = select_project_config(
+        pyproject_config,
+        _names_project(pyproject),
+        read_setup_cfg if _SETUP_CFG in root else None,
+    )
+    # Neither can apply to an archive: an ids-file names a file inside it,
+    # and fragments merge only into a directory's SBOM. Dropped here, so
+    # every surface given this config ignores them (documented, not warned).
+    config = dataclasses.replace(config, ids_file=None, fragments=[])
+    if used_setup_cfg:
+        return config, _SETUP_CFG
+    return config, _PYPROJECT if pyproject_config is not None else None
+
+
+def read_sdist(sdist_path: Path, *, read_config: bool = True) -> SdistContents:
+    """Read metadata, files and the project's own config from an sdist
+    archive (.tar.gz, .tgz, .zip).
+
+    The config is read as for the unpacked directory: the root
+    ``pyproject.toml``'s ``[tool.pitloom]``, else ``setup.cfg``'s
+    ``[tool:pitloom]`` (:func:`~pitloom.core.config.select_project_config`),
+    minus ``ids-file`` and fragments, which cannot apply to an archive.
+    Without *read_config* it is not parsed and the defaults are returned --
+    an explicit config replaces it, so a fault in it cannot fail the read.
+
+    Raises:
+        FileNotFoundError: *sdist_path* does not exist.
+        ValueError: with *read_config*, the archive's own config cannot be
+            read (invalid TOML, not UTF-8, over the size cap) or is invalid,
+            as for a directory; the message names the member
+            (``<archive>:pyproject.toml``).
     """
     if not sdist_path.exists():
         raise FileNotFoundError(f"Sdist archive not found: {sdist_path}")
 
-    filename_lower = sdist_path.name.lower()
-    if filename_lower.endswith(".zip"):
-        return _read_zip_sdist(sdist_path)
-    return _read_tar_sdist(sdist_path)
+    name = sdist_path.name
+    members = _scan_archive(sdist_path)
+    raw_pkg_info = members.root.get(_PKG_INFO)
+    pyproject: Any = None
+    if _PYPROJECT in members.root and read_config:
+        raw = _member_bytes(members.root, _PYPROJECT, name)
+        pyproject = _member_config(name, _PYPROJECT, lambda: load_toml_bytes(raw))
+    elif _PYPROJECT in members.root and raw_pkg_info is None:
+        pyproject = _metadata_pyproject(members.root[_PYPROJECT], name)
+
+    if raw_pkg_info is not None:
+        metadata = _parse_pkg_info(
+            raw_pkg_info.decode("utf-8", errors="replace"),
+            f"Source: sdist PKG-INFO | File: {name}",
+        )
+    elif pyproject is not None:
+        metadata = _metadata_from_pyproject(pyproject)
+    else:
+        metadata = ProjectMetadata(name="unknown")
+
+    config, member = (
+        _config(members.root, pyproject, name)
+        if read_config
+        else (PitloomConfig(), None)
+    )
+    return SdistContents(metadata, members.files, config, member)
+
+
+def sdist_config_source(sdist_path: Path) -> tuple[str | None, dict[str, Any]]:
+    """For ``--verbose``: the member an sdist's own config comes from (see
+    :attr:`SdistContents.config_member`), and its raw ``[tool.pitloom]``
+    table when that member is ``pyproject.toml`` (``{}`` otherwise, as for a
+    directory's ``setup.cfg``). Reads only the root members.
+
+    Raises:
+        ValueError: as :func:`read_sdist` does for an invalid config.
+    """
+    root = _scan_archive(sdist_path, root_only=True).root
+    pyproject: Any = None
+    if _PYPROJECT in root:
+        raw = _member_bytes(root, _PYPROJECT, sdist_path.name)
+        pyproject = _member_config(
+            sdist_path.name, _PYPROJECT, lambda: load_toml_bytes(raw)
+        )
+    _, member = _config(root, pyproject, sdist_path.name)
+    tool = pyproject.get("tool") if isinstance(pyproject, dict) else None
+    table = tool.get("pitloom") if isinstance(tool, dict) else None
+    if member != _PYPROJECT or not isinstance(table, dict):
+        return member, {}
+    return member, table

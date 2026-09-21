@@ -36,6 +36,7 @@ from pitloom.core._config_parse import (
     _read_use_lockfile_setting,
     parse_pitloom_config,
     read_pitloom_config,
+    select_project_config,
 )
 from pitloom.core._config_types import (
     _DEFAULT_PROVENANCE_SCHEMA,
@@ -83,4 +84,5 @@ __all__ = [
     "_read_use_lockfile_setting",
     "parse_pitloom_config",
     "read_pitloom_config",
+    "select_project_config",
 ]
