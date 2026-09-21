@@ -126,25 +126,13 @@ runs on every invocation, not only under `-v`.
 
 ## Found, not fixed here
 
-- `sbom-basename = "x.spdx3.json"` gives `x.spdx3.json.spdx3.json` from
-  `project` but `x.spdx3.json` from `embed-wheel` (which strips a given
-  extension).
-
+- **Config-parity findings** (error shapes, `-v` sources, key
+  applicability, `loom.Run` cwd walk-up, id-minting via `ids-file`,
+  unknown keys, repeated warnings, ...) moved to
+  [config-cascade-parity.md](../design/config-cascade-parity.md), to be
+  fixed together.
 - `[tool.poetry] version = 3` crashes with an uncaught `AttributeError`
   (`extract/project/poetry.py`); `_try_read_poetry` catches only
   `ValueError`/`KeyError`.
-
-- `embed-wheel --project-dir <sdist>` runs Hatchling file discovery
-  against the archive path and warns `Hatchling file discovery failed`;
-  also on `main` before this change.
-- `-v` labels a value from `setup.cfg`'s `[tool:pitloom]` `[default]`, for
-  a directory and an sdist alike.
-- A `%` in any `setup.cfg` value fails a *directory's* read
-  (`read_setup_cfg()` interpolates `[metadata]`); an sdist reads
-  `[metadata]` raw. A directory's `configparser` error is also
-  multi-line and names no file.
-
-- `import pitloom._loom_active_run` as the *first* Pitloom import fails:
-  it imports `pitloom.loom`, which imports it back. Every real entry
-  point imports `pitloom.loom` first, so nothing is affected; also on
-  `main` before this change.
+- The `pitloom._loom_active_run` import cycle: see
+  [config-sources.md](config-sources.md#found-not-fixed-here).

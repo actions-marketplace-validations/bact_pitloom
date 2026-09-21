@@ -705,12 +705,6 @@ be built:
   key-order audit of project-metadata sources. Sorted keys, UTC `Z` and LF
   were built in step 6.5.
   See [canonical-output-followups.md](canonical-output-followups.md).
-- [ ] **`loom project` warns twice about a too-small
-  `[tool.pitloom.provenance] max-source-metadata-bytes`** (config, not
-  flag) -- it reads the config twice; `embed-wheel` warns once. Found
-  during a PR #227 review, 2026-09-20.
-- [ ] **`--max-source-metadata-bytes` accepts a negative value** -- `-1`
-  runs like `0` (no cap) with no message; reject it at parse time.
 - [ ] **`enrich` and `merge` stdout is not `KEY=VALUE`** -- they print
   prose (`Enrichment fragment written to: ...`, `pitloom: merged N
   fragment(s) into ...`), unlike `PITLOOM_SBOM_OUTPUT_PATH=` from every
@@ -728,11 +722,15 @@ be built:
   Decide whether that is intended (a registry is minted once) or should
   be derived like an SBOM's namespace.
 
-- [ ] **11 small findings from the `--config`/`pitloom_config=` change**
-  (a `-v`/Hatchling-hook gap, an import cycle, a widened id-minting
-  collision, ...). See [config-sources.md](../implementation/config-sources.md#found-not-fixed-here).
-  An sdist's own config: done in step 6.5, [sdist-own-config.md](../implementation/sdist-own-config.md).
-- [ ] **6 small findings from step 6.5.** See
+- [ ] **Big item: config cascade parity across usage surfaces** -- ~20
+  differences in how a setting is read, applied, errored on and reported
+  (`-v`) across CLI, library, hook, `pitloom.loom`, directory vs sdist;
+  one resolver with recorded sources, one reader per format, a key
+  applicability table, a surface x setting matrix test. Fix together.
+  See [config-cascade-parity.md](config-cascade-parity.md).
+- [ ] **Leftovers from #231/#232** (two import cycles, a Poetry
+  `version = 3` crash). See
+  [config-sources.md](../implementation/config-sources.md#found-not-fixed-here),
   [sdist-own-config.md](../implementation/sdist-own-config.md#found-not-fixed-here).
 
 ### Internal codenames

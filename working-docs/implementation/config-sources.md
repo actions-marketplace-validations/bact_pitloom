@@ -196,13 +196,11 @@ only a project directory's own `pyproject.toml` was reachable.
 
 ## Found, not fixed here
 
-- **Id-minting collision, now also reachable via an explicit config's
-  `ids-file`.** The pre-existing registry-id-collision defect (see
-  [cli-shared-options-ignored.md](../design/cli-shared-options-ignored.md#found-while-doing-this-not-fixed-here))
-  was previously unreachable from `wheel`/`env`/`model` because those
-  surfaces never resolved an `ids-file` at all. An explicit
-  `--config`/`pitloom_config=` now lets a wheel/env/model target resolve
-  one, which widens this defect's surface without changing its cause.
+- **Config-parity findings** (error shapes, `-v` sources, key
+  applicability, `loom.Run` cwd walk-up, id-minting via `ids-file`,
+  unknown keys, repeated warnings, ...) moved to
+  [config-cascade-parity.md](../design/config-cascade-parity.md), to be
+  fixed together.
 - **A latent import cycle**, hidden by import order:
   `core._config_parse` imports `extract._toml_io`, which (via
   `extract/__init__.py`) reaches `extract.project.reader`, which imports
@@ -217,41 +215,6 @@ only a project directory's own `pyproject.toml` was reachable.
   current decision (a wheel-embedded SBOM is always canonical; a
   fragment has no relationships of its own to describe), not
   necessarily permanent -- revisit if either target's shape changes.
-- **`-v` source reporting is project-only.** `wheel`/`env`/`model`/
-  `enrich` print resolved values with `--verbose`, but no per-value
-  source label (config file vs. default); only `project`/`generate` on
-  a project directory or sdist label sources, via `cli/verbose.py`.
-- **The Hatchling build hook ignores `[tool.pitloom]`
-  `pretty`/`describe-relationship`.** It always writes canonical
-  (`pretty=False`) JSON with no relationship descriptions, per PEP 770,
-  regardless of what the project's own config sets (already noted in
-  the hook's own docstring, `plugins/hatch.py`).
 - ~~An sdist archive's own `[tool.pitloom]` is never read; an invalid
   target `[tool.pitloom]` still fails `project --config C`.~~ Both fixed
   in step 6.5: [sdist-own-config.md](sdist-own-config.md).
-- **A no-effect warning's subject differs by command.** `wheel`/`model`
-  use the target as typed on the command line (not resolved to an
-  absolute path) for `wheel`, but a resolved absolute `Path` for a
-  local model file; `embed-wheel`'s batch settle uses the literal
-  string `"embed-wheel"` as the subject for a standalone embed, not a
-  per-wheel name.
-- **`loom.Run(registry=None)` still walks up from the current
-  directory for a registry.** The `pitloom.loom` tracking-decorator/
-  context-manager surface was not brought in line with the "no
-  implicit cwd reads" rule this change applied to every CLI command and
-  generator function.
-- **`-v` does not read `setup.cfg`'s `[tool:pitloom]`
-  `pretty`/`describe-relationship` keys for source labelling.**
-  `_load_pitloom_tool_section()` returns `{}` for a `setup.cfg`/
-  `setup.py` config path, so `--verbose` reports `"default"` for
-  `pretty`/`describe_relationship` even when `setup.cfg` set one and it
-  took effect.
-- **`enrich --project-dir D` without `--config` names the default
-  "Pitloom" creator, not D's `creators`**, while `project D` uses D's.
-  Documented (identity keys come from an explicit config only), but the
-  fragment's creators then differ from its base SBOM's. Pre-existing.
-- **Unknown `[tool.pitloom]` keys are ignored silently** (a typo like
-  `ofline = true`). Pre-existing; more likely to bite in a named
-  `--config` file.
-- **`Registry: could not load` repeats once per wheel** in an
-  `embed-wheel` batch. Pre-existing.
