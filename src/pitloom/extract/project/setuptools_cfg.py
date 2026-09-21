@@ -213,14 +213,16 @@ def _parse_cfg_requires(raw: str) -> list[str]:
 
 # pylint: disable=too-many-locals
 def read_setup_cfg(
-    project_dir: Path,
+    project_dir: Path, *, read_config: bool = True
 ) -> tuple[ProjectMetadata, PitloomConfig]:
     """Read project metadata from ``setup.cfg``.
 
     Parses ``[metadata]`` for core project info and ``[options]`` for
     dependency declarations.  Pitloom settings can be placed under a
     ``[tool:pitloom]`` section (note the colon separator used by
-    ``setup.cfg`` convention).
+    ``setup.cfg`` convention). Without *read_config* that section is not
+    parsed and the defaults are returned -- for a caller whose explicit
+    config replaces it, so a fault in it cannot fail the read.
     """
     setup_cfg_path = project_dir / "setup.cfg"
     if not setup_cfg_path.exists():
@@ -309,8 +311,35 @@ def read_setup_cfg(
         provenance=prov,
     )
 
-    pitloom_config = _read_pitloom_config_from_cfg(cfg)
-    return project_metadata, pitloom_config
+    return project_metadata, _config_if_read(cfg, read_config)
+
+
+def _config_if_read(cfg: configparser.ConfigParser, read: bool) -> PitloomConfig:
+    """``[tool:pitloom]`` from *cfg*, or the defaults without parsing it."""
+    return _read_pitloom_config_from_cfg(cfg) if read else PitloomConfig()
+
+
+def setup_cfg_pitloom_config(text: str) -> PitloomConfig:
+    """``[tool:pitloom]`` from ``setup.cfg`` *text* (e.g. an sdist member),
+    taken as :func:`read_setup_cfg` takes it for a directory: only when
+    ``[metadata]`` names the project, else the defaults.
+
+    Only ``[tool:pitloom]`` is interpolated: a ``%`` elsewhere (e.g. in a
+    ``[metadata]`` description) is not this function's concern.
+
+    Raises:
+        ValueError: the text is not valid INI (``configparser.Error``) or
+            its ``[tool:pitloom]`` settings are invalid; one line.
+    """
+    cfg = configparser.ConfigParser()
+    try:
+        cfg.read_string(text, source="setup.cfg")
+        if not cfg.get("metadata", "name", raw=True, fallback="").strip():
+            return PitloomConfig()
+        return _read_pitloom_config_from_cfg(cfg)
+    except configparser.Error as exc:  # also a value's bad % interpolation
+        # configparser spreads a parse error over several lines.
+        raise ValueError(" ".join(str(exc).split())) from exc
 
 
 _KNOWN_BOOL_KEYS = frozenset(

@@ -22,6 +22,7 @@ from hatchling.plugin import hookimpl
 from packaging.version import Version
 from spdx_python_model.bindings import v3_0_1 as spdx3
 
+from pitloom._sbom_io import write_text_lf
 from pitloom.assemble.spdx3.creation_info import to_spdx3_datetime
 from pitloom.assemble.spdx3.document import build as assemble_spdx3
 from pitloom.assemble.spdx3.fragments import merge_fragments
@@ -208,7 +209,7 @@ def _stage_sbom_file(
 
     staging_dir = tempfile.TemporaryDirectory()  # noqa: SIM115
     staging_path = Path(staging_dir.name) / sbom_filename
-    staging_path.write_text(sbom_json, encoding="utf-8")
+    write_text_lf(staging_path, sbom_json)
     return staging_dir, staging_path
 
 

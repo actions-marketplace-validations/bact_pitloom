@@ -3,7 +3,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """Deviations the checks find that are already tracked in
-``working-docs/design/roadmap.md``: a failing check matching one of these
+``working-docs/design/roadmap.md`` (or a design doc an entry there links):
+a failing check matching one of these
 globs *with its tracked failure text* is reported as ``KNOWN``, with the
 roadmap item, not ``FAIL``.
 
@@ -28,7 +29,7 @@ KNOWN: dict[str, tuple[str, str]] = {
     "M/enrich/output/no-o+*": (_KV, "stdout: ['Enrichment fragment written to"),
     "M/merge/output/no-o+*": (_KV, "stdout: ['pitloom: merged"),
     "M/*/opt/--max-source-metadata-bytes=-1": (
-        "`--max-source-metadata-bytes` accepts a negative value",
+        "Config cascade parity: `--max-source-metadata-bytes -1`",
         "exit 0, want 2",
     ),
     "S2": (

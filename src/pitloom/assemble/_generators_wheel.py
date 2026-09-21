@@ -19,8 +19,8 @@ from pathlib import Path
 
 from spdx_python_model.bindings import v3_0_1 as spdx3_bindings
 
+from pitloom._sbom_io import write_sbom_output
 from pitloom.assemble._generators_shared import _sync_registry
-from pitloom.assemble._model_generator import _write_output_file
 from pitloom.assemble.spdx3.document import build
 from pitloom.core.config import PitloomConfig
 from pitloom.core.config_cascade import ConfigOverrides, resolve_standalone_config
@@ -108,6 +108,6 @@ def generate_wheel_sbom(
         describe_relationship=bool(cfg.describe_relationship),
     )
 
-    _write_output_file(sbom_json, output_path)
+    write_sbom_output(sbom_json, output_path)
 
     return sbom_json

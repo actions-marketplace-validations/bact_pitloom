@@ -33,12 +33,12 @@ from pitloom._wheel_sbom_location import (
     read_wheel_name_version,
 )
 from pitloom.core.creation import resolve_source_date_epoch
+from pitloom.core.file_names import is_plain_file_name
 from pitloom.export.spdx3_json import SPDX3_JSONLD_EXTENSION
 from pitloom.logging_config import configure_logging
 
 _DEFAULT_FILE_ATTR = 0o644 << 16
 _ZIP_EPOCH_FLOOR = datetime(1980, 1, 1, tzinfo=timezone.utc)
-_INVALID_FILENAME_CHARS = frozenset({"/", "\\", "\x00"})
 
 
 def _resolve_zip_timestamp(
@@ -140,12 +140,7 @@ class _EmbedPlan:
 
 def _validate_sbom_filename(filename: str) -> None:
     """Guard against path traversal in an embedded SBOM filename (CWE-22)."""
-    clean = filename.strip()
-    if (
-        not clean
-        or clean in (".", "..")
-        or any(c in clean for c in _INVALID_FILENAME_CHARS)
-    ):
+    if not is_plain_file_name(filename):
         raise ValueError(f"Invalid SBOM filename: {filename!r}")
 
 

@@ -27,6 +27,7 @@ from pitloom._loom_caller import (
     _record_hyperparameter_provenance,
     _resolve_registry,
 )
+from pitloom._sbom_io import write_text_lf
 from pitloom.assemble.spdx3.creation_info import build_creation_info
 from pitloom.assemble.spdx3.provenance import emit_provenance
 from pitloom.core.creation import CreationMetadata
@@ -123,7 +124,7 @@ class _ActiveRun:
         if hyperparameters is not None:
             self.model.ai_hyperparameter = [
                 spdx3.DictionaryEntry(key=k, value=v)
-                for k, v in hyperparameters.items()
+                for k, v in sorted(hyperparameters.items())
             ]
             _record_hyperparameter_provenance(provenance, hyperparameters, caller_info)
         self.exporter.add_package(self.model)
@@ -159,7 +160,8 @@ class _ActiveRun:
                 "No model set. Call set_model() before set_model_hyperparameters()."
             )
         self.model.ai_hyperparameter = [
-            spdx3.DictionaryEntry(key=k, value=v) for k, v in hyperparameters.items()
+            spdx3.DictionaryEntry(key=k, value=v)
+            for k, v in sorted(hyperparameters.items())
         ]
         provenance: dict[str, str] = {}
         _record_hyperparameter_provenance(
@@ -326,8 +328,7 @@ class _ActiveRun:
         output_path = Path(self.output_file)
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        with open(output_path, "w", encoding="utf-8") as f:
-            f.write(self.exporter.to_json(pretty=self.pretty))
+        write_text_lf(output_path, self.exporter.to_json(pretty=self.pretty))
 
     def _emit_script_file_and_generates(self) -> None:
         """Emit a ``software_File`` for the calling script and relationships."""

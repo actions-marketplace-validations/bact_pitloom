@@ -2,8 +2,9 @@
 # SPDX-FileType: SOURCE
 # SPDX-License-Identifier: Apache-2.0
 
-"""Check 12 of manual-cli-checks.md: a target that is not a project reads
-no config it was not given.
+"""Checks 12-13 of manual-cli-checks.md: a target that is not a project
+reads no config it was not given; an sdist reads its own, as its unpacked
+directory does.
 
 See also: ``_checks_core.py`` (checks 1-11), ``_harness.py``.
 """
@@ -11,6 +12,7 @@ See also: ``_checks_core.py`` (checks 1-11), ``_harness.py``.
 from __future__ import annotations
 
 import shutil
+import tarfile
 from collections.abc import Callable
 from pathlib import Path
 
@@ -21,6 +23,7 @@ from _harness import (
     check,
     embedded_sboms,
     expect,
+    load_graph,
     run_loom,
     run_ok,
 )
@@ -142,3 +145,77 @@ def check_no_implicit_config(ctx: Context) -> None:
     named = _embedded(wheel, ctx.work / "embed" / "c", empty, "--config", config)
     expect(_DECOY_COMMENT.encode() in named, "embed-wheel: --config not applied")
     ctx.note(f"{len(_COMMANDS) + 1} surfaces ignore cwd and honour --config")
+
+
+_OWN_COMMENT = "sdist own config comment"
+_OWN_CONFIG = f"""
+[tool.pitloom]
+pretty = true
+
+[tool.pitloom.creation]
+creation-comment = "{_OWN_COMMENT}"
+"""
+
+
+def _creation_comments(sbom: bytes) -> list[str]:
+    return sorted(
+        str(o["comment"])
+        for o in load_graph(sbom)
+        if o.get("type") == "CreationInfo" and "comment" in o
+    )
+
+
+def _sdist_of(project: Path, out: Path) -> Path:
+    """``out/demo-0.1.tar.gz`` holding *project* under ``demo-0.1/``."""
+    out.mkdir(parents=True)
+    sdist = out / "demo-0.1.tar.gz"
+    with tarfile.open(sdist, "w:gz") as tf:
+        tf.add(project, arcname="demo-0.1")
+    return sdist
+
+
+@check("13", "sdist reads its own config as its directory; --config rescues")
+def check_sdist_own_config(ctx: Context) -> None:
+    """The same ``[tool.pitloom]`` gives the same config-driven output
+    (pretty, creation comment) for a directory and its ``.tar.gz``, and
+    ``-v`` labels it with the archive member. An invalid one is one
+    ``ERROR:`` naming the member; ``--config`` replaces it without
+    parsing it, so the run then succeeds."""
+    project = write_project(ctx.work / "proj")
+    with (project / "pyproject.toml").open("a", encoding="utf-8") as f:
+        f.write(_OWN_CONFIG)
+    sdist = _sdist_of(project, ctx.work / "dist")
+    outs = {name: ctx.work / f"{name}.json" for name in ("dir", "sdist")}
+    for name, target in (("dir", project), ("sdist", sdist)):
+        run_ok("project", str(target), *_PINNED, "--offline", "-o", str(outs[name]))
+    sboms = {name: path.read_bytes() for name, path in outs.items()}
+    for name, sbom in sboms.items():
+        expect(sbom.startswith(b"{\n  "), f"{name}: own pretty = true not applied")
+        expect(
+            _creation_comments(sbom) == [_OWN_COMMENT],
+            f"{name}: own creation comment not applied",
+        )
+    verbose = run_ok("project", str(sdist), "-v", "--offline", "-o", str(outs["sdist"]))
+    expect(
+        f"{sdist.name}:pyproject.toml" in verbose.stdout,
+        f"-v does not label the sdist member:\n{verbose.describe()}",
+    )
+
+    broken = write_project(ctx.work / "broken")
+    with (broken / "pyproject.toml").open("a", encoding="utf-8") as f:
+        f.write("\n[tool.pitloom]\npretty = 'yes'\n")
+    bad = _sdist_of(broken, ctx.work / "bad-dist")
+    out = ctx.work / "bad.json"
+    failed = run_loom("project", str(bad), "--offline", "-o", str(out))
+    errors = [line for line in failed.stderr.splitlines() if line.startswith("ERROR:")]
+    expect(
+        failed.returncode != 0
+        and len(errors) == 1
+        and f"{bad.name}:pyproject.toml" in errors[0],
+        f"invalid sdist config: expected one ERROR: naming the member\n"
+        f"{failed.describe()}",
+    )
+    good = ctx.work / "good.toml"
+    good.write_text("[tool.pitloom]\npretty = true\n", encoding="utf-8")
+    run_ok("project", str(bad), "--config", str(good), "--offline", "-o", str(out))
+    ctx.note("sdist == directory for its own config; --config rescues a broken one")

@@ -411,5 +411,9 @@ def _build_sbom_from_project_and_wheel(
         enrichment_results_by_model=enrichment_results,
         **pitloom_config.assemble_options,
     )
-    merge_fragments(project_dir, pitloom_config.fragments, exporter)
+    # Fragments merge only into a project directory's SBOM, as for
+    # `loom project` (assemble/_generators.py): not an sdist's, even from
+    # an explicit --config.
+    if Path(project_dir).is_dir():
+        merge_fragments(project_dir, pitloom_config.fragments, exporter)
     return exporter.to_json(pretty=False)

@@ -367,7 +367,7 @@ def test_cli_wheel_embed_flag(
 
 def test_validate_sbom_filename_edge_cases() -> None:
     """Test _validate_sbom_filename rejects null bytes, traversal, and whitespace."""
-    for bad in ("", "   ", "\x00", "a/b", "a\\b", "..", "."):
+    for bad in ("", "   ", "\x00", "a/b", "a\\b", "..", ".", "C:x", "a:b"):
         with pytest.raises(ValueError, match="Invalid SBOM filename"):
             _validate_sbom_filename(bad)
 

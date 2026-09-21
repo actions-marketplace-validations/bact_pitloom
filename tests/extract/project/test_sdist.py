@@ -58,7 +58,7 @@ def test_read_tar_sdist(tmp_path: Path, sample_pkg_info: str) -> None:
         ti3.size = len(src_bytes)
         tf.addfile(ti3, io.BytesIO(src_bytes))
 
-    metadata, files = read_sdist(sdist_path)
+    metadata, files, *_ = read_sdist(sdist_path)
     assert metadata.name == "demo-sdist-pkg"
     assert metadata.version == "1.2.3"
     assert metadata.description == "A demo package for sdist testing"
@@ -74,7 +74,7 @@ def test_read_zip_sdist(tmp_path: Path, sample_pkg_info: str) -> None:
         zf.writestr("demo-sdist-pkg-1.2.3/PKG-INFO", sample_pkg_info)
         zf.writestr("demo-sdist-pkg-1.2.3/src/main.py", 'print("hello zip")\n')
 
-    metadata, files = read_sdist(sdist_path)
+    metadata, files, *_ = read_sdist(sdist_path)
     assert metadata.name == "demo-sdist-pkg"
     assert metadata.version == "1.2.3"
     assert len(files) == 2
@@ -92,7 +92,8 @@ def test_read_project_with_sdist(tmp_path: Path, sample_pkg_info: str) -> None:
     metadata, _, path_used = read_project(sdist_path)
     assert metadata.name == "demo-sdist-pkg"
     assert metadata.version == "1.2.3"
-    assert path_used == sdist_path
+    # No pyproject.toml/setup.cfg member: no config file was used.
+    assert path_used is None
 
 
 def test_read_sdist_not_found(tmp_path: Path) -> None:
@@ -186,7 +187,7 @@ def test_read_tar_sdist_skips_directory_entries(tmp_path: Path) -> None:
         ti.size = len(pkg_bytes)
         tf.addfile(ti, io.BytesIO(pkg_bytes))
 
-    metadata, files = read_sdist(sdist_path)
+    metadata, files, *_ = read_sdist(sdist_path)
     assert metadata.name == "dirpkg"
     assert len(files) == 1
     assert files[0].distribution_path == "dirpkg-1.0/PKG-INFO"
@@ -221,7 +222,7 @@ def test_read_tar_sdist_skips_member_when_extractfile_returns_none(
         return original_extractfile(self, member)
 
     with patch.object(tarfile.TarFile, "extractfile", fake_extractfile):
-        metadata, files = read_sdist(sdist_path)
+        metadata, files, *_ = read_sdist(sdist_path)
 
     assert metadata.name == "oddpkg"
     distribution_paths = [f.distribution_path for f in files]
@@ -243,7 +244,7 @@ def test_read_tar_sdist_pyproject_only_fallback(tmp_path: Path) -> None:
         ti.size = len(pyproj_bytes)
         tf.addfile(ti, io.BytesIO(pyproj_bytes))
 
-    metadata, files = read_sdist(sdist_path)
+    metadata, files, *_ = read_sdist(sdist_path)
     assert metadata.name == "pyprojpkg"
     assert metadata.version == "1.0"
     assert metadata.description == "Built from pyproject.toml"
@@ -255,7 +256,8 @@ def test_read_tar_sdist_pyproject_malformed_falls_back_to_unknown(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     """No ``PKG-INFO`` and an unparsable ``pyproject.toml``: degrades to the
-    ``name="unknown"`` default rather than raising -- and logs the failure
+    ``name="unknown"`` default rather than raising (with the config not
+    read; read, it raises as for a directory) -- and logs the failure
     at ``WARNING`` level, since it drops project metadata from the SBOM."""
     sdist_path = tmp_path / "badpkg-1.0.tar.gz"
     bad_bytes = b"this is not valid toml [[["
@@ -265,7 +267,7 @@ def test_read_tar_sdist_pyproject_malformed_falls_back_to_unknown(
         tf.addfile(ti, io.BytesIO(bad_bytes))
 
     with caplog.at_level(logging.DEBUG, logger="pitloom.extract.project.sdist"):
-        metadata, files = read_sdist(sdist_path)
+        metadata, files, *_ = read_sdist(sdist_path, read_config=False)
     assert metadata.name == "unknown"
     assert len(files) == 1
     assert "Failed to parse pyproject.toml" in caplog.text
@@ -281,7 +283,7 @@ def test_read_tar_sdist_neither_pkg_info_nor_pyproject(tmp_path: Path) -> None:
         ti.size = len(src_bytes)
         tf.addfile(ti, io.BytesIO(src_bytes))
 
-    metadata, files = read_sdist(sdist_path)
+    metadata, files, *_ = read_sdist(sdist_path)
     assert metadata.name == "unknown"
     assert len(files) == 1
 
@@ -302,7 +304,7 @@ def test_read_zip_sdist_skips_directory_entries(tmp_path: Path) -> None:
             "Metadata-Version: 2.1\nName: dirpkg\nVersion: 1.0\n",
         )
 
-    metadata, files = read_sdist(sdist_path)
+    metadata, files, *_ = read_sdist(sdist_path)
     assert metadata.name == "dirpkg"
     assert len(files) == 1
     assert files[0].distribution_path == "dirpkg-1.0/PKG-INFO"
@@ -319,7 +321,7 @@ def test_read_zip_sdist_pyproject_only_fallback(tmp_path: Path) -> None:
             'description = "Zip-sourced"\n',
         )
 
-    metadata, files = read_sdist(sdist_path)
+    metadata, files, *_ = read_sdist(sdist_path)
     assert metadata.name == "pyprojpkg"
     assert metadata.version == "2.0"
     assert metadata.description == "Zip-sourced"
@@ -330,7 +332,8 @@ def test_read_zip_sdist_pyproject_malformed_falls_back_to_unknown(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     """No ``PKG-INFO`` and an unparsable ``pyproject.toml`` in the zip:
-    degrades to the ``name="unknown"`` default rather than raising -- and
+    degrades to the ``name="unknown"`` default rather than raising (with the config not
+    read; read, it raises as for a directory) -- and
     logs the failure at ``WARNING`` level (regression test: the zip path
     used to duplicate ``_parse_pyproject_bytes()``'s logic inline with no
     logging at all, unlike the tar path, which already called the shared,
@@ -340,7 +343,7 @@ def test_read_zip_sdist_pyproject_malformed_falls_back_to_unknown(
         zf.writestr("badpkg-1.0/pyproject.toml", "not [[[ valid toml")
 
     with caplog.at_level(logging.DEBUG, logger="pitloom.extract.project.sdist"):
-        metadata, files = read_sdist(sdist_path)
+        metadata, files, *_ = read_sdist(sdist_path, read_config=False)
     assert metadata.name == "unknown"
     assert len(files) == 1
     assert "Failed to parse pyproject.toml" in caplog.text
@@ -354,6 +357,6 @@ def test_read_zip_sdist_neither_pkg_info_nor_pyproject(tmp_path: Path) -> None:
     with zipfile.ZipFile(sdist_path, "w") as zf:
         zf.writestr("plainpkg-1.0/src/main.py", "print('hello')\n")
 
-    metadata, files = read_sdist(sdist_path)
+    metadata, files, *_ = read_sdist(sdist_path)
     assert metadata.name == "unknown"
     assert len(files) == 1
