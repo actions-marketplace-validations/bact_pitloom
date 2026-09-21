@@ -1,6 +1,6 @@
 ---
 Created: 2026-03-25
-Last-Modified: 2026-09-18
+Last-Modified: 2026-09-21
 SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 SPDX-FileType: DOCUMENTATION
 SPDX-License-Identifier: CC0-1.0
@@ -205,7 +205,9 @@ a side-effect-free tuple read that cannot itself trigger the subscription
 
 ```python
 if TYPE_CHECKING:
-    class _PitloomBuildHookBase(BuildHookInterface[BuilderConfig[PluginManager], PluginManager]):
+    class _PitloomBuildHookBase(
+        BuildHookInterface[BuilderConfig]  # type: ignore[type-arg, unused-ignore]
+    ):
         ...
 else:
     def _resolve_build_hook_base() -> type:
@@ -223,26 +225,38 @@ class PitloomBuildHook(_PitloomBuildHookBase):
     ...
 ```
 
+Hatchling 1.32.4 (released 2026-09-20) reverted the change as a bug:
+`BuildHookInterface` is back to one type parameter and `BuilderConfig` is
+no longer generic. 1.32.3 is therefore the only two-parameter release.
+Support for it was kept rather than excluded with `!=1.32.3`: the
+runtime detection already handles it, and it stays ready if upstream
+reintroduces the second parameter.
+
 The `TYPE_CHECKING` split exists because mypy/pyright/pyrefly (strict)
 analyze a function body unconditionally -- a single helper containing
 *both* subscript arities as plain code would always have one rejected as
-a static type error, and suppressing it with `# type: ignore` would trip
-`--warn-unused-ignores` on whichever branch the installed Hatchling
-happens to match. `if TYPE_CHECKING: ... else: ...` is special-cased by
-all three checkers to skip the untaken branch entirely, so the `else`
+a static type error. `if TYPE_CHECKING: ... else: ...` is special-cased
+by all three checkers to skip the untaken branch entirely, so the `else`
 branch's dynamic-arity logic is invisible to them, and the `if` branch
-gives them one single, fully concrete shape to check against (the shape
-of whatever Hatchling is installed in the typecheck environment -- this
-repo's shared `.venv` tracks latest/unpinned, matching what a fresh
-install actually resolves to, since there's no committed lockfile).
-`BuilderConfig` itself also gained a `Generic[PluginManagerBound]`
-parameter in 1.32.3, hence `BuilderConfig[PluginManager]` in the
-`TYPE_CHECKING` branch.
+gives them one single, fully concrete shape to check against.
 
-`.github/workflows/hatch-integration.yml`'s matrix now includes a
+That static shape is the one-parameter interface every supported
+Hatchling except 1.32.3 declares. The typecheck environment installs
+whatever Hatchling resolves to (no committed lockfile), so the shape
+must type-check on each of them. On 1.32.3, mypy and pyrefly reject it
+(`type-arg`: missing `BuilderConfig` argument, too few
+`BuildHookInterface` arguments); the inline
+`# type: ignore[type-arg, unused-ignore]` suppresses exactly that, and
+`unused-ignore` keeps mypy's `warn_unused_ignores` quiet on every other
+version. pyright honours the same comment. Verified on 1.29.0, 1.32.3
+and 1.32.4 with all three checkers.
+
+`.github/workflows/hatch-integration.yml`'s matrix includes a
 `hatchling-version: ["1.29.0", ""]` axis (floor + latest/unpinned)
-specifically so a future undocumented Hatchling break is caught by CI
-instead of a user report -- the gap that let this one ship silently.
+so a future undocumented Hatchling break is caught by CI instead of a
+user report -- the gap that let 1.32.3 ship silently. 1.32.3 itself has
+no leg: it was live for three days and upstream reverted it as a bug;
+the fake-class unit tests cover the arity-2 path.
 
 ## What the emitted SBOM contains
 
