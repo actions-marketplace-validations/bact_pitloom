@@ -1,6 +1,6 @@
 ---
 Created: 2026-08-11
-Last-Modified: 2026-09-19
+Last-Modified: 2026-09-21
 SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 SPDX-FileType: DOCUMENTATION
 SPDX-License-Identifier: CC0-1.0
@@ -95,6 +95,36 @@ produced. Passing only one of the two is not a supported combination:
 both are discarded and re-resolved from the target instead, with a
 `WARNING:` explaining why.
 
+### Explicit config (`pitloom_config=`)
+
+Every generator function (`generate()`, `generate_project_sbom()`,
+`generate_wheel_sbom()`, `generate_model_sbom()`, `generate_env_sbom()`,
+`enrich_model()`) and `embed_wheel_sbom()` take `pitloom_config=`, the
+library equivalent of the CLI's `--config FILE` -- pass an already-built
+`PitloomConfig` instead of a path. It **replaces** the target's own
+`[tool.pitloom]` outright, not merges with it: a field the given
+`PitloomConfig` leaves at its default reverts to the default, not to
+whatever the target's own config would have set. On a target with no
+`[tool.pitloom]` of its own (a wheel, an installed environment, a model
+file, `enrich_model()` without `project_target=`), it is the *only*
+config that call can ever get -- nothing is read from the current
+directory. See [Where settings come from in
+Configuration](configuration.md#where-settings-come-from) for the full
+per-surface table.
+
+On `generate_project_sbom()` specifically, passing `pitloom_config=`
+*together with* `project_metadata=` skips re-reading the project
+entirely (the caller is asserting the two are already consistent, e.g.
+re-using a prior resolution); passing `pitloom_config=` alone still
+re-reads `project_target`'s metadata fresh, but with the project's own
+`[tool.pitloom]` replaced by the value given.
+
+`max_source_metadata_bytes=` is also new on `generate()`,
+`generate_wheel_sbom()`, `generate_env_sbom()` and
+`generate_model_sbom()` -- the same byte cap as
+`--max-source-metadata-bytes` on the CLI (see [Metadata
+provenance](metadata-provenance.md)).
+
 Pass `build_options=BuildOptions(allow=True)` to
 `generate()`/`generate_project_sbom()` to let Pitloom invoke a project's
 own PEP 517 build backend to discover its real file list, when static
@@ -146,7 +176,11 @@ never buried later in a run's output.
 `generate_model_sbom()`, and `generate_env_sbom()` -- the same target
 kinds the [CLI](cli.md)'s `loom wheel` / `loom model` / `loom env`
 subcommands cover. See [AI model formats](ai-model-formats.md) for what
-`generate_model_sbom()` accepts.
+`generate_model_sbom()` accepts. None of the three read a
+`[tool.pitloom]` of their own -- not the current directory's, not one
+beside the wheel/model file -- either may belong to an unrelated
+project; `pitloom_config=` is the only config any of them can get (see
+above).
 
 ### Wheel embedding functions
 
@@ -238,10 +272,13 @@ Advanced/batch use only -- a single `embed_wheel_sbom()` call needs no
 
 Pass `creation_metadata=CreationMetadata(...)` to name creators, tools, a
 timestamp, or a comment on the record -- see [Creation
-metadata](creation-metadata.md) for the full field reference. Without it,
-these functions fall back to the same `pyproject.toml`
-`[[tool.pitloom.creator]]` / `[tool.pitloom.provenance]` settings the CLI
-reads.
+metadata](creation-metadata.md) for the full field reference. Without
+it, these functions fall back to `[[tool.pitloom.creator]]` /
+`[tool.pitloom.provenance]` from whichever config applies to the target
+-- the project's own `[tool.pitloom]` for `generate_project_sbom()` and
+`embed_wheel_sbom(project_dir=...)`, or an explicit `pitloom_config=`
+for every other target (see [Explicit config](#explicit-config-pitloom_config)
+above) -- then the built-in default.
 
 ## Standalone enrichment
 

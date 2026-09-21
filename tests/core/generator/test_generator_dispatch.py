@@ -21,6 +21,7 @@ See also:
 
 from __future__ import annotations
 
+import functools
 import inspect
 from collections.abc import Callable
 from pathlib import Path
@@ -37,6 +38,7 @@ from pitloom.assemble import (
     generate_wheel_sbom,
 )
 from pitloom.core.build_options import BuildOptions
+from pitloom.core.config import PitloomConfig
 from pitloom.core.creation import CreationMetadata
 from pitloom.core.provenance import ProvenanceConfig
 
@@ -56,6 +58,8 @@ _SENTINELS: dict[str, Any] = {
     "offline": True,
     "content_type_method": "extension",
     "update_registry": False,
+    "max_source_metadata_bytes": 4321,
+    "pitloom_config": PitloomConfig(creation_comment="sentinel-config"),
     # Project/model-only parameters.
     "enrich": True,
     "extract_file_header": False,
@@ -114,6 +118,9 @@ def test_generate_dispatches_env_target(
     generate_env_sbom() rather than treating it as a project path."""
     called: dict[str, object] = {}
 
+    # wraps() gives the fake the real signature, so generate() filters
+    # exactly what it would for the real delegate.
+    @functools.wraps(generate_env_sbom)
     def _fake_generate_env_sbom(**kwargs: object) -> str:
         called.update(kwargs)
         return "env-sbom"
@@ -129,6 +136,7 @@ def test_generate_forwards_every_wheel_parameter(
     """The wheel branch's counterpart to the env check above."""
     called: dict[str, object] = {}
 
+    @functools.wraps(generate_wheel_sbom)
     def _fake_generate_wheel_sbom(_target: str, **kwargs: object) -> str:
         called.update(kwargs)
         return "wheel-sbom"
@@ -156,16 +164,15 @@ def _model_file_target(tmp_path: Path) -> str:
 
 
 # (target builder, delegate attribute, the real delegate, parameters that
-# generate() deliberately does not forward). project_metadata and
-# pitloom_config are generate_project_sbom()'s pre-supply pair; generate()
-# always lets it resolve them from the target. The first positional
-# parameter of each delegate is the target itself.
+# generate() deliberately does not forward). generate() never pre-supplies
+# project_metadata; generate_project_sbom() reads it from the target. The
+# first positional parameter of each delegate is the target itself.
 _BRANCHES = [
     pytest.param(
         _project_target,
         "generate_project_sbom",
         generate_project_sbom,
-        {"project_target", "project_metadata", "pitloom_config"},
+        {"project_target", "project_metadata"},
         id="project",
     ),
     pytest.param(
@@ -199,6 +206,7 @@ def test_generate_forwards_every_parameter_on_the_other_branches(
     hand-written argument list, so each can drop a parameter on its own."""
     called: dict[str, object] = {}
 
+    @functools.wraps(delegate)
     def _fake(_target: object, **kwargs: object) -> str:
         called.update(kwargs)
         return "delegated"

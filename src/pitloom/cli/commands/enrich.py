@@ -17,10 +17,10 @@ from pitloom.assemble import (
     enrich_model,
 )
 from pitloom.cli.commands.utils import cli_error_handler
-from pitloom.cli.options import (
-    _resolve_common_options,
-    add_use_lockfile_argument,
-)
+from pitloom.cli.options import add_use_lockfile_argument
+from pitloom.cli.options_config import load_explicit_config, run_options
+from pitloom.core.config import PitloomConfig
+from pitloom.core.inert_options import ENRICH, forward_options
 from pitloom.export.spdx3_json import SPDX3_JSONLD_EXTENSION
 
 
@@ -33,9 +33,10 @@ def _run_enrich_command(args: argparse.Namespace) -> int:
         print(f"ERROR: model file not found: {model_path}", file=sys.stderr)
         return 1
 
-    # Do not load pyproject.toml (load_project=False) to keep fragment generation
-    # isolated and prevent accidental pollution from unrelated projects.
-    _, creation, effective_pretty, _ = _resolve_common_options(args, load_project=False)
+    # Only an explicitly named config applies: a pyproject.toml near the
+    # model or in the current directory may belong to an unrelated project.
+    pitloom_config = load_explicit_config(args)
+    options = run_options(args, pitloom_config or PitloomConfig())
 
     output_path = args.output or (
         Path.cwd() / f"{model_path.name}.enrich{SPDX3_JSONLD_EXTENSION}"
@@ -51,12 +52,10 @@ def _run_enrich_command(args: argparse.Namespace) -> int:
     enrich_model(
         model_path,
         output_path=output_path,
-        creation_metadata=creation,
-        pretty=effective_pretty,
-        enrich=args.enrich,
         project_target=args.project_dir,
-        registry=args.registry,
         use_lockfile=args.use_lockfile,
+        pitloom_config=pitloom_config,
+        **forward_options(ENRICH, str(model_path), enrich_model, options),
     )
     print(f"Enrichment fragment written to: {output_path}")
     print(

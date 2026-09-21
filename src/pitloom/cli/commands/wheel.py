@@ -18,12 +18,11 @@ from pitloom.assemble import (
     generate_wheel_sbom,
 )
 from pitloom.cli.commands.embed_wheel import _report_embed_result
-from pitloom.cli.commands.utils import (
-    _print_sbom_output_path,
-    cli_error_handler,
-    resolve_effective_provenance,
-)
-from pitloom.cli.options import _resolve_common_options, add_offline_argument
+from pitloom.cli.commands.utils import _print_sbom_output_path, cli_error_handler
+from pitloom.cli.options import add_offline_argument
+from pitloom.cli.options_config import load_explicit_config, run_options
+from pitloom.core.config import PitloomConfig
+from pitloom.core.inert_options import WHEEL, forward_options
 from pitloom.export.spdx3_json import SPDX3_JSONLD_EXTENSION
 
 
@@ -45,9 +44,8 @@ def _run_wheel_command(args: argparse.Namespace) -> int:
         print(f"ERROR: wheel file not found: {wheel_path}", file=sys.stderr)
         return 1
 
-    pitloom_config, creation, effective_pretty, effective_describe = (
-        _resolve_common_options(args, load_project=False)
-    )
+    pitloom_config = load_explicit_config(args)
+    options = run_options(args, pitloom_config or PitloomConfig())
 
     embed = getattr(args, "embed", False)
     # With --embed, only write a standalone copy if the user explicitly
@@ -67,13 +65,9 @@ def _run_wheel_command(args: argparse.Namespace) -> int:
     sbom_json = generate_wheel_sbom(
         wheel_path,
         output_path=output_path,
-        creation_metadata=creation,
-        pretty=effective_pretty,
-        describe_relationship=effective_describe,
-        registry=args.registry,
-        update_registry=args.update_registry,
-        provenance=resolve_effective_provenance(pitloom_config, args),
-        offline=args.offline,
+        pitloom_config=pitloom_config,
+        # Subject as given, so the warning reads as `loom generate`'s does.
+        **forward_options(WHEEL, target, generate_wheel_sbom, options),
     )
 
     if embed:

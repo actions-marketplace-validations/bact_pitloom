@@ -1,6 +1,6 @@
 ---
 Created: 2026-08-11
-Last-Modified: 2026-09-08
+Last-Modified: 2026-09-21
 SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 SPDX-FileType: DOCUMENTATION
 SPDX-License-Identifier: CC0-1.0
@@ -107,14 +107,17 @@ for the full recipe set.
 ### Embed an SBOM into a wheel (PEP 770)
 
 ```text
-/sbom-generate .                                          # build the SBOM
-loom embed-wheel dist/mypackage-1.0.0-py3-none-any.whl    # embed it (or --sbom <file>)
+/sbom-generate .                                                        # build the SBOM
+loom embed-wheel dist/mypackage-1.0.0-py3-none-any.whl --project-dir .  # embed it (or --sbom <file>)
 ```
 
 Runs `loom embed-wheel` (or `loom wheel --embed` for a single wheel's own
 Analyzed SBOM, no project directory) under the hood, mutating the `.whl`
 archive in place and updating `RECORD` to match -- works on any wheel
 regardless of build backend, since a wheel is just a ZIP archive.
+`--project-dir` is required to have `embed-wheel` rescan the source
+project; without it (and without `--sbom`), it embeds a standalone SBOM
+built from the wheel alone, with no `[tool.pitloom]` of its own.
 
 ### Enrich an existing SBOM
 

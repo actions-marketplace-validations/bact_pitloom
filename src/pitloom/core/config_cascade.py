@@ -8,24 +8,25 @@
 Pitloom is invoked from several surfaces (CLI subcommands, the library API,
 the Hatchling build hook, the GitHub Action). A surface resolving
 ``[tool.pitloom]`` and its per-run overrides itself is what lets a setting
-reach the assembler only where a call site remembers to pass it. Both halves
-of the cascade live here so that no surface has to:
+reach the assembler only where a call site remembers to pass it. The shared
+pieces live here so that no surface has to:
 
-- :func:`resolve_generator_config` -- read the local ``[tool.pitloom]``.
+- :func:`load_config_file` -- read an explicitly named config file.
 - :func:`apply_overrides` -- layer one run's explicit choices on top.
 
-Together they give the hierarchy AGENTS.md mandates: per-run override >
-``pyproject.toml`` > hardcoded default. Adding a setting means one
+The precedence is: per-run override > an explicitly named config
+(``--config``/``pitloom_config=``) > the target project's own
+``[tool.pitloom]`` > hardcoded default. Only a *project* target (a project
+directory, an sdist, ``embed-wheel --project-dir``, the Hatchling hook) has a
+config of its own; a wheel, an installed environment or a model file never
+borrows one from the current directory or from its own location, since
+either may belong to an unrelated project. Adding a setting means one
 :class:`~pitloom.core.config.PitloomConfig` field, one
-:class:`ConfigOverrides` field and one line in :func:`apply_overrides` --
-instead of one resolution expression per setting per surface.
+:class:`ConfigOverrides` field and one line in :func:`apply_overrides`.
 
-This is the goal, not yet the whole state: :mod:`pitloom.embed` reads
-``[tool.pitloom]`` by its own route before handing it to
-:func:`apply_overrides`, while :mod:`pitloom.plugins.hatch` and
-:mod:`pitloom.cli.options_resolve` still read *and* resolve it themselves --
-the hook splatting ``PitloomConfig.assemble_options`` directly, the CLI
-running its own ``_resolve_bool_cascade()`` per setting.
+:mod:`pitloom.plugins.hatch` still reads and splats its project's config by
+its own route (``PitloomConfig.assemble_options``); it has no per-run
+overrides to layer.
 
 No leading underscore: imported from outside ``pitloom.core`` (see AGENTS.md
 "Naming"). This module must never import from ``pitloom.assemble`` or
@@ -40,20 +41,27 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
 from pitloom.core._config_types import _require_valid_content_type_method
 from pitloom.core.build_options import BuildOptions
-from pitloom.core.config import PitloomConfig, read_pitloom_config
-from pitloom.core.provenance import ProvenanceConfig
+from pitloom.core.config import PitloomConfig, parse_pitloom_config
+from pitloom.core.no_effect import INERT_LOG_PREFIX
+from pitloom.core.provenance import (
+    ProvenanceConfig,
+    normalize_max_source_metadata_bytes,
+)
+from pitloom.extract._toml_io import load_toml_file
 
 log = logging.getLogger(__name__)
 
 __all__ = [
     "ConfigOverrides",
     "apply_overrides",
-    "resolve_generator_config",
+    "load_config_file",
+    "resolve_standalone_config",
 ]
 
 
@@ -70,15 +78,18 @@ class ConfigOverrides:
     Attributes:
         provenance: Replaces the config's whole provenance settings, not
             field by field: a field left at its default resets the
-            config's value, including ``max_source_metadata_bytes``.
-        pretty: Read by the project/wheel/env generators only. The embed
-            path (``embed_wheel_sbom(overrides=...)``) merges it and then
-            serialises with ``pretty=False`` regardless -- a wheel-embedded
-            SBOM is JCS-canonical by PEP 770, not a human-read artifact.
-        describe_relationship: Same reach as ``pretty``, for the same
-            reason.
-        update_registry: Same reach as ``pretty``; the embed path never
-            harvests ids back into a registry at all.
+            config's value.
+        max_source_metadata_bytes: Overrides that one provenance field and
+            leaves the others as the config (or ``provenance``) set them.
+            Applied after ``provenance``, so it wins over that object's own
+            value. Normalised by
+            :func:`~pitloom.core.provenance.normalize_max_source_metadata_bytes`,
+            which warns once about a value too small to hold data.
+        pretty: The embed path (``embed_wheel_sbom(overrides=...)``)
+            always writes JCS-canonical JSON and warns that a given value
+            has no effect, as it does for ``describe_relationship`` and
+            ``update_registry`` (see
+            :data:`pitloom.core.inert_options.INERT`).
         build_options: ``--allow-build`` and its companion flags (see
             :class:`~pitloom.core.build_options.BuildOptions`). Unlike
             every other field here, deliberately has no
@@ -111,36 +122,51 @@ class ConfigOverrides:
     pretty: bool | None = None
     describe_relationship: bool | None = None
     update_registry: bool | None = None
+    max_source_metadata_bytes: int | None = None
     build_options: BuildOptions = BuildOptions()
 
 
-def resolve_generator_config(target_dir: Path) -> PitloomConfig:
-    """Return the ``[tool.pitloom]`` config a generator should start from,
-    read from *target_dir*'s ``pyproject.toml``.
+def load_config_file(path: Path) -> PitloomConfig:
+    """Read ``[tool.pitloom]`` from an explicitly named config file.
 
-    A missing ``pyproject.toml`` is not an error -- a wheel, a model file or
-    an installed environment is a legitimate target with no project of its
-    own, and the defaults apply (see AGENTS.md's "absent source data is not
-    an error"). Every other failure of that file *is* a genuine failure of a
-    source that claimed to carry settings, so each is reported and then
-    stepped over rather than aborting SBOM generation: a config Pitloom
-    cannot read is no reason to produce no SBOM at all.
+    Unlike a target project's own config, a file the user named is a source
+    that claimed to carry settings, so every failure raises instead of
+    degrading to defaults. A relative ``ids-file`` is made absolute against
+    the file's own directory, so the config means the same thing whatever
+    directory Pitloom runs from.
 
-    The ``OSError`` branch is not hypothetical. A no-permission or
-    directory-shaped ``pyproject.toml`` raises something other than
-    ``FileNotFoundError``, and this one helper stands in front of four
-    generators (see AGENTS.md on the errno set ``Path.exists()`` swallows).
+    A file with no ``[tool.pitloom]`` table gives the defaults and one
+    ``WARNING:``, since a wrong path would otherwise pass unnoticed. A
+    relative ``ids-file`` resolves against the directory *path* names, not
+    that of a symbolic link's target.
+
+    Raises:
+        FileNotFoundError: *path* is not a regular file (missing, or a
+            directory). ``os.path.isfile`` never raises, on any Python
+            version (see AGENTS.md on ``Path.exists()``).
+        ValueError: the file is not UTF-8, not valid TOML, or its settings
+            are invalid; the message names *path*.
+        OSError: the file cannot be read.
     """
+    if not os.path.isfile(path):
+        raise FileNotFoundError(f"config file not found: {path}")
     try:
-        return read_pitloom_config(target_dir / "pyproject.toml")
-    except FileNotFoundError:
-        return PitloomConfig()
-    except ValueError as exc:
-        log.warning("Ignoring invalid pyproject.toml in %s: %s", target_dir, exc)
-        return PitloomConfig()
-    except OSError as exc:
-        log.warning("Ignoring unreadable pyproject.toml in %s: %s", target_dir, exc)
-        return PitloomConfig()
+        data = load_toml_file(Path(path))
+        cfg = parse_pitloom_config(data)
+    except ValueError as exc:  # also TOMLDecodeError, UnicodeDecodeError
+        raise ValueError(f"config file {path}: {exc}") from exc
+    tool = data.get("tool")
+    if not isinstance(tool, dict) or not isinstance(tool.get("pitloom"), dict):
+        log.warning(
+            "%s%s: --config file has no [tool.pitloom] table; using the defaults",
+            INERT_LOG_PREFIX,
+            path,
+        )
+    if cfg.ids_file is not None and not Path(cfg.ids_file).is_absolute():
+        cfg = dataclasses.replace(
+            cfg, ids_file=str(Path(path).absolute().parent / cfg.ids_file)
+        )
+    return cfg
 
 
 def apply_overrides(cfg: PitloomConfig, overrides: ConfigOverrides) -> PitloomConfig:
@@ -184,6 +210,25 @@ def apply_overrides(cfg: PitloomConfig, overrides: ConfigOverrides) -> PitloomCo
         changes["describe_relationship"] = overrides.describe_relationship
     if overrides.update_registry is not None:
         changes["update_registry"] = overrides.update_registry
+    if overrides.max_source_metadata_bytes is not None:
+        changes["provenance_max_source_metadata_bytes"] = (
+            normalize_max_source_metadata_bytes(overrides.max_source_metadata_bytes)
+        )
     merged = dataclasses.replace(cfg, **changes)
     _require_valid_content_type_method(merged.content_type_method)
     return merged
+
+
+def resolve_standalone_config(
+    pitloom_config: PitloomConfig | None, overrides: ConfigOverrides
+) -> PitloomConfig:
+    """The config for a target with no project of its own (a wheel, an
+    installed environment, a model file, a wheel embedded without a project
+    directory).
+
+    Only explicit sources apply: *overrides*, then *pitloom_config* (an
+    explicitly named config), then the built-in defaults. Nothing is read
+    from the current directory or from beside the target -- either may
+    belong to an unrelated project.
+    """
+    return apply_overrides(pitloom_config or PitloomConfig(), overrides)

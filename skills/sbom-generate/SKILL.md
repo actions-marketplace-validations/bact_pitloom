@@ -1,6 +1,6 @@
 ---
 # Created: 2026-07-05
-# Last-Modified: 2026-09-19
+# Last-Modified: 2026-09-21
 # SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 # SPDX-FileType: SOURCE
 # SPDX-License-Identifier: Apache-2.0
@@ -203,9 +203,15 @@ as a standalone file -- PEP 770's `.dist-info/sboms/` convention -- use
 `embed-wheel` instead of `wheel`:
 
 ```bash
-loom embed-wheel dist/mypackage-1.0.0-py3-none-any.whl
+loom embed-wheel dist/mypackage-1.0.0-py3-none-any.whl        # standalone: no project scan
 loom embed-wheel dist/*.whl --project-dir .   # multiple wheels, Build SBOM
 ```
+
+`--project-dir` is required to have `embed-wheel` rescan the source
+project (it is never inferred from the current directory, even when the
+shell is already there) -- pass it whenever the user has a project
+directory to scan; omit it only for a genuinely standalone wheel with no
+project of its own.
 
 Or embed an already-generated SBOM file directly -- its declared subject
 name/version is cross-checked against the wheel's own METADATA first; a
@@ -246,10 +252,20 @@ presence-only ask).
 ## Useful flags
 
 - `-o FILE` / `--output FILE` -- explicit output path.
+- `--config FILE` -- read `[tool.pitloom]` from *FILE* instead of the
+  target's own `pyproject.toml`. Needed whenever the user wants
+  non-default settings applied to a `wheel`/`env`/`model`/`enrich`
+  target, or an `embed-wheel` without `--project-dir` -- those never
+  read the current directory or the target's own location, so `--config`
+  is the only way to give them a `[tool.pitloom]` at all. On a project
+  target it replaces the project's own config outright, not merges with
+  it.
 - `--pretty` -- indent the JSON for human reading (default: compact).
 - `--offline` -- enforce offline execution across `project`, `wheel`,
   `model`, `env`, `embed-wheel`, and `generate`.
-- `-v` / `--verbose` -- print effective options and where each came from.
+- `-v` / `--verbose` -- print effective options and where each came
+  from; source labelling (config file vs. default) only for `project`/
+  `generate` on a project directory or sdist.
 - `--creator-name NAME`, `--creator-email EMAIL` -- name who created the SBOM.
 - `--enrich` / `--no-enrich` -- opt in to (or force off) Pitloom's own
   deterministic, local, frontmatter-only enrichment pass as part of the

@@ -19,6 +19,16 @@ from pathlib import Path
 
 from _fixtures import Fixtures
 
+from pitloom.core.inert_options import (
+    EMBED_PROJECT,
+    ENRICH,
+    ENV,
+    INERT,
+    MODEL_FILE,
+    PARAM_TO_FLAG,
+    WHEEL,
+)
+
 Args = Callable[[Fixtures, Path], list[str]]
 
 
@@ -116,8 +126,11 @@ COMMANDS: list[Command] = [
 # Expectations for a one-factor variant, compared with the command's
 # plain run: "changes" (artefact differs), "same" (identical), "exit:N",
 # "any" (only the universal invariants; the report shows the effect),
-# "contains:TEXT" (TEXT appears in the artefact) or "writes:FILE" (FILE
-# is written in the cell directory).
+# "contains:TEXT" (TEXT appears in the artefact), "writes:FILE" (FILE is
+# written in the cell directory) or "warns:FLAG" (the target cannot use
+# the option: exactly one `WARNING: Options:` line names FLAG and the
+# artefact is identical). Every non-"warns" variant must also leave stderr
+# free of `WARNING: Options:` lines.
 
 
 @dataclass(frozen=True)
@@ -138,6 +151,17 @@ _BUILD_FLAGS = (
     "every surface, real argv) and checks B1-B7 (real process)"
 )
 _TARGET = "part of the command's target, given in every cell"
+_CONFIG_COMMENT = "matrix config comment"
+
+
+def _write_config(cell: Path) -> str:
+    """Write a ``--config`` file into *cell*; return its path."""
+    path = cell / "matrix-config.toml"
+    path.write_text(
+        f'[tool.pitloom]\ncreation-comment = "{_CONFIG_COMMENT}"\n', encoding="utf-8"
+    )
+    return str(path)
+
 
 # Option -> handled by a group ("group:NAME"), excluded ("exclude:REASON"),
 # or a list of one-factor variants. Keyed by the option's first spelling
@@ -164,6 +188,21 @@ PLAN: dict[str | tuple[str, str], str | list[Variant]] = {
         _v("--no-pretty", "writes:copy.json", "-o", "copy.json", "--no-pretty"),
     ],
     ("ids import", "-o"): f"exclude:{_TARGET} (-o is --registry here)",
+    # --content-type-method is live on a wheel/env (it steers the authors
+    # fetch) while --content-type is not, so give it alone there.
+    **{
+        (command, "--content-type-method"): [
+            _v("extension", "any", "--content-type-method", "extension"),
+            _v("invalid", "exit:2", "--content-type-method", "bogus"),
+        ]
+        for command in ("wheel", "env")
+    },
+    # Live on a model file, but a model-only SBOM has no Relationship
+    # element for it to describe.
+    ("model", "--describe-relationship"): [
+        _v("--describe-relationship", "same", "--describe-relationship"),
+        _v("--no-describe-relationship", "same", "--no-describe-relationship"),
+    ],
     "<target>": f"exclude:{_TARGET}",
     "<project_dir>": f"exclude:{_TARGET}",
     "<wheel_files>": f"exclude:{_TARGET}",
@@ -256,7 +295,51 @@ PLAN: dict[str | tuple[str, str], str | list[Variant]] = {
     "--fail-on-mismatch": [_v("--fail-on-mismatch", "same", "--fail-on-mismatch")],
     "--no-merge": [_v("--no-merge", "same", "--no-merge")],
     "-e": [_v("entity", "changes", "-e", "matrix-entity")],
+    "--config": [
+        Variant(
+            "file",
+            lambda _fx, c: ["--config", _write_config(c)],
+            f"contains:{_CONFIG_COMMENT}",
+        ),
+        _v("missing", "exit:1", "--config", "absent.toml"),
+    ],
 }
+
+# The target kind each command's matrix cell runs (see COMMANDS' targets).
+# generate/project cells run a project directory: nothing is inert there.
+_CELL_KINDS = {
+    "wheel": WHEEL,
+    "env": ENV,
+    "model": MODEL_FILE,
+    "enrich": ENRICH,
+    "embed-wheel": EMBED_PROJECT,
+}
+
+
+def _inert_overrides() -> dict[tuple[str, str], list[Variant]]:
+    """Per-command variants for every option the cell's target cannot use,
+    derived from :data:`pitloom.core.inert_options.INERT` so the matrix and
+    the library cannot disagree on which options warn. Each keeps the
+    option's own variants but expects ``warns:`` instead of an effect; an
+    ``exit:N`` variant (an argparse refusal) is unchanged. An option planned
+    as a group or an exclusion keeps that plan."""
+    overrides: dict[tuple[str, str], list[Variant]] = {}
+    for command, kind in _CELL_KINDS.items():
+        for param in INERT[kind]:
+            flag = PARAM_TO_FLAG[param].split("/")[0]
+            base = PLAN.get((command, flag), PLAN.get(flag))
+            if not isinstance(base, list):
+                continue
+            overrides[(command, flag)] = [
+                variant
+                if variant.expect.startswith("exit:")
+                else Variant(variant.label, variant.args, f"warns:{flag}")
+                for variant in base
+            ]
+    return overrides
+
+
+PLAN.update(_inert_overrides())
 
 # Variants that need the network (run only with --network).
 NETWORK_VARIANTS = {("embed-wheel", "--validate")}

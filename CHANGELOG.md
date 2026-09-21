@@ -30,8 +30,18 @@ and this project adheres to
   `generate_env_sbom()` and `build_deployed()` ([#228])
 - `pitloom.core.config_cascade`: `ConfigOverrides` (moved from
   `pitloom.embed`, still re-exported), `apply_overrides()` (was
-  `pitloom.embed._apply_config_overrides`) and
-  `resolve_generator_config()` ([#228])
+  `pitloom.embed._apply_config_overrides`), `load_config_file()` and
+  `resolve_standalone_config()` ([#228], [#231])
+- `--config FILE` CLI flag / `pitloom_config=` library parameter on
+  every SBOM command and generator function, and `embed_wheel_sbom()`;
+  replaces the target's own `[tool.pitloom]` rather than merging with
+  it ([#231])
+- `max_source_metadata_bytes=` parameter on `generate()`,
+  `generate_wheel_sbom()`, `generate_env_sbom()` and
+  `generate_model_sbom()` ([#231])
+- `WARNING: Options: <subject>: <flag> has no effect <reason>` for a
+  shared flag given on a target that cannot act on it, keyed by target
+  kind (`pitloom.core.inert_options.INERT`) ([#231])
 
 ### Changed
 
@@ -47,28 +57,35 @@ and this project adheres to
   silently dropping it ([#226])
 - Library `ConfigOverrides.provenance` now replaces every provenance
   setting, including the byte cap, not four of five ([#227])
-- `generate_wheel_sbom()`/`generate_env_sbom()` now resolve every policy
-  setting through the working directory's `[tool.pitloom]`, not just
-  `offline`; creation metadata and `ids-file` are excluded ([#228])
-- `loom wheel`/`loom env`/`loom generate <whl|env>` now honour the working
-  directory's `update-registry` and `content-type.method` ([#228])
+- `generate_wheel_sbom()`/`generate_env_sbom()`/`generate_model_sbom()`
+  resolve settings from an explicit `--config`/`pitloom_config=` only,
+  never the current directory's `[tool.pitloom]` or `loom-ids.json`
+  ([#228], [#231])
 - `ConfigOverrides` gained `pretty`, `describe_relationship` and
-  `update_registry`, read by the project/wheel/env generators; inert on
-  `embed_wheel_sbom(overrides=...)` ([#228])
+  `update_registry`, read by the project/wheel/env/model generators;
+  inert (warns) on `embed_wheel_sbom(overrides=...)` ([#228], [#231])
 - `embed_wheel_sbom(project_dir=..., pitloom_config=...)`: an invalid
   `content_type_method` in the supplied config now raises, as it already
   did on `generate_project_sbom()` ([#228])
 - `pitloom.embed._apply_config_overrides` removed; import
   `apply_overrides` from `pitloom.core.config_cascade` ([#228])
+- `embed-wheel` no longer infers a project from the current directory;
+  `--project-dir` is required to rescan one, else it embeds a
+  standalone-wheel SBOM ([#231])
+- `--use-lockfile`/`--no-use-lockfile` given for a target it doesn't
+  apply to now warns with the same `Options:` prefix every other
+  no-effect warning uses ([#231])
+- A relative `--registry` on the command line now resolves against the
+  current directory on every command, not the project directory
+  ([#231])
 
 ### Fixed
 
 - `build_deployed()` no longer drops `content_type_method`, so an
   environment SBOM stops fetching remote authors files under
   `extension` ([#228])
-- An unreadable (not missing) `pyproject.toml` in a wheel/env/model
-  generator's working directory is now one `WARNING:` and defaults,
-  instead of an uncaught `PermissionError` ([#228])
+- A missing, unreadable, non-UTF-8 or invalid `--config FILE` is one
+  `ERROR:` naming the file ([#231])
 - `embed-wheel <wheel1> <wheel2> ...`: the project directory's file list
   is now resolved (and, with `--allow-build`, built) once per command,
   not once per wheel ([#226])
@@ -93,6 +110,7 @@ and this project adheres to
 [#228]: https://github.com/bact/pitloom/pull/228
 [#229]: https://github.com/bact/pitloom/pull/229
 [#230]: https://github.com/bact/pitloom/pull/230
+[#231]: https://github.com/bact/pitloom/pull/231
 
 ## [0.19.0] - 2026-09-18
 

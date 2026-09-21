@@ -89,8 +89,10 @@ _EXPECTED = BuildOptions(allow=True, no_isolation=True, timeout=3600)
     ("command", "patched"),
     [
         ("project", "pitloom.cli.commands.project.generate_project_sbom"),
-        ("generate", "pitloom.cli.commands.generate.generate_project_sbom"),
-        ("generate-sdist", "pitloom.cli.commands.generate.generate"),
+        # `generate` on a project directory or sdist shares `project`'s
+        # code path, so both patch the same generate_project_sbom().
+        ("generate", "pitloom.cli.commands.project.generate_project_sbom"),
+        ("generate-sdist", "pitloom.cli.commands.project.generate_project_sbom"),
         ("embed-wheel", "pitloom.cli.commands.embed_wheel.embed_wheel_sbom"),
     ],
 )
@@ -130,13 +132,9 @@ def test_command_passes_one_build_options_to_library(
         else kwargs["build_options"]
     )
     if command == "generate-sdist":
-        # The CLI handler now settles this before calling generate() --
-        # BuildOptions.settle_not_applicable(), with the sdist-specific
-        # reason -- so the build-flag "has no effect" warning precedes
-        # any metadata warning generate()'s own dispatch could trigger
-        # (see tests/test_build_flag_warning_ordering.py). generate()
-        # therefore receives defaults, not the raw flags: nothing is
-        # left for its own (now redundant) warning to re-emit.
+        # Settled for the sdist before the metadata read, as `loom project`
+        # does (see tests/test_build_flag_warning_ordering.py), so the
+        # library receives defaults: nothing is left for it to re-warn.
         assert received == BuildOptions()
     else:
         assert received == _EXPECTED

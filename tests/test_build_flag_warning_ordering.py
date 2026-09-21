@@ -80,10 +80,8 @@ def _make_sdist_with_malformed_member_pyproject(tmp_path: Path) -> Path:
 
 def _make_sdist_with_malformed_sibling_pyproject(tmp_path: Path) -> Path:
     """A well-formed sdist archive placed next to a malformed *sibling*
-    ``pyproject.toml`` on disk -- ``loom generate``'s non-fast-path
-    ``_resolve_common_options()`` peek reads that sibling (never the
-    archive's own internal metadata) and logs one ``WARNING:`` while
-    resolving ``[tool.pitloom]`` config for it."""
+    ``pyproject.toml`` on disk. Reading that sibling would log a
+    ``WARNING:``, so its absence proves the sibling was never read."""
     project_dir = tmp_path / "gendir"
     project_dir.mkdir()
     (project_dir / "pyproject.toml").write_text('[project\nname = "broken"\n')
@@ -101,6 +99,23 @@ def _make_sdist_with_malformed_sibling_pyproject(tmp_path: Path) -> Path:
     with tarfile.open(sdist_path, "w:gz") as tar:
         tar.add(member_root, arcname="demo-1.0.0")
     return sdist_path
+
+
+def _assert_one_warning_and_no_sibling_read(
+    caplog: pytest.LogCaptureFixture,
+    capsys: pytest.CaptureFixture[str],
+    build_warning: str,
+) -> None:
+    """The build-flag warning is logged exactly once, and the malformed
+    sibling ``pyproject.toml`` is never read: a target's config is its own
+    (an sdist's lives inside the archive; a wheel has none), so nothing
+    beside it is peeked at -- which also leaves no ordering to get wrong."""
+    messages = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert sum(build_warning in m for m in messages) == 1
+    assert not any(_SIBLING_CONFIG_METADATA_WARNING_SUBSTRING in m for m in messages)
+    stderr = capsys.readouterr().err
+    assert stderr.count(build_warning) == 1
+    assert "pyproject.toml" not in stderr
 
 
 def _first_index(messages: list[str], substring: str) -> int:
@@ -212,14 +227,9 @@ def test_cli_generate_sdist_build_flag_warning_precedes_metadata_warning(
     caplog: pytest.LogCaptureFixture,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """``loom generate`` on an sdist archive target (the non-fast-path
-    branch, since ``target_path.is_dir()`` is ``False`` for a file): the
-    build-flag warning must reach stderr before the metadata warning
-    ``_resolve_common_options()``'s own sibling-``pyproject.toml`` peek
-    triggers -- previously the reverse, since that peek ran before
-    ``generate()`` (via ``generate_project_sbom()``) ever settled the
-    build options for this target.
-    """
+    """``loom generate`` on an sdist archive target: one build-flag
+    warning, and the sibling ``pyproject.toml`` is never read (a peek at it
+    once logged its parse warning, ahead of the build-flag one)."""
     sdist_path = _make_sdist_with_malformed_sibling_pyproject(tmp_path)
     output = tmp_path / "out.spdx3.json"
     monkeypatch.setattr(
@@ -239,21 +249,12 @@ def test_cli_generate_sdist_build_flag_warning_precedes_metadata_warning(
     with caplog.at_level(logging.WARNING, logger="pitloom"):
         assert __main__.main() == 0
 
-    messages = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
-    assert _first_index(messages, _BUILD_WARNING_SUBSTRING) < _first_index(
-        messages, _SIBLING_CONFIG_METADATA_WARNING_SUBSTRING
-    )
-
-    stderr_lines = capsys.readouterr().err.splitlines()
-    assert _first_index(stderr_lines, _BUILD_WARNING_SUBSTRING) < _first_index(
-        stderr_lines, _SIBLING_CONFIG_METADATA_WARNING_SUBSTRING
-    )
+    _assert_one_warning_and_no_sibling_read(caplog, capsys, _BUILD_WARNING_SUBSTRING)
 
 
 def _make_wheel_with_malformed_sibling_pyproject(tmp_path: Path) -> Path:
-    """A minimal wheel next to a malformed sibling ``pyproject.toml`` --
-    ``loom generate``'s non-fast-path peek reads that sibling and logs one
-    ``WARNING:`` while resolving ``[tool.pitloom]`` config."""
+    """A minimal wheel next to a malformed sibling ``pyproject.toml``;
+    reading that sibling would log a ``WARNING:``."""
     wheel_dir = tmp_path / "wheeldir"
     wheel_dir.mkdir()
     (wheel_dir / "pyproject.toml").write_text('[project\nname = "broken"\n')
@@ -279,10 +280,9 @@ def test_cli_generate_wheel_build_flag_warning_precedes_metadata_warning(
     caplog: pytest.LogCaptureFixture,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """``loom generate`` on a non-project target (a wheel): the "no effect
-    for this target" build-flag warning must reach stderr before the
-    metadata warning ``_resolve_common_options()``'s sibling-config peek
-    logs, and exactly once."""
+    """``loom generate`` on a non-project target (a wheel): one "no effect
+    for this target" build-flag warning, and the sibling
+    ``pyproject.toml`` is never read."""
     wheel_path = _make_wheel_with_malformed_sibling_pyproject(tmp_path)
     output = tmp_path / "out.spdx3.json"
     monkeypatch.setattr(
@@ -302,30 +302,20 @@ def test_cli_generate_wheel_build_flag_warning_precedes_metadata_warning(
     with caplog.at_level(logging.WARNING, logger="pitloom"):
         assert __main__.main() == 0
 
-    messages = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
-    assert sum(_NON_PROJECT_BUILD_WARNING_SUBSTRING in m for m in messages) == 1
-    assert _first_index(messages, _NON_PROJECT_BUILD_WARNING_SUBSTRING) < _first_index(
-        messages, _SIBLING_CONFIG_METADATA_WARNING_SUBSTRING
+    _assert_one_warning_and_no_sibling_read(
+        caplog, capsys, _NON_PROJECT_BUILD_WARNING_SUBSTRING
     )
 
-    stderr_lines = capsys.readouterr().err.splitlines()
-    assert _first_index(
-        stderr_lines, _NON_PROJECT_BUILD_WARNING_SUBSTRING
-    ) < _first_index(stderr_lines, _SIBLING_CONFIG_METADATA_WARNING_SUBSTRING)
 
-
-@pytest.mark.parametrize("via_cwd", [False, True], ids=["project-dir", "cwd"])
 def test_cli_embed_wheel_project_dir_build_flag_warning_precedes_config_read(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
-    via_cwd: bool,
 ) -> None:
-    """``loom embed-wheel``, with ``--project-dir`` or with the project
-    as the current directory: the stray ``--build-timeout`` warning is
-    settled before the handler reads the project's ``[tool.pitloom]``
-    config -- so it still reaches stderr, first, when that read fails
-    the command."""
+    """``loom embed-wheel --project-dir``: the stray ``--build-timeout``
+    warning is settled before the handler reads the project's
+    ``[tool.pitloom]`` config -- so it still reaches stderr, first, when
+    that read fails the command."""
     project = tmp_path / "proj"
     project.mkdir()
     (project / "pyproject.toml").write_text(
@@ -334,11 +324,7 @@ def test_cli_embed_wheel_project_dir_build_flag_warning_precedes_config_read(
         encoding="utf-8",
     )
     wheel = _make_dummy_wheel(tmp_path / "dist", "demo", "1.0.0")
-    if via_cwd:
-        monkeypatch.chdir(project)
-        target = []
-    else:
-        target = ["--project-dir", str(project)]
+    target = ["--project-dir", str(project)]
     monkeypatch.setattr(
         sys,
         "argv",

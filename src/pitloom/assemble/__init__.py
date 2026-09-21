@@ -16,6 +16,7 @@ See also:
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from pitloom.assemble._generators import generate_project_sbom
 from pitloom.assemble._generators_env import generate_env_sbom
@@ -26,8 +27,10 @@ from pitloom.assemble._model_generator import (
 )
 from pitloom.assemble.spdx3.fragments import FragmentMergeError, merge_fragments
 from pitloom.core.build_options import NON_PROJECT_TARGET_REASON, BuildOptions
+from pitloom.core.config import PitloomConfig
 from pitloom.core.config_cascade import ConfigOverrides
 from pitloom.core.creation import CreationMetadata
+from pitloom.core.inert_options import ENV, HF, MODEL_FILE, WHEEL, forward_options
 from pitloom.core.provenance import ProvenanceConfig
 from pitloom.embed import (
     RECOMMENDED_EXTENSIONS,
@@ -111,11 +114,9 @@ def target_resolves_to_project(target: Path | str) -> bool:
     project directory or sdist archive) for *target*, rather than the
     env/wheel/Hugging-Face/model-file branches.
 
-    ``pitloom.cli.commands.generate._run_generate_command`` calls it ahead
-    of time to decide whether its own config-only project peek
-    (:func:`pitloom.cli.options._resolve_common_options`) would otherwise
-    duplicate a ``WARNING:`` that :func:`generate_project_sbom`'s real read
-    re-emits for the same directory.
+    ``pitloom.cli.commands.generate._run_generate_command`` calls it to
+    route a project target through the same code path as ``loom project``
+    and every other target through :func:`generate`.
     """
     return _classify_target(target) == "project"
 
@@ -138,6 +139,8 @@ def generate(
     update_registry: bool | None = None,
     use_lockfile: bool | None = None,
     build_options: BuildOptions = BuildOptions(),
+    max_source_metadata_bytes: int | None = None,
+    pitloom_config: PitloomConfig | None = None,
 ) -> str:
     """Smart unified entrypoint for generating SPDX 3 SBOMs across all target types.
 
@@ -174,73 +177,46 @@ def generate(
             target_str, NON_PROJECT_TARGET_REASON
         )
 
+    options: dict[str, Any] = {
+        "output_path": output_path,
+        "creation_metadata": creation_metadata,
+        "pretty": pretty,
+        "describe_relationship": describe_relationship,
+        "registry": registry,
+        "provenance": provenance,
+        "offline": offline,
+        "enrich": enrich,
+        "extract_file_header": extract_file_header,
+        "content_type": content_type,
+        "content_type_method": content_type_method,
+        "update_registry": update_registry,
+        "max_source_metadata_bytes": max_source_metadata_bytes,
+        "pitloom_config": pitloom_config,
+    }
+    # Each delegate gets what it accepts; an option it does not accept is
+    # settled here, once, with the target kind's reason.
     if classification == "env":
         return generate_env_sbom(
-            output_path=output_path,
-            creation_metadata=creation_metadata,
-            pretty=pretty,
-            describe_relationship=describe_relationship,
-            registry=registry,
-            provenance=provenance,
-            offline=offline,
-            content_type_method=content_type_method,
-            update_registry=update_registry,
+            **forward_options(ENV, target_str, generate_env_sbom, options)
         )
-
     if classification == "wheel":
         return generate_wheel_sbom(
             target_str,
-            output_path=output_path,
-            creation_metadata=creation_metadata,
-            pretty=pretty,
-            describe_relationship=describe_relationship,
-            registry=registry,
-            provenance=provenance,
-            offline=offline,
-            content_type_method=content_type_method,
-            update_registry=update_registry,
+            **forward_options(WHEEL, target_str, generate_wheel_sbom, options),
         )
-
     if classification == "hf":
         return generate_model_sbom(
             target_str,
-            offline=offline,
-            output_path=output_path,
-            creation_metadata=creation_metadata,
-            pretty=pretty,
-            describe_relationship=describe_relationship,
-            registry=registry,
-            provenance=provenance,
-            enrich=enrich,
+            **forward_options(HF, target_str, generate_model_sbom, options),
         )
-
     if classification == "model_file":
         return generate_model_sbom(
             Path(target_str),
-            offline=offline,
-            output_path=output_path,
-            creation_metadata=creation_metadata,
-            pretty=pretty,
-            describe_relationship=describe_relationship,
-            registry=registry,
-            provenance=provenance,
-            enrich=enrich,
+            **forward_options(MODEL_FILE, target_str, generate_model_sbom, options),
         )
-
     return generate_project_sbom(
         Path(target_str),
-        output_path=output_path,
-        creation_metadata=creation_metadata,
-        pretty=pretty,
-        describe_relationship=describe_relationship,
-        registry=registry,
-        provenance=provenance,
-        enrich=enrich,
-        extract_file_header=extract_file_header,
-        content_type=content_type,
-        content_type_method=content_type_method,
-        offline=offline,
-        update_registry=update_registry,
+        **options,
         use_lockfile=use_lockfile,
         build_options=build_options,
     )

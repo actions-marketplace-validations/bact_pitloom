@@ -10,7 +10,6 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import logging
-import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -25,22 +24,32 @@ from pitloom.cli.commands.utils import (
     _locate_and_detect,
     _print_sbom_output_path,
     cli_error_handler,
-    resolve_effective_provenance,
 )
 from pitloom.cli.commands.validate_wheel import _validate_location
 from pitloom.cli.commands.verify_wheel import _check_location, _check_name_version
-from pitloom.cli.constants import _PROJECT_CONFIG_FILES
 from pitloom.cli.options import (
-    _resolve_creation_metadata,
     add_allow_build_argument,
     add_build_timeout_argument,
     add_no_build_isolation_argument,
     add_offline_argument,
     build_options_from_args,
 )
+from pitloom.cli.options_config import (
+    creation_flags_given,
+    load_explicit_config,
+    overrides_from_options,
+    run_options,
+)
 from pitloom.core.build_options import EXTERNAL_SBOM_REASON, NO_PROJECT_DIR_REASON
 from pitloom.core.config import PitloomConfig
 from pitloom.core.creation import CreationMetadata
+from pitloom.core.inert_options import (
+    EMBED_PROJECT,
+    EMBED_SBOM,
+    EMBED_STANDALONE,
+    INERT,
+    settle_inert,
+)
 from pitloom.embed import EmbedFileCache
 from pitloom.extract.project import read_project
 
@@ -155,17 +164,15 @@ def _warn_on_name_version_mismatch(
 
 
 def _resolve_project_dir_and_config(
-    project_dir: Path | None,
-) -> tuple[Path | None, PitloomConfig] | None:
-    """Resolve *project_dir* (from ``--project-dir``, or cwd if unset)
-    into ``(project_dir, PitloomConfig)``.
+    project_dir: Path | None, *, read_config: bool = True
+) -> tuple[Path | None, PitloomConfig | None] | None:
+    """Resolve ``--project-dir`` into ``(project_dir, its PitloomConfig)``,
+    or ``(None, None)`` when it was not given.
 
-    Returns ``None`` (already printed an ``ERROR:``) if an *explicit*
-    ``--project-dir`` doesn't exist or has no ``pyproject.toml``/
-    ``setup.cfg`` -- that's a user mistake worth failing on. Falling back
-    to cwd with no project file there is not an error (a standalone-wheel
-    embed with no project directory is a legitimate use), so that case
-    silently returns the default config with `project_dir=None`.
+    Without ``--project-dir`` there is no project: the current directory is
+    never assumed to be the wheel's project, since it may be an unrelated
+    one. Returns ``None`` (already printed an ``ERROR:``) if the given
+    directory doesn't exist or has no ``pyproject.toml``/``setup.cfg``.
 
     Only ``[tool.pitloom]`` config is used here; ``read_project()``'s
     lock/pin cascade is skipped (``include_locked_dependencies=False``)
@@ -175,22 +182,21 @@ def _resolve_project_dir_and_config(
     (``include_installed_metadata=False``) for the same build-stage
     rationale, and purely to skip that I/O since this caller discards the
     metadata anyway.
+
+    Without *read_config* (a ``--config`` or ``--sbom`` replaces it) the
+    project's own config is not read at all, as
+    :func:`~pitloom.embed.embed_wheel_sbom` does not read it when given a
+    config, so an unrelated fault in it cannot fail the embed.
     """
     if project_dir is None:
-        try:
-            _, pitloom_config, _ = read_project(
-                Path.cwd(),
-                include_locked_dependencies=False,
-                include_installed_metadata=False,
-            )
-            return Path.cwd(), pitloom_config
-        except FileNotFoundError:
-            return None, PitloomConfig()
+        return None, None
 
     proj_path = Path(project_dir).resolve()
     if not proj_path.exists():
         print(f"ERROR: project directory not found: {proj_path}", file=sys.stderr)
         return None
+    if not read_config:
+        return proj_path, None
     try:
         _, pitloom_config, _ = read_project(
             proj_path,
@@ -204,6 +210,50 @@ def _resolve_project_dir_and_config(
         print(f"ERROR: {exc}", file=sys.stderr)
         return None
     return proj_path, pitloom_config
+
+
+def _settle_batch_options(
+    args: argparse.Namespace,
+    project_dir: Path | None,
+    options: dict[str, Any],
+) -> None:
+    """Warn once for the whole batch about every option this embed cannot
+    use, and clear every option it cannot use in place -- given or not --
+    so no per-wheel call warns again. Creation metadata counts as given
+    only when a creator/creation flag was, since *options* always carries
+    a resolved value."""
+    if args.sbom is not None:
+        kind, subject = EMBED_SBOM, args.sbom
+    elif project_dir is not None:
+        kind, subject = EMBED_PROJECT, project_dir
+    else:
+        kind, subject = EMBED_STANDALONE, "embed-wheel"
+    given = dict(options)
+    if not creation_flags_given(args):
+        given["creation_metadata"] = None
+    settle_inert(kind, subject, given)
+    for name in INERT[kind]:
+        options[name] = None
+
+
+def _batch_options(
+    args: argparse.Namespace,
+    project_dir: Path | None,
+    project_config: PitloomConfig | None,
+) -> tuple[dict[str, Any], PitloomConfig | None]:
+    """The batch's settled options and the config its wheels embed with.
+
+    ``--config`` replaces the project's own ``[tool.pitloom]``, and is the
+    only config a wheel embedded without a project gets. An ``--sbom`` is
+    embedded as is: it uses neither, and the batch settle warns about a
+    given ``--config``."""
+    explicit_config = load_explicit_config(args)
+    options = run_options(args, explicit_config or project_config or PitloomConfig())
+    options["pitloom_config"] = explicit_config
+    _settle_batch_options(args, project_dir, options)
+    if args.sbom is not None:
+        return options, None
+    return options, options["pitloom_config"] or project_config
 
 
 @cli_error_handler("wheel SBOM embedding failed")
@@ -229,10 +279,7 @@ def _run_embed_wheel_command(args: argparse.Namespace) -> int:
 
     # Settle the build flags up front, so an ineffective flag's warning
     # comes before any metadata warning; the batch's EmbedFileCache then
-    # has nothing left to warn about. All three settle before
-    # _resolve_project_dir_and_config() reads any [tool.pitloom] config;
-    # a cwd without a project file settles below, once that read has
-    # confirmed there is no project.
+    # has nothing left to warn about.
     build_options = build_options_from_args(args)
     if args.sbom is not None:
         build_options = build_options.settle_not_applicable(
@@ -242,33 +289,20 @@ def _run_embed_wheel_command(args: argparse.Namespace) -> int:
         # A missing --project-dir settles nothing: it fails below with an
         # ERROR alone, as `loom project` does.
         build_options = build_options.settle_target(Path(args.project_dir))
-    # os.path.isfile, not Path.is_file(): never raises (e.g. EACCES).
-    elif any(os.path.isfile(Path.cwd() / name) for name in _PROJECT_CONFIG_FILES):
-        build_options = build_options.settle(Path.cwd())
+    else:
+        build_options = build_options.settle_not_applicable(
+            "embed-wheel", f"{NO_PROJECT_DIR_REASON} (no --project-dir given)"
+        )
 
-    resolved = _resolve_project_dir_and_config(args.project_dir)
+    resolved = _resolve_project_dir_and_config(
+        args.project_dir,
+        read_config=args.config is None and args.sbom is None,
+    )
     if resolved is None:
         return 1
-    project_dir, pitloom_config = resolved
-    if project_dir is None:
-        build_options = build_options.settle_not_applicable(
-            Path.cwd(),
-            f"{NO_PROJECT_DIR_REASON} (no --project-dir, and the current "
-            "directory is not a project)",
-        )
-    else:
-        build_options = build_options.settle_target(project_dir)
-
-    creation = _resolve_creation_metadata(args, pitloom_config)
-    overrides = ConfigOverrides(
-        enrich=args.enrich,
-        extract_file_header=args.extract_file_header,
-        content_type=args.content_type,
-        content_type_method=args.content_type_method,
-        provenance=resolve_effective_provenance(pitloom_config, args),
-        offline=args.offline,
-        build_options=build_options,
-    )
+    project_dir, project_config = resolved
+    options, pitloom_config = _batch_options(args, project_dir, project_config)
+    overrides = overrides_from_options(options, build_options)
     all_ok = True
     # One file cache for the whole batch, cleaned up once on leaving the
     # block, on every exit path: it resolves project_dir's file list (and
@@ -278,7 +312,8 @@ def _run_embed_wheel_command(args: argparse.Namespace) -> int:
         batch = _EmbedBatchContext(
             project_dir=project_dir,
             pitloom_config=pitloom_config,
-            creation_metadata=creation.to_creation_metadata(),
+            creation_metadata=options["creation_metadata"],
+            registry=options["registry"],
             overrides=overrides,
             file_cache=file_cache,
         )
@@ -310,8 +345,9 @@ class _EmbedBatchContext:
     """
 
     project_dir: Path | None
-    pitloom_config: PitloomConfig
-    creation_metadata: CreationMetadata
+    pitloom_config: PitloomConfig | None
+    creation_metadata: CreationMetadata | None
+    registry: Path | None
     overrides: ConfigOverrides
     file_cache: EmbedFileCache
 
@@ -344,7 +380,7 @@ def _try_embed_one_wheel(
             output_path=output_path,
             sbom_basename=args.sbom_basename,
             creation_metadata=batch.creation_metadata,
-            registry=args.registry,
+            registry=batch.registry,
             overrides=batch.overrides,
             allow_mismatch=args.allow_mismatch,
             file_cache=batch.file_cache,

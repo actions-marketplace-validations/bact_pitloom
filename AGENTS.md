@@ -385,7 +385,7 @@ For `working-docs/` standalone docs, include `Created` and `Last-Modified` (`YYY
 pytest exercises functions in-process only -- it doesn't exercise the
 `loom` entry point, subprocess argv parsing, real filesystem/archive I/O,
 or drift between the CLI/library-API/Hatchling-hook/skills surfaces (see
-"Usage surfaces" above). Run 11 checks by hand -- or have an agent run
+"Usage surfaces" above). Run 12 checks by hand -- or have an agent run
 them -- against a real project (scratch dir, never the repo tree) after
 any change touching `assemble/`, `extract/`, `core/`, `embed.py`,
 `__main__.py`, or `plugins/hatch.py`, before committing: determinism,
@@ -395,7 +395,7 @@ every subcommand, skills/plugin surface drift, fragment merge
 determinism, offline-mode zero-network-calls, registry round trip,
 `--allow-build` with/without/ground-truth parity, and a setting that
 changes no bytes (`--content-type-method`) still reaching `project` and
-`embed-wheel`.
+`embed-wheel`, and no implicit config for a non-project target.
 Full commands for each in
 [working-docs/implementation/manual-cli-checks.md](working-docs/implementation/manual-cli-checks.md).
 Run them all with `.venv/bin/python scripts/manual_cli_checks` (add

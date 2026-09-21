@@ -13,9 +13,12 @@ import sys
 from pathlib import Path
 
 from pitloom.assemble.spdx3.document import build_enrichment_fragment, build_model
-from pitloom.core.config_cascade import resolve_generator_config
+from pitloom.core.config import PitloomConfig
+from pitloom.core.config_cascade import ConfigOverrides, resolve_standalone_config
 from pitloom.core.creation import CreationMetadata
+from pitloom.core.inert_options import HF, MODEL_FILE, settle_inert
 from pitloom.core.models import compute_doc_uuid, get_wheel_files
+from pitloom.core.project import ProjectMetadata
 from pitloom.core.provenance import ProvenanceConfig
 from pitloom.enrich import run_enrichers
 from pitloom.enrich.base import EnrichmentResult
@@ -25,7 +28,7 @@ from pitloom.extract.project import (
     warn_use_lockfile_no_effect,
 )
 from pitloom.extract.remote import is_huggingface_source, read_huggingface
-from pitloom.ids import IdRegistry, resolve_registry
+from pitloom.ids import IdRegistry, resolve_explicit_registry, resolve_registry
 from pitloom.logging_config import configure_logging
 
 log = logging.getLogger(__name__)
@@ -44,7 +47,10 @@ def _write_output_file(sbom_json: str, output_path: Path | None) -> None:
 
 
 def _project_doc_identity(
-    project_dir: Path, *, use_lockfile: bool | None = None
+    project_dir: Path,
+    *,
+    use_lockfile: bool | None = None,
+    explicit_config: PitloomConfig | None = None,
 ) -> tuple[str, str]:
     """Compute ``(doc_name, doc_uuid)`` for a project directory.
 
@@ -62,12 +68,22 @@ def _project_doc_identity(
     ``use_lockfile`` must match whatever setting produced the base document
     being merged into, or the computed ``doc_uuid`` will diverge from it
     (see ``pitloom.core.models.compute_doc_uuid``'s use of its own
-    ``locked_dependencies`` data). When omitted, it auto-matches
-    *project_dir*'s own ``[tool.pitloom] use-lockfile`` config.
+    ``locked_dependencies`` data). When omitted, it follows
+    *explicit_config*'s ``use-lockfile``, else *project_dir*'s own, as
+    :func:`~pitloom.extract.project.resolve_project_with_lockfile` decides
+    for the base document.
     """
     project_metadata, _pitloom_config, _config_path = resolve_project_with_lockfile(
-        project_dir, use_lockfile
+        project_dir, use_lockfile, explicit_config
     )
+    return _doc_identity_of(project_dir, project_metadata)
+
+
+def _doc_identity_of(
+    project_dir: Path, project_metadata: ProjectMetadata
+) -> tuple[str, str]:
+    """``(doc_name, doc_uuid)`` for *project_metadata*, resolved from
+    *project_dir* (see :func:`_project_doc_identity`)."""
     # build_options intentionally omitted (no --allow-build): this doc-identity
     # helper is only reachable from the model/enrich commands, which have
     # no --allow-build CLI flag of their own to read. The returned
@@ -89,6 +105,7 @@ def _project_doc_identity(
 
 
 # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals
+# pylint: disable=too-many-arguments,too-many-locals
 def generate_model_sbom(
     source: Path | str,
     *,
@@ -100,22 +117,44 @@ def generate_model_sbom(
     registry: str | Path | IdRegistry | None = None,
     provenance: ProvenanceConfig | None = None,
     enrich: bool | None = None,
+    max_source_metadata_bytes: int | None = None,
+    pitloom_config: PitloomConfig | None = None,
 ) -> str:
-    """Generate an Analyzed SPDX 3 AIBOM for a local model file or HF repository."""
+    """Generate an Analyzed SPDX 3 AIBOM for a local model file or HF repository.
+
+    Settings resolve as :func:`~pitloom.assemble.generate_wheel_sbom`
+    describes: arguments, then an explicit *pitloom_config*, then the
+    built-in defaults. Nothing is read from the current directory or from
+    the model file's own directory.
+
+    Three parameters apply to one source kind only, and warn when given for
+    the other (see :data:`pitloom.core.inert_options.INERT`): *offline* for
+    a Hugging Face source (a local file never reaches the network), and
+    *enrich*/*registry* for a local file.
+    """
     configure_logging()
-    effective_pretty = False if pretty is None else pretty
-    effective_describe = (
-        False if describe_relationship is None else describe_relationship
-    )
     source_str = str(source)
     is_hf = is_huggingface_source(source_str)
+    settle_inert(
+        HF if is_hf else MODEL_FILE,
+        source_str,
+        {"offline": offline, "enrich": enrich, "registry": registry},
+    )
+    cfg = resolve_standalone_config(
+        pitloom_config,
+        ConfigOverrides(
+            provenance=provenance,
+            enrich=enrich,
+            offline=offline,
+            pretty=pretty,
+            describe_relationship=describe_relationship,
+            max_source_metadata_bytes=max_source_metadata_bytes,
+        ),
+    )
     enrichment_results: list[EnrichmentResult] = []
 
     if is_hf:
-        effective_offline = (
-            resolve_generator_config(Path.cwd()).offline if offline is None else offline
-        )
-        if effective_offline:
+        if cfg.offline:
             raise ValueError(
                 "Offline mode enabled: cannot fetch remote Hugging Face source "
                 f"'{source_str}'"
@@ -125,30 +164,25 @@ def generate_model_sbom(
     else:
         model_path = Path(source)
         model = read_ai_model(model_path)
-        resolved_registry = resolve_registry(Path.cwd(), registry)
+        resolved_registry = resolve_explicit_registry(registry, cfg.ids_file)
         entity_spdx_id = (
             resolved_registry.lookup_entity(model_path.stem, "ai_AIPackage")
             if resolved_registry is not None
             else None
         )
-
-        model_dir = model_path.parent
-        enrich_config = resolve_generator_config(model_dir).enrich
-        if enrich is not None:
-            enrich_config = dataclasses.replace(enrich_config, local=enrich)
-        enrichment_results = run_enrichers(model, enrich_config, model_dir)
+        enrichment_results = run_enrichers(model, cfg.enrich, model_path.parent)
 
     exporter = build_model(
         model,
-        creation_metadata or CreationMetadata(),
+        creation_metadata or cfg.creation_metadata,
         entity_spdx_id=entity_spdx_id,
-        provenance=provenance,
+        provenance=cfg.provenance,
         enrichment_results=enrichment_results,
     )
 
     sbom_json = exporter.to_json(
-        pretty=effective_pretty,
-        describe_relationship=effective_describe,
+        pretty=cfg.pretty,
+        describe_relationship=bool(cfg.describe_relationship),
     )
 
     _write_output_file(sbom_json, output_path)
@@ -156,7 +190,7 @@ def generate_model_sbom(
     return sbom_json
 
 
-# pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals
+# pylint: disable=too-many-arguments,too-many-locals
 def enrich_model(
     source: Path | str,
     *,
@@ -167,10 +201,18 @@ def enrich_model(
     project_target: Path | str | None = None,
     registry: str | Path | IdRegistry | None = None,
     use_lockfile: bool | None = None,
+    pitloom_config: PitloomConfig | None = None,
 ) -> str:
-    """Run enrichment only for a local model file."""
+    """Run enrichment only for a local model file.
+
+    Settings come from the arguments, then an explicit *pitloom_config*,
+    then the built-in defaults; nothing is read from the current directory
+    or from the model file's directory. The registry is *registry*, else
+    the explicit config's ``ids-file``; with *project_target*, a registry is
+    also looked for in that project, since it is the document the fragment
+    will merge into.
+    """
     configure_logging()
-    effective_pretty = False if pretty is None else pretty
     source_str = str(source)
     if is_huggingface_source(source_str):
         raise ValueError(
@@ -178,32 +220,38 @@ def enrich_model(
             "does not apply there -- Hugging Face model cards are already "
             "parsed natively when generating the SBOM."
         )
+    cfg = resolve_standalone_config(pitloom_config, ConfigOverrides(pretty=pretty))
 
     model_path = Path(source)
     model = read_ai_model(model_path)
-    model_dir = model_path.parent
-    # Unlike generate_model_sbom()/generate_project_sbom(), [tool.pitloom]
-    # enrich is NOT consulted as an "off by default" gate here: calling
+    # Unlike generate_model_sbom()/generate_project_sbom(), the config's
+    # enrich setting is NOT an "off by default" gate here: calling
     # enrich_model() at all is itself the opt-in (see
     # test_enrich_model_writes_bare_graph_fragment's docstring). Only an
     # explicit enrich=False turns it back off.
-    enrich_config = dataclasses.replace(
-        resolve_generator_config(model_dir).enrich,
-        local=enrich is not False,
-    )
-    results = run_enrichers(model, enrich_config, model_dir)
+    enrich_config = dataclasses.replace(cfg.enrich, local=enrich is not False)
+    results = run_enrichers(model, enrich_config, model_path.parent)
 
     if use_lockfile is not None and project_target is None:
         warn_use_lockfile_no_effect(
             source_str,
             "without --project-dir (no base document identity is computed)",
         )
-    base_doc_identity = (
-        _project_doc_identity(Path(project_target), use_lockfile=use_lockfile)
-        if project_target is not None
-        else None
-    )
-    resolved_registry = resolve_registry(Path.cwd(), registry)
+    if project_target is None:
+        base_doc_identity = None
+        resolved_registry = resolve_explicit_registry(registry, cfg.ids_file)
+    else:
+        # The project the fragment merges into, resolved as its base SBOM
+        # is: its identity and registry come from the config that SBOM
+        # used (an explicit config, else the project's own).
+        project_dir = Path(project_target)
+        base_metadata, base_config, _ = resolve_project_with_lockfile(
+            project_dir, use_lockfile, pitloom_config
+        )
+        base_doc_identity = _doc_identity_of(project_dir, base_metadata)
+        resolved_registry = resolve_registry(
+            project_dir, registry if registry is not None else base_config.ids_file
+        )
     entity_spdx_id = (
         resolved_registry.lookup_entity(model_path.stem, "ai_AIPackage")
         if resolved_registry is not None
@@ -213,12 +261,12 @@ def enrich_model(
     exporter = build_enrichment_fragment(
         model,
         results,
-        creation_metadata or CreationMetadata(),
+        creation_metadata or cfg.creation_metadata,
         entity_spdx_id=entity_spdx_id,
         base_doc_identity=base_doc_identity,
     )
 
-    fragment_json = exporter.to_json(pretty=effective_pretty)
+    fragment_json = exporter.to_json(pretty=cfg.pretty)
 
     _write_output_file(fragment_json, output_path)
 

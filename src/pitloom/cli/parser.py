@@ -25,6 +25,7 @@ from pitloom.cli.commands.verify_wheel import add_parser as add_verify_wheel
 from pitloom.cli.commands.wheel import add_parser as add_wheel
 from pitloom.cli.ids import add_parser as add_ids
 from pitloom.cli.options import add_debug_argument
+from pitloom.cli.options_config import add_config_argument
 from pitloom.core.config import VALID_CONTENT_TYPE_METHODS
 from pitloom.core.creation import (
     VALID_CREATOR_TYPES,
@@ -171,6 +172,7 @@ def _build_parent_parser() -> argparse.ArgumentParser:
             "unbounded, by default) when omitted."
         ),
     )
+    add_config_argument(parent)
     parent.add_argument(
         "-v",
         "--verbose",
@@ -193,9 +195,9 @@ def _build_parent_parser() -> argparse.ArgumentParser:
             "resolved Loom ID registry and save it. Defers to "
             "[tool.pitloom] update-registry (on by default) when omitted; "
             "no effect when no registry is resolved. Only consulted by "
-            "'project'/'wheel'/'env'/'generate' -- accepted but has no "
-            "effect on 'model'/'enrich'/'embed-wheel', which don't "
-            "auto-update the registry."
+            "'project'/'wheel'/'env'/'generate' -- 'model'/'enrich'/"
+            "'embed-wheel' never auto-update the registry and log a "
+            "WARNING: if it is given."
         ),
     )
 

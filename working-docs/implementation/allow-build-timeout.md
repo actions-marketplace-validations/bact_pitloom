@@ -1,6 +1,6 @@
 ---
 Created: 2026-09-19
-Last-Modified: 2026-09-20
+Last-Modified: 2026-09-21
 SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 SPDX-FileType: DOCUMENTATION
 SPDX-License-Identifier: CC0-1.0
@@ -157,7 +157,7 @@ Side effects, accepted:
 - An sdist archive target used to show its build-flag warning after a
   metadata warning from a CLI handler's own pre-read (`loom project
   <sdist>`'s `_resolve_project_generation_settings()`, `loom generate
-  <sdist>`'s non-fast-path `_resolve_common_options()` peek) or from
+  <sdist>`'s non-fast-path config-only peek, since removed) or from
   `generate_project_sbom()`'s own metadata resolution for a direct
   library caller. Fixed: `BuildOptions.settle_not_applicable(subject,
   reason)` warns (if any flag was given) and resets to defaults in one
@@ -174,7 +174,7 @@ Side effects, accepted:
   gets the same treatment: the handler classifies it with
   `target_resolves_to_project()` and calls `settle_not_applicable()`
   with the shared `NON_PROJECT_TARGET_REASON` (also used by
-  `generate()`) before `_resolve_common_options()`'s peek.
+  `generate()`) before any metadata is read.
 
 Test matrix: `tests/test_build_flag_warnings.py` crosses surface (CLI
 `project`/`generate`/`embed-wheel` via real argv; library `generate()`/

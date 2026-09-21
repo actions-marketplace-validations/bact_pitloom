@@ -35,7 +35,7 @@ exit "${LOOM_EXIT:-0}"
 EMPTY_INPUTS = dict.fromkeys(
     "PL_EMBED_WHEEL PL_MODEL PL_OUTPUT PL_PRETTY PL_ENRICH "
     "PL_EXTRACT_FILE_HEADER PL_CONTENT_TYPE PL_CONTENT_TYPE_METHOD "
-    "PL_MAX_SOURCE_METADATA_BYTES PL_OFFLINE PL_USE_LOCKFILE "
+    "PL_MAX_SOURCE_METADATA_BYTES PL_CONFIG PL_OFFLINE PL_USE_LOCKFILE "
     "PL_ALLOW_BUILD PL_NO_BUILD_ISOLATION PL_BUILD_TIMEOUT".split(),
     "",
 )
@@ -119,6 +119,26 @@ def test_build_timeout_is_passed_through_verbatim(
     to accept or reject."""
     result = generate(PL_BUILD_TIMEOUT=value)
     assert result.loom_args == ["project", ".", "--build-timeout", value]
+
+
+@pytest.mark.parametrize(
+    ("mode", "env", "head"),
+    [
+        ("project", {}, ["project", "."]),
+        ("model", {"PL_MODEL": "m.safetensors"}, ["model", "m.safetensors"]),
+    ],
+)
+def test_config_is_passed_on_every_mode(
+    generate: Callable[..., _Result], mode: str, env: dict[str, str], head: list[str]
+) -> None:
+    """``config`` becomes ``--config FILE`` whatever the mode, verbatim (a
+    path with a space stays one argument); empty passes nothing."""
+    del mode
+    assert "--config" not in generate(**env).loom_args
+    result = generate(PL_CONFIG="ci dir/pitloom.toml", **env)
+    assert result.loom_args[:2] == head
+    index = result.loom_args.index("--config")
+    assert result.loom_args[index + 1] == "ci dir/pitloom.toml"
 
 
 _BUILD_INPUTS = (

@@ -68,9 +68,9 @@ def test_wheel_command_wires_max_source_metadata_bytes(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """`loom wheel --max-source-metadata-bytes N` must reach
-    generate_wheel_sbom() via resolve_effective_provenance() -- a
-    regression test for a call site that was missed when this flag was
-    added to every other generate-family command."""
+    generate_wheel_sbom() -- a regression test for a call site that was
+    missed when this flag was added to every other generate-family
+    command."""
     monkeypatch.chdir(tmp_path)
     wheel_path = _make_wheel(tmp_path, "pkg", "1.0.0")
     captured: dict[str, object] = {}
@@ -83,7 +83,7 @@ def test_wheel_command_wires_max_source_metadata_bytes(
         describe_relationship: bool = False,
         registry: object = None,
         offline: bool = False,
-        provenance: object = None,
+        max_source_metadata_bytes: object = None,
         **kwargs: object,
     ) -> str:
         _ = (
@@ -95,7 +95,7 @@ def test_wheel_command_wires_max_source_metadata_bytes(
             registry,
             offline,
         )
-        captured["provenance"] = provenance
+        captured["max_source_metadata_bytes"] = max_source_metadata_bytes
         return "{}"
 
     monkeypatch.setattr(mod_wheel, "generate_wheel_sbom", _fake_generate_analyzed_sbom)
@@ -106,9 +106,7 @@ def test_wheel_command_wires_max_source_metadata_bytes(
     )
 
     assert __main__.main() == 0
-    assert captured["provenance"] is not None
-    provenance = captured["provenance"]
-    assert provenance.max_source_metadata_bytes == 5000  # type: ignore[attr-defined]
+    assert captured["max_source_metadata_bytes"] == 5000
 
 
 def test_wheel_command_nonexistent_and_verbose(

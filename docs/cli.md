@@ -1,6 +1,6 @@
 ---
 Created: 2026-08-11
-Last-Modified: 2026-09-19
+Last-Modified: 2026-09-21
 SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 SPDX-FileType: DOCUMENTATION
 SPDX-License-Identifier: CC0-1.0
@@ -89,8 +89,22 @@ Generate and embed an SPDX 3 SBOM directly into one or more built `.whl`
 files (writing to `.dist-info/sboms/` and updating `.dist-info/RECORD`):
 
 ```bash
-loom embed-wheel dist/mypackage-1.0.0-py3-none-any.whl
 loom embed-wheel dist/*.whl --project-dir .
+```
+
+`--project-dir` rescans the source project so the SBOM can carry project
+metadata (dependencies, license, AI models). It is never inferred from
+the current directory -- pass it explicitly, even when the shell is
+already sitting in the project root, since the current directory may not
+be the wheel's own project.
+
+Without `--project-dir` (and without `--sbom`, below), `embed-wheel`
+still embeds a standalone-wheel SBOM built from the wheel's own contents
+alone -- no project directory scan, so no AI-model enrichment and no
+`[tool.pitloom]` beyond an explicit `--config`:
+
+```bash
+loom embed-wheel dist/mypackage-1.0.0-py3-none-any.whl
 ```
 
 With `--project-dir`, the file list and hashes always come from the
@@ -340,6 +354,17 @@ Available on `project`/`generate`/`model`/`wheel`/`embed-wheel`/`env`
 (not `merge`/`fragment`/`ids`, see above), unless noted otherwise:
 
 - `-o FILE` / `--output FILE` -- explicit output path.
+- `--config FILE` -- read `[tool.pitloom]` from *FILE* instead of the
+  target's own `pyproject.toml`. On a project target (`project`,
+  `generate` on a project directory or sdist, `embed-wheel
+  --project-dir`), it replaces the project's own config outright, not
+  merges with it. On every other target (`wheel`, `env`, `model`,
+  `enrich`, `embed-wheel` without `--project-dir`), it is the *only*
+  config that target can ever get -- none of these read the current
+  directory or the target's own location. A relative `ids-file` inside
+  *FILE* resolves against *FILE*'s own directory. See [Where settings
+  come from](configuration.md#where-settings-come-from) for the full
+  precedence table.
 - `--pretty` -- indent the JSON for human reading (default: compact).
 - `--offline` -- forbid network access (PyPI/Hugging Face lookups).
   Not on `enrich` either.
@@ -348,10 +373,16 @@ Available on `project`/`generate`/`model`/`wheel`/`embed-wheel`/`env`
   `enrich` (for `--project-dir` document identity matching, see
   [Enrich an SBOM](#enrich-an-sbom)). On by default; see
   [Dependency sources and precedence](dependency-sources.md).
-- `-v` / `--verbose` -- print effective options and where each came from.
+- `-v` / `--verbose` -- print effective options and where each came
+  from, for `project`/`generate` on a project directory or sdist only.
+  `wheel`/`env`/`model`/`enrich` also accept `-v`, but only print the
+  resolved values, with no per-value source label -- there is no
+  `pyproject.toml`/config-vs-default distinction to report for a target
+  that never reads one implicitly.
 - `--registry FILE` -- Loom ID registry file path, overriding the
   auto-resolved default -- see [Pin ids across
-  fragments](#pin-ids-across-fragments).
+  fragments](#pin-ids-across-fragments). A relative path resolves
+  against the current directory on every command.
 - `--describe-relationship` / `--no-describe-relationship` -- include (or
   suppress) human-readable text on SPDX relationships.
 - `--content-type` / `--no-content-type` -- detect each file's real
@@ -365,6 +396,41 @@ See [Enrich an SBOM](#enrich-an-sbom) above for `--enrich`/`--no-enrich`,
 and [Building a project to discover its file list](allow-build.md) for
 `--allow-build`/`--no-build-isolation`/`--build-timeout` (only on
 `project`/`generate`/`embed-wheel`).
+
+### Options with no effect
+
+A subcommand's parent parser offers every shared flag above to every
+target, but not every target can act on every one -- e.g. a wheel has no
+source files to scan a header from, and a wheel-embedded SBOM is always
+canonical JSON regardless of `--pretty`. Passing one that doesn't apply
+prints one `WARNING: Options: <target>: <flag> has no effect <reason>`
+and drops it, rather than silently ignoring it:
+
+| Target | Options that warn |
+| --- | --- |
+| project directory | — |
+| sdist archive | `--enrich`, `--extract-file-header`, `--content-type` |
+| wheel | `--enrich`, `--extract-file-header`, `--content-type` |
+| installed environment | `--enrich`, `--extract-file-header`, `--content-type` |
+| local model file | `--extract-file-header`, `--content-type`, `--content-type-method`, `--offline`, `--update-registry` |
+| Hugging Face model | `--enrich`, `--extract-file-header`, `--content-type`, `--content-type-method`, `--registry`, `--update-registry` |
+| enrich fragment | `--describe-relationship`, `--extract-file-header`, `--content-type`, `--content-type-method`, `--max-source-metadata-bytes`, `--update-registry` |
+| embed-wheel --project-dir | `--pretty`, `--describe-relationship`, `--update-registry` |
+| embed-wheel without --project-dir | `--pretty`, `--describe-relationship`, `--enrich`, `--extract-file-header`, `--content-type`, `--update-registry` |
+| embed-wheel --sbom | `--pretty`, `--describe-relationship`, `--enrich`, `--extract-file-header`, `--content-type`, `--content-type-method`, `--max-source-metadata-bytes`, `--offline`, `--registry`, `--update-registry`, `--creator-*`, `--config` |
+
+Each `--flag` above also covers its `--no-flag` boolean-negation form
+where one exists (e.g. `--no-enrich`, `--no-pretty`) -- the warning
+names whichever spelling was actually given.
+
+`--describe-relationship` warning on `embed-wheel`/`enrich` is a current
+decision, not a permanent one -- it may change in a future release.
+`--use-lockfile`/`--no-use-lockfile` warns with the same `Options:`
+wording on a target it doesn't apply to, but isn't part of this table
+(it isn't offered as a flag on those subcommands at all -- see above).
+`--allow-build`/`--no-build-isolation`/`--build-timeout` have their own,
+separate no-effect warning -- see [Building a project to discover its
+file list](allow-build.md).
 
 Every subcommand that writes an SBOM (`project`, `model`, `env`, `wheel`,
 `embed-wheel`) prints `PITLOOM_SBOM_OUTPUT_PATH=<path>` to stdout after

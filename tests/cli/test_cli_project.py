@@ -21,7 +21,11 @@ from pitloom import __main__
 from pitloom.cli.commands import model as mod_model
 from pitloom.cli.commands import project as mod_project
 from pitloom.core.creation import CreationMetadata
-from tests.cli.shared import SAFETENSORS_FIXTURE, _make_simple_project
+from tests.cli.shared import (
+    SAFETENSORS_FIXTURE,
+    _make_simple_project,
+    effective_setting,
+)
 from tests.fixtures.locked_deps import write_locked_deps_project
 
 
@@ -61,12 +65,14 @@ pretty = true
         **kwargs: object,
     ) -> str:
         _ = (registry, kwargs)
-        _ = (project_metadata, pitloom_config)
+        _ = project_metadata
         captured["project_dir"] = project_dir
         captured["output_path"] = output_path
         captured["creation_metadata"] = creation_metadata
-        captured["pretty"] = pretty
-        captured["describe_relationship"] = describe_relationship
+        captured["pretty"] = effective_setting(pretty, pitloom_config, "pretty")
+        captured["describe_relationship"] = effective_setting(
+            describe_relationship, pitloom_config, "describe_relationship"
+        )
         return "{}"
 
     monkeypatch.setattr(
@@ -199,10 +205,9 @@ creation-datetime = "2030-01-02T03:04:05Z"
             output_path,
             describe_relationship,
             project_metadata,
-            pitloom_config,
         )
         captured["creation_metadata"] = creation_metadata
-        captured["pretty"] = pretty
+        captured["pretty"] = effective_setting(pretty, pitloom_config, "pretty")
         return "{}"
 
     monkeypatch.chdir(current_dir)

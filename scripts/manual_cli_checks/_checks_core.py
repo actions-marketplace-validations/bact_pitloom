@@ -2,7 +2,8 @@
 # SPDX-FileType: SOURCE
 # SPDX-License-Identifier: Apache-2.0
 
-"""Checks 1-11 of manual-cli-checks.md that can run unattended.
+"""Checks 1-11 of manual-cli-checks.md that can run unattended (12 is in
+``_checks_config.py``).
 
 Check 6 (skills/plugin drift) needs judgement and stays manual.
 

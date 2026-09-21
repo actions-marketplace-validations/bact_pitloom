@@ -99,12 +99,14 @@ _KIND_REASONS: dict[str, str | None] = {
     "hf": _NOT_PROJECT,
     "embed_project_dir": None,
     "embed_project_sdist": _SDIST,
-    "embed_cwd_project": None,
+    # The current directory is a project, but embed-wheel never assumes it
+    # is the wheel's: without --project-dir it is a standalone embed.
+    "embed_cwd_project": _NO_PROJECT,
     "embed_sbom": _EXT_SBOM,
     "embed_no_project": _NO_PROJECT,
     "embed_project_dir_multi": None,
     "embed_project_sdist_multi": _SDIST,
-    "embed_cwd_project_multi": None,
+    "embed_cwd_project_multi": _NO_PROJECT,
     "embed_sbom_multi": _EXT_SBOM,
     "embed_no_project_multi": _NO_PROJECT,
 }
@@ -210,7 +212,8 @@ def _cli_embed_wheel(
     elif kind == "embed_sbom":
         argv += ["--sbom", str(_external_sbom(env))]
     elif kind == "embed_cwd_project":
-        # No --project-dir: the CLI falls back to the current directory.
+        # No --project-dir, from inside a project: not inferred as the
+        # wheel's project.
         mp.chdir(env.project)
     elif kind == "embed_no_project":
         # No --project-dir, and the current directory has no pyproject.toml.

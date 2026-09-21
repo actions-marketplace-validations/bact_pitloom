@@ -16,17 +16,15 @@ from pitloom.__about__ import __version__
 from pitloom.assemble import (
     generate_model_sbom,
 )
-from pitloom.cli.commands.utils import (
-    _print_sbom_output_path,
-    cli_error_handler,
-    resolve_effective_provenance,
-)
+from pitloom.cli.commands.utils import _print_sbom_output_path, cli_error_handler
 from pitloom.cli.options import (
-    _resolve_common_options,
     _resolve_hf_output_path,
     _resolve_model_output_path,
     add_offline_argument,
 )
+from pitloom.cli.options_config import load_explicit_config, run_options
+from pitloom.core.config import PitloomConfig
+from pitloom.core.inert_options import HF, MODEL_FILE, forward_options
 from pitloom.extract.remote import is_huggingface_source, parse_hf_model_id
 
 
@@ -61,19 +59,15 @@ def _run_model_command(args: argparse.Namespace) -> int:
             print(f"Output path     : {output_path}")
         model_target = model_path
 
-    pitloom_config, creation, effective_pretty, effective_describe = (
-        _resolve_common_options(args, load_project=False)
-    )
+    pitloom_config = load_explicit_config(args)
+    options = run_options(args, pitloom_config or PitloomConfig())
+    # Same subject generate_model_sbom() settles its own options under.
+    kind = MODEL_FILE if isinstance(model_target, Path) else HF
     generate_model_sbom(
         model_target,
-        offline=args.offline,
         output_path=output_path,
-        creation_metadata=creation,
-        pretty=effective_pretty,
-        describe_relationship=effective_describe,
-        registry=args.registry,
-        provenance=resolve_effective_provenance(pitloom_config, args),
-        enrich=args.enrich,
+        pitloom_config=pitloom_config,
+        **forward_options(kind, str(model_target), generate_model_sbom, options),
     )
     _print_sbom_output_path(output_path)
     return 0

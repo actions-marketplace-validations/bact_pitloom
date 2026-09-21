@@ -50,6 +50,7 @@ __all__ = [
     "_sha256_file",
     "_sha256_from_verified_using",
     "_type_id_prefix",
+    "resolve_explicit_registry",
     "resolve_registry",
 ]
 
@@ -332,6 +333,27 @@ def resolve_registry(
             log.warning("Registry: could not load %s: %s", registry_path, exc)
             return None
     return IdRegistry.find(start=project_dir)
+
+
+def resolve_explicit_registry(
+    registry: str | Path | IdRegistry | None,
+    ids_file: str | None,
+) -> IdRegistry | None:
+    """Resolve the registry for a target with no project of its own (a
+    wheel, an installed environment, a model file).
+
+    Only an explicit source counts: *registry* (``--registry``), else
+    *ids_file* from an explicitly named config. Unlike
+    :func:`resolve_registry`, this never searches for a ``loom-ids.json``
+    -- one found near the current directory belongs to whatever project
+    that is, not to this target. A relative path resolves against the
+    current directory; :func:`pitloom.core.config_cascade.load_config_file`
+    has already made a config's own ``ids-file`` absolute.
+    """
+    source = registry if registry is not None else ids_file
+    if source is None:
+        return None
+    return resolve_registry(Path.cwd(), source)
 
 
 def _load_or_create_registry(

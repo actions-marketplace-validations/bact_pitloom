@@ -12,6 +12,7 @@ from a project directory's rescan and the wheel's own files.
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 from pathlib import Path
 
@@ -55,16 +56,27 @@ from pitloom.core.build_options import (
     target_settle_plan,
 )
 from pitloom.core.config import PitloomConfig
-from pitloom.core.config_cascade import ConfigOverrides, apply_overrides
+from pitloom.core.config_cascade import (
+    ConfigOverrides,
+    apply_overrides,
+    resolve_standalone_config,
+)
 from pitloom.core.creation import CreationMetadata
 from pitloom.core.document import DocumentModel
+from pitloom.core.inert_options import (
+    EMBED_PROJECT,
+    EMBED_SBOM,
+    EMBED_STANDALONE,
+    INERT,
+    settle_inert,
+)
 from pitloom.core.project import ProjectMetadata
-from pitloom.core.provenance import ProvenanceConfig
+from pitloom.core.provenance import normalize_max_source_metadata_bytes
 from pitloom.export.spdx3_json import SPDX3_JSONLD_EXTENSION
 from pitloom.extract.binary import find_phantom_dependencies
 from pitloom.extract.project import read_project
 from pitloom.extract.wheel import read_wheel
-from pitloom.ids import IdRegistry, resolve_registry
+from pitloom.ids import IdRegistry, resolve_explicit_registry, resolve_registry
 from pitloom.logging_config import configure_logging
 
 log = logging.getLogger(__name__)
@@ -252,6 +264,41 @@ def _settle_build_options(
     return build_options.settle_not_applicable(subject, reason)
 
 
+def _settle_embed_options(
+    kind: str,
+    subject: object,
+    given: dict[str, object],
+    overrides: ConfigOverrides,
+    file_cache: EmbedFileCache | None,
+) -> ConfigOverrides:
+    """Warn about every option in *given* that *kind* cannot use, and
+    normalise the byte cap -- once per batch through *file_cache* when
+    given, so a batch warns once, as :meth:`EmbedFileCache.settle` does for
+    the build flags. Returns *overrides* with the cap normalised, so the
+    per-wheel :func:`apply_overrides` finds nothing left to warn about."""
+    given_names = frozenset(name for name, value in given.items() if value is not None)
+
+    def settle() -> None:
+        settle_inert(kind, subject, given)
+
+    def normalise() -> int | None:
+        value = overrides.max_source_metadata_bytes
+        if value is None or "max_source_metadata_bytes" in INERT[kind]:
+            return None  # an inert cap warned above; no second warning
+        return normalize_max_source_metadata_bytes(value)
+
+    if file_cache is None:
+        settle()
+        cap = normalise()
+    else:
+        file_cache.once(("inert", kind, given_names), settle)
+        cap = file_cache.once(
+            ("max_source_metadata_bytes", overrides.max_source_metadata_bytes),
+            normalise,
+        )
+    return dataclasses.replace(overrides, max_source_metadata_bytes=cap)
+
+
 # pylint: disable=too-many-arguments
 def _generate_embed_sbom_json(
     wheel_metadata: ProjectMetadata,
@@ -271,12 +318,24 @@ def _generate_embed_sbom_json(
     through unchanged to :func:`_build_sbom_from_project_and_wheel`,
     the only branch below that reaches file discovery at all.
     """
+    given = {
+        **{
+            field.name: getattr(overrides, field.name)
+            for field in dataclasses.fields(ConfigOverrides)
+        },
+        "registry": registry,
+        "creation_metadata": creation_metadata,
+        "pitloom_config": pitloom_config,
+    }
     if sbom_path is not None:
         _settle_build_options(
             overrides.build_options,
             file_cache,
             wheel_metadata.name,
             EXTERNAL_SBOM_REASON,
+        )
+        _settle_embed_options(
+            EMBED_SBOM, wheel_metadata.name, given, overrides, file_cache
         )
         return Path(sbom_path).read_text(encoding="utf-8"), sbom_basename
 
@@ -287,14 +346,17 @@ def _generate_embed_sbom_json(
             wheel_metadata.name,
             NO_PROJECT_DIR_REASON,
         )
+        overrides = _settle_embed_options(
+            EMBED_STANDALONE, wheel_metadata.name, given, overrides, file_cache
+        )
+        cfg = resolve_standalone_config(pitloom_config, overrides)
         sbom_json = _build_sbom_standalone_wheel(
             wheel_metadata,
-            creation_metadata,
-            registry,
-            overrides.provenance,
-            overrides.offline,
+            cfg,
+            creation_metadata or cfg.creation_metadata,
+            resolve_explicit_registry(registry, cfg.ids_file),
         )
-        return sbom_json, sbom_basename
+        return sbom_json, sbom_basename or cfg.sbom_basename
 
     proj_root = Path(project_dir).resolve()
     # This is the one branch that reaches file discovery, so settle a
@@ -322,14 +384,15 @@ def _generate_embed_sbom_json(
     else:
         cfg = pitloom_config
 
+    overrides = _settle_embed_options(
+        EMBED_PROJECT, proj_root, given, overrides, file_cache
+    )
     cfg = apply_overrides(cfg, overrides)
-    eff_registry = registry if registry is not None else cfg.ids_file
-    reg = resolve_registry(proj_root, eff_registry)
     sbom_json = _build_sbom_from_project_and_wheel(
         proj_root,
         wheel_metadata,
         cfg,
-        reg,
+        resolve_registry(proj_root, registry if registry is not None else cfg.ids_file),
         creation_metadata or cfg.creation_metadata,
         build_options=settled_build_options,
         file_cache=file_cache,
@@ -339,16 +402,18 @@ def _generate_embed_sbom_json(
 
 def _build_sbom_standalone_wheel(
     wheel_metadata: ProjectMetadata,
-    creation_metadata: CreationMetadata | None,
-    registry: str | Path | IdRegistry | None,
-    provenance: ProvenanceConfig | None,
-    offline: bool | None,
+    cfg: PitloomConfig,
+    creation_metadata: CreationMetadata,
+    registry: IdRegistry | None,
 ) -> str:
-    """Build SBOM from standalone wheel when no source project dir is present."""
-    reg = resolve_registry(Path.cwd(), registry)
+    """Build the SBOM for a wheel embedded with no source project directory.
+
+    *cfg* holds only explicit settings (an explicitly named config and the
+    per-run overrides); nothing is borrowed from the current directory.
+    """
     doc = DocumentModel(
         project=wheel_metadata,
-        creation_metadata=creation_metadata or CreationMetadata(),
+        creation_metadata=creation_metadata,
         ai_models=[],
         phantom_dependencies=find_phantom_dependencies(wheel_metadata.files),
     )
@@ -356,8 +421,7 @@ def _build_sbom_standalone_wheel(
         doc,
         merkle_root=None,
         sbom_type=spdx3.software_SbomType.analyzed,
-        registry=reg,
-        provenance=provenance,
-        offline=offline or False,
+        registry=registry,
+        **cfg.assemble_options,
     )
     return exporter.to_json(pretty=False)

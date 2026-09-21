@@ -24,7 +24,6 @@ See also: :mod:`pitloom.core._models_wheel_types` (timeout parsing and
 from __future__ import annotations
 
 import dataclasses
-import logging
 import os
 from pathlib import Path
 
@@ -34,9 +33,8 @@ from pitloom.core._models_wheel_types import (
     resolve_build_timeout,
     validate_build_timeout,
 )
+from pitloom.core.no_effect import warn_no_effect
 from pitloom.core.project import is_sdist_archive
-
-log = logging.getLogger(__name__)
 
 _ALLOW_FLAG = "--allow-build"
 
@@ -159,7 +157,7 @@ class BuildOptions:
         """
         if self.allow or not self.given:
             return self
-        _warn_each(subject, self.given, f"without {_ALLOW_FLAG}")
+        warn_no_effect(BUILD_LOG_PREFIX, subject, self.given, f"without {_ALLOW_FLAG}")
         return BuildOptions()
 
     def settle_target(self, target: Path) -> BuildOptions:
@@ -190,15 +188,8 @@ class BuildOptions:
         :data:`SDIST_TARGET_REASON`. Idempotent the same way :meth:`settle`
         is: the returned (defaulted) value has no given flag to warn about.
         """
-        _warn_each(subject, self.given, reason)
+        warn_no_effect(BUILD_LOG_PREFIX, subject, self.given, reason)
         return BuildOptions()
-
-
-def _warn_each(subject: object, flags: tuple[str, ...], reason: str) -> None:
-    for flag in flags:
-        log.warning(
-            "%s%s: %s has no effect %s", BUILD_LOG_PREFIX, subject, flag, reason
-        )
 
 
 __all__ = [

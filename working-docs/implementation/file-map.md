@@ -123,9 +123,11 @@ pitloom/
 │       │   │   └── wheel.py        # loom wheel
 │       │   ├── constants.py        # Shared literals (.spdx3.json ext, source labels)
 │       │   ├── ids.py              # loom ids generate|import
-│       │   ├── options.py          # CLI > pyproject.toml > default resolution helpers
+│       │   ├── options.py          # add_*_argument()/warn_*() flag-definition helpers
+│       │   ├── options_config.py   # args -> library kwargs/ConfigOverrides map; --config loading
+│       │   ├── options_resolve.py  # CLI > --config > pyproject.toml > default resolution
 │       │   ├── parser.py           # argparse tree: parent parser + every subcommand
-│       │   └── verbose.py          # --verbose effective-options report
+│       │   └── verbose.py          # --verbose effective-options report (project targets only)
 │       ├── core/                   # Format-neutral data models (no SBOM lib deps)
 │       │   ├── _config_legacy.py   # Migration error checks and constants
 │       │   ├── _config_parse.py    # TOML parser for [tool.pitloom]
@@ -152,7 +154,9 @@ pitloom/
 │       │   ├── dataset_metadata.py # DatasetMetadata
 │       │   ├── document.py         # DocumentModel (assembled, pre-serialization)
 │       │   ├── enrich_config.py    # [tool.pitloom.enrich] / EnrichConfig
+│       │   ├── inert_options.py    # INERT: options a target kind can't act on; forward_options()
 │       │   ├── models.py           # Deterministic UUIDs, Merkle root, SPDX ID generation facade
+│       │   ├── no_effect.py        # warn_no_effect(): the one "has no effect" WARNING: shape
 │       │   ├── project.py          # ProjectMetadata, ProjectFile
 │       │   └── provenance.py       # ProvenanceConfig ([tool.pitloom.provenance])
 │       ├── enrich/                 # Local README/model-card frontmatter enrichment
@@ -191,9 +195,9 @@ pitloom/
 │       ├── loom.py                 # ML tracking SDK facade (Run context manager / decorator)
 │       └── py.typed                # PEP 561 marker
 ├── tests/                          # Mirrors src/pitloom/<package>/ (AGENTS.md Testing section)
-│   ├── assemble/                   # 57 files -- assemble/, embed.py, enrich/ coverage + conftest.py
-│   ├── cli/                        # 14 files -- one per src/pitloom/cli/ module, + shared.py
-│   ├── core/                       # 42 files -- core/, ids.py, loom.py, generator orchestration
+│   ├── assemble/                   # 58 files -- assemble/, embed.py, enrich/ coverage + conftest.py
+│   ├── cli/                        # 20 files -- one per src/pitloom/cli/ module, + shared.py
+│   ├── core/                       # 29 files -- core/, ids.py, loom.py, generator orchestration
 │   │   └── models_wheel/           # Wheel file discovery: backends, build-and-read, build timeout/kill
 │   ├── extract/                    # 46 files, one per extractor
 │   │   └── huggingface/            # 20 files -- split by metadata category
@@ -202,7 +206,8 @@ pitloom/
 │   ├── scripts/                    # Mirrors scripts/: probe, resolver, install and Generate-step tests
 │   ├── build_and_read_shared.py    # Shared fake build, temp-dir and simulated-signal helpers
 │   ├── conftest.py                 # Cross-cutting fixtures (each subfolder has its own too)
-│   └── ids_shared.py               # Shared helpers for ids-registry tests
+│   ├── ids_shared.py               # Shared helpers for ids-registry tests
+│   └── warning_helpers.py          # Shared WARNING:/caplog assertion helpers
 ├── scripts/
 │   ├── action/                     # GitHub Action helpers (install, Python probe/resolver)
 │   ├── check_version_consistency.py  # CI version check; --print-version also used by the action
