@@ -392,12 +392,15 @@ below, which is the actual commitment for what ships before mid-October):
 - [ ] **`embed-wheel --project-dir <sdist>` runs discovery on the
   archive path** (Hatchling fails on it with a `WARNING:`): read the
   sdist's own listing, as `loom project <sdist>` does, or reject it.
-- [ ] **Should a multi-wheel `embed-wheel` resolve "now" once per batch?**
-  The CLI resolves `CreationMetadata` once per batch, but leaves
+- [ ] **Resolve "now" once per batch in multi-wheel `embed-wheel`** --
+  the CLI resolves `CreationMetadata` once per batch but leaves
   `creation_datetime` unset, so each wheel calls `now()` for its own
-  `created`: two SBOMs from one command can differ by a second. Open: pin
-  the batch's `now` once (identical `created`, matching the batch-wide
-  file discovery) or leave per-wheel. Found de-flaking PR #230's tests.
+  `created`: two SBOMs from one command can differ by a second. Decided
+  (leaning): read `now` once, only when neither `creation-datetime` nor
+  `SOURCE_DATE_EPOCH` is set, on both the CLI and the library
+  `file_cache=` path. Still open: `_embed_wheel.py`'s ZIP entry timestamp
+  also calls `now()`; should it share the batch's value? Found de-flaking
+  PR #230.
 
 ### AI model id stability (follow-up to [#178](https://github.com/bact/pitloom/pull/178))
 
