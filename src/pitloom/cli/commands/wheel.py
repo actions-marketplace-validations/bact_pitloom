@@ -22,7 +22,13 @@ from pitloom.cli.commands.utils import _print_sbom_output_path, cli_error_handle
 from pitloom.cli.options import add_offline_argument
 from pitloom.cli.options_config import load_explicit_config, run_options
 from pitloom.core.config import PitloomConfig
-from pitloom.core.inert_options import WHEEL, forward_options
+from pitloom.core.inert_options import (
+    EMBED_STANDALONE,
+    EMBEDDED_SBOM_PARAMS,
+    WHEEL,
+    forward_options,
+    settle_inert,
+)
 from pitloom.export.spdx3_json import SPDX3_JSONLD_EXTENSION
 
 
@@ -48,6 +54,15 @@ def _run_wheel_command(args: argparse.Namespace) -> int:
     options = run_options(args, pitloom_config or PitloomConfig())
 
     embed = getattr(args, "embed", False)
+    if embed:
+        # The same SBOM as embed-wheel embeds: canonical, no relationship
+        # descriptions, no registry harvest. -o writes a copy of it.
+        settle_inert(
+            EMBED_STANDALONE,
+            target,
+            {name: options[name] for name in EMBEDDED_SBOM_PARAMS},
+        )
+        options.update(pretty=False, describe_relationship=False, update_registry=False)
     # With --embed, only write a standalone copy if the user explicitly
     # asked for one via -o; embedding into the wheel is the primary
     # output and shouldn't also litter cwd with a same-named file.

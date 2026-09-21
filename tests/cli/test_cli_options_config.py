@@ -29,8 +29,10 @@ from pitloom.cli.options_config import (
 from pitloom.cli.parser import _build_parser
 from pitloom.core.config import PitloomConfig
 from pitloom.core.config_cascade import ConfigOverrides
-from tests.assemble.conftest import _make_dummy_wheel
+from tests.assemble.conftest import _make_dummy_wheel, _make_sdist
 from tests.assemble.embed_surfaces_shared import demo_project
+from tests.cli.shared import SAFETENSORS_FIXTURE
+from tests.warning_helpers import count_naming, stderr_warnings
 
 
 def _parse(*argv: str) -> argparse.Namespace:
@@ -201,3 +203,23 @@ def test_verbose_labels_setup_cfg_values_by_its_name(
         if line.strip().startswith("creation_comment")
     )
     assert row.rstrip().endswith("[setup.cfg]"), row
+
+
+@pytest.mark.parametrize("command", ["project", "generate", "enrich"])
+def test_use_lockfile_without_a_lock_file_target_warns_once(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    command: str,
+) -> None:
+    """One ``Options:`` line, from the one layer that settles it -- not
+    also from the lock-file resolver the CLI reads the project with."""
+    if command == "enrich":
+        target = str(SAFETENSORS_FIXTURE)
+    else:
+        target = str(_make_sdist(tmp_path))
+    output = str(tmp_path / "o.json")
+    argv = [command, target, "--use-lockfile", "-o", output]
+    assert _loom(argv, monkeypatch) == 0
+    warnings = stderr_warnings(capsys.readouterr().err)
+    assert count_naming(warnings, "--use-lockfile") == 1, warnings

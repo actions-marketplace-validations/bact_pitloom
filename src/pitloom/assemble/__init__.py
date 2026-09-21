@@ -41,7 +41,6 @@ from pitloom.embed import (
     embed_wheel_sbom,
     find_embedded_sbom,
 )
-from pitloom.extract.project import warn_use_lockfile_no_effect
 from pitloom.extract.remote import is_huggingface_source
 from pitloom.ids import IdRegistry
 from pitloom.logging_config import configure_logging
@@ -160,13 +159,6 @@ def generate(
     target_str = str(target).strip()
     classification = _classify_target(target_str)
 
-    if use_lockfile is not None and classification != "project":
-        warn_use_lockfile_no_effect(
-            target_str,
-            "for this target (no lock-file concept applies to env/wheel/"
-            "model-file/Hugging-Face targets)",
-        )
-
     if classification != "project":
         # Reset to defaults too (not just warn): nothing below reuses
         # build_options for a non-project classification, but this keeps
@@ -192,6 +184,7 @@ def generate(
         "update_registry": update_registry,
         "max_source_metadata_bytes": max_source_metadata_bytes,
         "pitloom_config": pitloom_config,
+        "use_lockfile": use_lockfile,
     }
     # Each delegate gets what it accepts; an option it does not accept is
     # settled here, once, with the target kind's reason.
@@ -217,6 +210,5 @@ def generate(
     return generate_project_sbom(
         Path(target_str),
         **options,
-        use_lockfile=use_lockfile,
         build_options=build_options,
     )

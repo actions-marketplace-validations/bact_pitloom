@@ -1,6 +1,7 @@
 # ruff: noqa: F403, F405
 from __future__ import annotations
 
+import functools
 import json
 import logging
 import tempfile
@@ -212,11 +213,14 @@ def test_generate_use_lockfile_warns_for_non_project_target(
     so passing it must log a WARNING: (matching the analogous sdist-archive
     no-op in resolve_project_with_lockfile()) instead of silently
     discarding the caller's explicit instruction."""
-    monkeypatch.setattr(
-        assemble,
-        "generate_env_sbom",
-        lambda **kwargs: "env-sbom",  # noqa: ARG005
-    )
+    real = assemble.generate_env_sbom
+
+    # wraps: the real signature, so generate() sees which options it drops.
+    @functools.wraps(real)
+    def fake(**_kwargs: object) -> str:
+        return "env-sbom"
+
+    monkeypatch.setattr(assemble, "generate_env_sbom", fake)
 
     with caplog.at_level(logging.WARNING):
         assert generate("env", use_lockfile=False) == "env-sbom"

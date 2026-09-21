@@ -73,8 +73,11 @@ and this project adheres to
   `--project-dir` is required to rescan one, else it embeds a
   standalone-wheel SBOM ([#231])
 - `--use-lockfile`/`--no-use-lockfile` given for a target it doesn't
-  apply to now warns with the same `Options:` prefix every other
-  no-effect warning uses ([#231])
+  apply to warns through the same `Options:` table as every other
+  option, once ([#231])
+- `wheel --embed` embeds a canonical SBOM like `embed-wheel`;
+  `--pretty`/`--describe-relationship`/`--update-registry` warn, and `-o`
+  gets a copy of the embedded SBOM ([#231])
 - A relative `--registry` on the command line now resolves against the
   current directory on every command, not the project directory
   ([#231])

@@ -38,8 +38,8 @@ from pitloom.core.config import PitloomConfig
 from pitloom.core.config_cascade import ConfigOverrides
 
 #: Shared flags whose ``argparse`` dest is also the library parameter name.
-#: ``offline`` is per-command (absent on ``enrich``), so it is read with a
-#: ``None`` default like the rest.
+#: ``offline`` and ``use_lockfile`` are per-command (absent on some), so
+#: every one is read with a ``None`` default.
 _SAME_NAME_OPTIONS = (
     "pretty",
     "describe_relationship",
@@ -51,6 +51,7 @@ _SAME_NAME_OPTIONS = (
     "offline",
     "registry",
     "update_registry",
+    "use_lockfile",
 )
 
 #: The creator/creation flags' dests: any one given means "creation

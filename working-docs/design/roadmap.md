@@ -731,11 +731,10 @@ be built:
   Decide whether that is intended (a registry is minted once) or should
   be derived like an SBOM's namespace.
 
-- [ ] **13 small findings from the `--config`/`pitloom_config=` change**
-  (a `-v`/Hatchling-hook/`wheel --embed` reporting gap each, a latent
-  import cycle, an sdist's config never read, a widened id-minting
-  collision, and more), each still small/independent. See
-  [config-sources.md](../implementation/config-sources.md#found-not-fixed-here).
+- [ ] **11 small findings from the `--config`/`pitloom_config=` change**
+  (a `-v`/Hatchling-hook gap, an import cycle, a widened id-minting
+  collision, ...). See [config-sources.md](../implementation/config-sources.md#found-not-fixed-here).
+  An sdist's own config: **step 6.5**, [sdist-own-config.md](sdist-own-config.md).
 
 ### Internal codenames
 

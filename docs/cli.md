@@ -183,6 +183,11 @@ Or use `--embed` directly on `loom wheel`:
 loom wheel dist/mypackage-1.0.0-py3-none-any.whl --embed
 ```
 
+It embeds the same kind of SBOM `embed-wheel` does: RFC 8785 canonical
+JSON, no relationship descriptions, no registry update -- so `--pretty`,
+`--describe-relationship` and `--update-registry` warn and have no
+effect, and `-o FILE` writes a copy of exactly what was embedded.
+
 Generate a **Deployed SBOM** reflecting the exact installed environment
 graph:
 
@@ -409,12 +414,13 @@ and drops it, rather than silently ignoring it:
 | Target | Options that warn |
 | --- | --- |
 | project directory | — |
-| sdist archive | `--enrich`, `--extract-file-header`, `--content-type` |
-| wheel | `--enrich`, `--extract-file-header`, `--content-type` |
-| installed environment | `--enrich`, `--extract-file-header`, `--content-type` |
-| local model file | `--extract-file-header`, `--content-type`, `--content-type-method`, `--offline`, `--update-registry` |
-| Hugging Face model | `--enrich`, `--extract-file-header`, `--content-type`, `--content-type-method`, `--registry`, `--update-registry` |
-| enrich fragment | `--describe-relationship`, `--extract-file-header`, `--content-type`, `--content-type-method`, `--max-source-metadata-bytes`, `--update-registry` |
+| sdist archive | `--enrich`, `--extract-file-header`, `--content-type`, `--use-lockfile` |
+| wheel | `--enrich`, `--extract-file-header`, `--content-type`, `--use-lockfile` |
+| installed environment | `--enrich`, `--extract-file-header`, `--content-type`, `--use-lockfile` |
+| local model file | `--extract-file-header`, `--content-type`, `--content-type-method`, `--offline`, `--use-lockfile`, `--update-registry` |
+| Hugging Face model | `--enrich`, `--extract-file-header`, `--content-type`, `--content-type-method`, `--use-lockfile`, `--registry`, `--update-registry` |
+| enrich --project-dir | `--describe-relationship`, `--extract-file-header`, `--content-type`, `--content-type-method`, `--max-source-metadata-bytes`, `--update-registry` |
+| enrich without --project-dir | `--describe-relationship`, `--extract-file-header`, `--content-type`, `--content-type-method`, `--max-source-metadata-bytes`, `--use-lockfile`, `--update-registry` |
 | embed-wheel --project-dir | `--pretty`, `--describe-relationship`, `--update-registry` |
 | embed-wheel without --project-dir | `--pretty`, `--describe-relationship`, `--enrich`, `--extract-file-header`, `--content-type`, `--update-registry` |
 | embed-wheel --sbom | `--pretty`, `--describe-relationship`, `--enrich`, `--extract-file-header`, `--content-type`, `--content-type-method`, `--max-source-metadata-bytes`, `--offline`, `--registry`, `--update-registry`, `--creator-*`, `--config` |
@@ -425,9 +431,9 @@ names whichever spelling was actually given.
 
 `--describe-relationship` warning on `embed-wheel`/`enrich` is a current
 decision, not a permanent one -- it may change in a future release.
-`--use-lockfile`/`--no-use-lockfile` warns with the same `Options:`
-wording on a target it doesn't apply to, but isn't part of this table
-(it isn't offered as a flag on those subcommands at all -- see above).
+`--use-lockfile` is offered only by `project`, `generate` and `enrich`;
+the rows list it for the targets those commands (or the library's
+`use_lockfile=`) can reach without a lock-file cascade.
 `--allow-build`/`--no-build-isolation`/`--build-timeout` have their own,
 separate no-effect warning -- see [Building a project to discover its
 file list](allow-build.md).

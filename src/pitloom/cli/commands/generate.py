@@ -70,7 +70,6 @@ def _run_generate_command(args: argparse.Namespace) -> int:
     pitloom_config = load_explicit_config(args)
     generate(
         args.target,
-        use_lockfile=args.use_lockfile,
         output_path=args.output,
         build_options=build_options,
         pitloom_config=pitloom_config,

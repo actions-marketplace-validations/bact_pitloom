@@ -42,6 +42,7 @@ ENV = "env"
 MODEL_FILE = "model_file"
 HF = "hf"
 ENRICH = "enrich"
+ENRICH_STANDALONE = "enrich_standalone"
 EMBED_PROJECT = "embed_project"
 EMBED_STANDALONE = "embed_standalone"
 EMBED_SBOM = "embed_sbom"
@@ -58,6 +59,7 @@ PARAM_TO_FLAG: dict[str, str] = {
     "content_type_method": "--content-type-method",
     "max_source_metadata_bytes": "--max-source-metadata-bytes",
     "offline": "--offline/--no-offline",
+    "use_lockfile": "--use-lockfile/--no-use-lockfile",
     "registry": "--registry",
     "update_registry": "--update-registry/--no-update-registry",
     "creation_metadata": "--creator-*/--creation-*",
@@ -75,6 +77,14 @@ _SDIST_NO_MODELS = (
     "for an sdist archive target (AI models are scanned in a project directory only)"
 )
 _NO_MODELS = "for this target (it has no AI models to enrich)"
+_NO_LOCKFILE = (
+    "for this target (no lock-file concept applies to env/wheel/"
+    "model-file/Hugging-Face targets)"
+)
+_SDIST_NO_LOCKFILE = (
+    "for an sdist archive target (no lock/pin cascade support for archives yet)"
+)
+_FRAGMENT_NO_LOCKFILE = "without --project-dir (no base document identity is computed)"
 _NO_HARVEST = "for this target (it never writes ids back to a registry)"
 _MODEL_NO_DEPENDENCIES = (
     "for a model file (no files or dependencies here for a content-type "
@@ -100,6 +110,8 @@ _EMBED_NO_DESCRIBE = (
 )
 
 _FILE_SCAN = ("extract_file_header", "content_type")
+#: Options no wheel-embedded SBOM can use, however it is embedded
+#: (``embed-wheel`` or ``wheel --embed``).
 _EMBED_COMMON: dict[str, str] = {
     "pretty": _EMBED_CANONICAL,
     "describe_relationship": _EMBED_NO_DESCRIBE,
@@ -111,25 +123,45 @@ _MODEL_FILE_ROW: dict[str, str] = {
     "update_registry": _NO_HARVEST,
 }
 
+_ENRICH_ROW: dict[str, str] = {
+    **dict.fromkeys(_FILE_SCAN, _NO_FILE_SCAN),
+    "describe_relationship": _FRAGMENT_NO_DESCRIBE,
+    "content_type_method": _MODEL_NO_DEPENDENCIES,
+    "max_source_metadata_bytes": _FRAGMENT_NO_SOURCE_METADATA,
+    "update_registry": _NO_HARVEST,
+}
+
 #: Target kind -> {parameter: reason it has no effect there}.
 INERT: dict[str, dict[str, str]] = {
     PROJECT: {},
-    SDIST: {**dict.fromkeys(_FILE_SCAN, _SDIST_FILE_SCAN), "enrich": _SDIST_NO_MODELS},
-    WHEEL: {**dict.fromkeys(_FILE_SCAN, _NO_FILE_SCAN), "enrich": _NO_MODELS},
-    ENV: {**dict.fromkeys(_FILE_SCAN, _NO_FILE_SCAN), "enrich": _NO_MODELS},
-    MODEL_FILE: {**_MODEL_FILE_ROW, "offline": _MODEL_NO_NETWORK},
+    SDIST: {
+        **dict.fromkeys(_FILE_SCAN, _SDIST_FILE_SCAN),
+        "enrich": _SDIST_NO_MODELS,
+        "use_lockfile": _SDIST_NO_LOCKFILE,
+    },
+    WHEEL: {
+        **dict.fromkeys(_FILE_SCAN, _NO_FILE_SCAN),
+        "enrich": _NO_MODELS,
+        "use_lockfile": _NO_LOCKFILE,
+    },
+    ENV: {
+        **dict.fromkeys(_FILE_SCAN, _NO_FILE_SCAN),
+        "enrich": _NO_MODELS,
+        "use_lockfile": _NO_LOCKFILE,
+    },
+    MODEL_FILE: {
+        **_MODEL_FILE_ROW,
+        "offline": _MODEL_NO_NETWORK,
+        "use_lockfile": _NO_LOCKFILE,
+    },
     HF: {
         **_MODEL_FILE_ROW,
         "enrich": _HF_NO_LOCAL_ENRICH,
         "registry": _HF_NO_REGISTRY,
+        "use_lockfile": _NO_LOCKFILE,
     },
-    ENRICH: {
-        **dict.fromkeys(_FILE_SCAN, _NO_FILE_SCAN),
-        "describe_relationship": _FRAGMENT_NO_DESCRIBE,
-        "content_type_method": _MODEL_NO_DEPENDENCIES,
-        "max_source_metadata_bytes": _FRAGMENT_NO_SOURCE_METADATA,
-        "update_registry": _NO_HARVEST,
-    },
+    ENRICH: _ENRICH_ROW,
+    ENRICH_STANDALONE: {**_ENRICH_ROW, "use_lockfile": _FRAGMENT_NO_LOCKFILE},
     EMBED_PROJECT: dict(_EMBED_COMMON),
     EMBED_STANDALONE: {
         **_EMBED_COMMON,
@@ -152,6 +184,11 @@ INERT: dict[str, dict[str, str]] = {
         **_EMBED_COMMON,
     },
 }
+
+
+#: The parameters of :data:`_EMBED_COMMON`, for a caller that embeds by
+#: another route than :func:`pitloom.embed.embed_wheel_sbom`.
+EMBEDDED_SBOM_PARAMS = tuple(_EMBED_COMMON)
 
 
 def settle_inert(
@@ -226,7 +263,9 @@ __all__ = [
     "EMBED_PROJECT",
     "EMBED_SBOM",
     "EMBED_STANDALONE",
+    "EMBEDDED_SBOM_PARAMS",
     "ENRICH",
+    "ENRICH_STANDALONE",
     "ENV",
     "HF",
     "INERT",

@@ -20,7 +20,7 @@ from pitloom.cli.commands.utils import cli_error_handler
 from pitloom.cli.options import add_use_lockfile_argument
 from pitloom.cli.options_config import load_explicit_config, run_options
 from pitloom.core.config import PitloomConfig
-from pitloom.core.inert_options import ENRICH, forward_options
+from pitloom.core.inert_options import ENRICH, ENRICH_STANDALONE, forward_options
 from pitloom.export.spdx3_json import SPDX3_JSONLD_EXTENSION
 
 
@@ -53,9 +53,13 @@ def _run_enrich_command(args: argparse.Namespace) -> int:
         model_path,
         output_path=output_path,
         project_target=args.project_dir,
-        use_lockfile=args.use_lockfile,
         pitloom_config=pitloom_config,
-        **forward_options(ENRICH, str(model_path), enrich_model, options),
+        **forward_options(
+            ENRICH if args.project_dir else ENRICH_STANDALONE,
+            str(model_path),
+            enrich_model,
+            options,
+        ),
     )
     print(f"Enrichment fragment written to: {output_path}")
     print(

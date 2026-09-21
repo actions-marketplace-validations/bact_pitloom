@@ -20,7 +20,6 @@ import logging
 from pathlib import Path
 
 from pitloom.core.config import PitloomConfig
-from pitloom.core.no_effect import INERT_LOG_PREFIX, warn_no_effect
 from pitloom.core.project import (
     ProjectMetadata,
     is_sdist_archive,
@@ -37,22 +36,6 @@ from pitloom.extract.project.sdist import read_sdist
 from pitloom.extract.project.setuptools import read_setuptools
 
 log = logging.getLogger(__name__)
-
-
-def warn_use_lockfile_no_effect(subject: object, reason: str) -> None:
-    """Log the shared ``WARNING:`` for an explicit ``--use-lockfile``/
-    ``--no-use-lockfile`` (or the equivalent ``use_lockfile=`` library-API
-    argument) given for a target/mode the setting doesn't apply to.
-
-    *reason* is spliced in after "has no effect" (its own leading space,
-    no trailing punctuation) -- called from every no-op case: an sdist
-    archive target (:func:`resolve_project_with_lockfile` below), a non-
-    project :func:`~pitloom.assemble.generate` target, and
-    :func:`~pitloom.assemble.enrich_model` without ``--project-dir``.
-    """
-    warn_no_effect(
-        INERT_LOG_PREFIX, subject, ("--use-lockfile/--no-use-lockfile",), reason
-    )
 
 
 # pylint: disable-next=too-many-arguments,too-many-positional-arguments
@@ -319,12 +302,6 @@ def resolve_project_with_lockfile(
     separate tradeoff of its own.
     """
     if is_sdist_archive(project_path):
-        if use_lockfile is not None:
-            warn_use_lockfile_no_effect(
-                project_path,
-                "for an sdist archive target (no lock/pin cascade support "
-                "for archives yet)",
-            )
         return _with_config(read_project(project_path), explicit_config)
 
     if use_lockfile is None and explicit_config is not None:
@@ -366,5 +343,4 @@ def _with_config(
 __all__ = [
     "read_project",
     "resolve_project_with_lockfile",
-    "warn_use_lockfile_no_effect",
 ]

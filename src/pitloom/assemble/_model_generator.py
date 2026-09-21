@@ -16,16 +16,21 @@ from pitloom.assemble.spdx3.document import build_enrichment_fragment, build_mod
 from pitloom.core.config import PitloomConfig
 from pitloom.core.config_cascade import ConfigOverrides, resolve_standalone_config
 from pitloom.core.creation import CreationMetadata
-from pitloom.core.inert_options import HF, MODEL_FILE, settle_inert
+from pitloom.core.inert_options import (
+    ENRICH_STANDALONE,
+    HF,
+    MODEL_FILE,
+    SDIST,
+    settle_inert,
+)
 from pitloom.core.models import compute_doc_uuid, get_wheel_files
-from pitloom.core.project import ProjectMetadata
+from pitloom.core.project import ProjectMetadata, is_sdist_archive
 from pitloom.core.provenance import ProvenanceConfig
 from pitloom.enrich import run_enrichers
 from pitloom.enrich.base import EnrichmentResult
 from pitloom.extract.ai_model import read_ai_model
 from pitloom.extract.project import (
     resolve_project_with_lockfile,
-    warn_use_lockfile_no_effect,
 )
 from pitloom.extract.remote import is_huggingface_source, read_huggingface
 from pitloom.ids import IdRegistry, resolve_explicit_registry, resolve_registry
@@ -232,11 +237,13 @@ def enrich_model(
     enrich_config = dataclasses.replace(cfg.enrich, local=enrich is not False)
     results = run_enrichers(model, enrich_config, model_path.parent)
 
-    if use_lockfile is not None and project_target is None:
-        warn_use_lockfile_no_effect(
-            source_str,
-            "without --project-dir (no base document identity is computed)",
-        )
+    # The CLI passes use_lockfile through, so this is the one layer that
+    # settles it (an sdist project target settles it as a project would).
+    if project_target is None:
+        settle_inert(ENRICH_STANDALONE, source_str, {"use_lockfile": use_lockfile})
+    elif is_sdist_archive(Path(project_target)):
+        settle_inert(SDIST, project_target, {"use_lockfile": use_lockfile})
+        use_lockfile = None
     if project_target is None:
         base_doc_identity = None
         resolved_registry = resolve_explicit_registry(registry, cfg.ids_file)

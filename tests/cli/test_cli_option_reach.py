@@ -87,8 +87,6 @@ _OUTSIDE: dict[str, str] = {
     "--verbose": "prints the resolved settings; changes no library call",
     "--embed": "wheel-only mode switch, not a shared generation option",
     "--project-dir": "selects the target itself (enrich, embed-wheel)",
-    "--use-lockfile": "per-command flag with its own no-effect warning, "
-    "covered by the lock-file tests",
     "--allow-build": "build flag: tests/test_build_flag_warnings.py",
     "--no-build-isolation": "build flag: tests/test_build_flag_warnings.py",
     "--build-timeout": "build flag: tests/test_build_flag_warnings.py",

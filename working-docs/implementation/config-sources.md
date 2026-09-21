@@ -31,8 +31,8 @@ only a project directory's own `pyproject.toml` was reachable.
 
 - **Precedence**: per-run flag/parameter > `--config FILE`/
   `pitloom_config=` > the target's own `[tool.pitloom]` (project
-  directory, sdist -- see below, `embed-wheel --project-dir`, the
-  Hatchling hook only) > hardcoded default.
+  directory, `embed-wheel --project-dir`, the Hatchling hook only; an
+  sdist's is not read yet -- step 6.5) > hardcoded default.
 - **Replace, not merge**: `--config`/`pitloom_config=` replaces the
   target's own config outright. A field the given config leaves unset
   reverts to the built-in default, never to the target's own value --
@@ -50,7 +50,8 @@ only a project directory's own `pyproject.toml` was reachable.
 - **`INERT` by target kind, not by command**: `core/inert_options.py`
   keys the "options that don't apply" table by target kind (`PROJECT`,
   `SDIST`, `WHEEL`, `ENV`, `MODEL_FILE`, `HF`, `ENRICH`,
-  `EMBED_PROJECT`, `EMBED_STANDALONE`, `EMBED_SBOM`), not by CLI
+  `ENRICH_STANDALONE`, `EMBED_PROJECT`, `EMBED_STANDALONE`,
+  `EMBED_SBOM`), not by CLI
   subcommand, so `loom wheel`, `loom generate x.whl` and
   `generate("x.whl")` share one row and one wording. `PARAM_TO_FLAG`
   gives each library parameter's CLI spelling for the warning; a
@@ -67,7 +68,7 @@ only a project directory's own `pyproject.toml` was reachable.
   wiring bug (`ValueError`), not a silent drop.
 - **A whole-batch warning fires once, not once per wheel**:
   `embed-wheel`'s `_settle_batch_options()` settles every option before
-  the per-wheel loop starts, mirroring `EmbedFileCache.once()` for the
+  the per-wheel loop starts, as `EmbedFileCache.settle()` does for the
   build flags. `_generate_embed_sbom_json()`'s own `_settle_embed_options()`
   uses `EmbedFileCache.once()` too when a cache is given, keyed on the
   inert set and on the byte cap, so a shared batch warns once for the
@@ -102,6 +103,19 @@ only a project directory's own `pyproject.toml` was reachable.
   metadata -- only its `[tool.pitloom]` is swapped in afterward
   (`_with_config()`). A malformed target `pyproject.toml` still raises
   even under `project --config C`, since the real read runs regardless.
+- **`--use-lockfile` is an `INERT` option like the rest.** The resolver
+  (`resolve_project_with_lockfile()`) no longer warns; the layer holding
+  the user's value settles it -- `generate()` via `forward_options()`,
+  `generate_project_sbom()` for an sdist, `enrich_model()` without
+  `--project-dir` (kind `ENRICH_STANDALONE`). One ordering and one
+  wording everywhere, and the reach matrix covers it.
+- **`wheel --embed` embeds what `embed-wheel` embeds**: the
+  `EMBEDDED_SBOM_PARAMS` (`pretty`, `describe_relationship`,
+  `update_registry`) are settled with `embed-wheel`'s reasons, then
+  forced off, so `-o` writes a copy of the embedded bytes. Rejected:
+  a pretty `-o` plus a canonical embedded copy -- two different SBOMs
+  from one run, and `describe_relationship` changes content, not only
+  formatting.
 
 ## Tests
 
@@ -113,10 +127,15 @@ only a project directory's own `pyproject.toml` was reachable.
   `pyproject.toml`/`loom-ids.json` from the current directory.
 - `tests/assemble/test_generator_no_implicit_config.py` -- the same
   guarantee at the library level, per generator function.
-- `tests/assemble/test_explicit_config_edges.py` -- `--config`/
-  `pitloom_config=` edge cases: missing file, directory, non-UTF-8,
-  invalid TOML, no `[tool.pitloom]` table, relative `ids-file`
-  resolution, replace-not-merge.
+- `tests/assemble/test_explicit_config_edges.py` -- library edge cases:
+  an explicit config's `use-lockfile` in every lock-file decision
+  (including `enrich`'s base identity and registry), an sdist's inert
+  `enrich`/registry, one warning per embed batch.
+- `tests/core/test_config_cascade.py` -- `load_config_file()`: missing
+  file, directory, non-UTF-8, invalid TOML, no `[tool.pitloom]` table,
+  relative `ids-file` (and through a symlink).
+- `tests/core/test_inert_options.py` -- `INERT` against the
+  `docs/cli.md` table, and every warned flag exists on the CLI.
 - Manual check 12 in
   [manual-cli-checks.md](manual-cli-checks.md#the-checks) runs the same
   no-implicit-config guarantee against the real `loom` entry point (a
@@ -161,14 +180,6 @@ only a project directory's own `pyproject.toml` was reachable.
   `core.config`. Not exercised today only because `core.config` happens
   to finish importing before `extract` does in every current entry
   point.
-- **`--use-lockfile`'s no-effect warning stays outside `INERT`.** It
-  uses the same `Options:` prefix now, but is settled by
-  `warn_use_lockfile_no_effect()` in `extract/project/reader.py`, not by
-  `settle_inert()` -- a CLI target that never offers the flag (`wheel`,
-  `model`, `env`, `embed-wheel`) can't warn about it at all, so there is
-  no `INERT` row for it; `generate()`/`enrich_model()` order the
-  sdist-archive warning differently between the CLI and the library
-  path.
 - **`embed-wheel --project-dir D --sbom FILE` drops `D` silently.**
   `--sbom` takes the `EMBED_SBOM` kind regardless of whether
   `--project-dir` was also given, and `_generate_embed_sbom_json()`
@@ -188,16 +199,12 @@ only a project directory's own `pyproject.toml` was reachable.
   (`pretty=False`) JSON with no relationship descriptions, per PEP 770,
   regardless of what the project's own config sets (already noted in
   the hook's own docstring, `plugins/hatch.py`).
-- **`loom wheel --embed` embeds the `-o`-shaped SBOM**, unlike
-  `embed-wheel`'s own path (always canonical). `--pretty`/
-  `--describe-relationship` reach the embedded copy with no warning,
-  since `--embed` on `wheel` is deliberately the wheel's own SBOM as
-  generated for `-o`, not `embed-wheel`'s stricter always-canonical
-  contract.
 - **An sdist archive's own `[tool.pitloom]` is never read.** Its
   bundled `pyproject.toml`/`PKG-INFO` is read for project metadata
   only; `read_project()` returns `PitloomConfig()` (defaults) for an
   sdist target. Only `--config`/`pitloom_config=` can set one.
+  Planned as step 6.5, with the next item:
+  [sdist-own-config.md](../design/sdist-own-config.md).
 - **An invalid target `[tool.pitloom]` still fails `project --config
   C`.** `resolve_project_with_lockfile()`'s real metadata read
   (`read_project()`/`read_pyproject()`) always runs first and can raise
