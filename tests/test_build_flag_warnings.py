@@ -34,7 +34,6 @@ from __future__ import annotations
 import itertools
 import json
 import logging
-import sys
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
@@ -42,7 +41,6 @@ from typing import Any, NamedTuple
 
 import pytest
 
-from pitloom import __main__
 from pitloom.assemble import generate, generate_project_sbom
 from pitloom.core._models_wheel_dispatch import _discover_included_files
 from pitloom.core._models_wheel_types import BuildSettings
@@ -50,6 +48,7 @@ from pitloom.core.build_options import BuildOptions
 from pitloom.core.models import get_wheel_files
 from pitloom.embed import ConfigOverrides, EmbedFileCache, embed_wheel_sbom
 from tests.assemble.conftest import _make_dummy_wheel, _make_sdist
+from tests.assemble.embed_surfaces_shared import run_cli as _run_cli
 from tests.extract.conftest import make_hook, write_pyproject
 
 _FLAGS = ("--allow-build", "--no-build-isolation", "--build-timeout")
@@ -172,11 +171,6 @@ def _target(env: _Env, kind: str) -> str:
     if kind == "hf":
         return _HF_URL
     raise AssertionError(f"no runner support for target kind {kind!r}")
-
-
-def _run_cli(argv: list[str], monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(sys, "argv", ["loom", *argv])
-    assert __main__.main() == 0
 
 
 def _cli_target_argv(env: _Env, kind: str, mp: pytest.MonkeyPatch) -> list[str]:
