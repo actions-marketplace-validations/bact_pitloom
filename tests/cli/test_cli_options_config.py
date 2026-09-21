@@ -223,3 +223,57 @@ def test_use_lockfile_without_a_lock_file_target_warns_once(
     assert _loom(argv, monkeypatch) == 0
     warnings = stderr_warnings(capsys.readouterr().err)
     assert count_naming(warnings, "--use-lockfile") == 1, warnings
+
+
+_FRAGMENT = (
+    Path(__file__).resolve().parents[1]
+    / "fixtures"
+    / "fragments"
+    / "dataset-fragment.spdx3.json"
+)
+
+
+def test_config_fragment_path_resolves_beside_the_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every relative path in a ``--config`` file means the file beside it,
+    as ``ids-file`` does, and no machine-specific directory leaks into
+    the SBOM."""
+    project = demo_project(tmp_path)
+    config_dir = tmp_path / "ci"
+    config_dir.mkdir()
+    (config_dir / "frag.spdx3.json").write_bytes(_FRAGMENT.read_bytes())
+    config = config_dir / "c.toml"
+    config.write_text(
+        '[tool.pitloom.fragment]\nfiles = [{ path = "frag.spdx3.json", '
+        "required = true }]\n",
+        encoding="utf-8",
+    )
+    output = tmp_path / "o.json"
+    monkeypatch.chdir(tmp_path)
+    argv = ["project", str(project), "--config", str(config), "--offline"]
+
+    assert _loom([*argv, "-o", str(output)], monkeypatch) == 0
+
+    sbom = output.read_text(encoding="utf-8")
+    assert "DataCurator" in sbom  # merged (and required, so not skipped)
+    assert str(config_dir) not in sbom
+
+
+def test_verbose_on_sdist_names_no_config_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """An sdist's own [tool.pitloom] is not read, so ``-v`` must not name the
+    archive as the config file."""
+    sdist = _make_sdist(tmp_path)
+    argv = ["project", str(sdist), "-v", "-o", str(tmp_path / "o.json")]
+    assert _loom(argv, monkeypatch) == 0
+    row = next(
+        line
+        for line in capsys.readouterr().out.splitlines()
+        if line.strip().startswith("Config file")
+    )
+    assert "(none)" in row
+    assert sdist.name not in row

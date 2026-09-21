@@ -103,10 +103,22 @@ __all__ = [
     "_rewrite_wheel_archive",
     "_update_record_lines",
     "_validate_sbom_filename",
+    "embed_filename",
     "embed_sbom_in_wheel",
     "embed_wheel_sbom",
     "find_embedded_sbom",
 ]
+
+
+def embed_filename(sbom_basename: str | None) -> str | None:
+    """The file name an SBOM is embedded under for *sbom_basename*
+    (``--sbom-basename``/``[tool.pitloom] sbom-basename``), or ``None`` for
+    the default name. Shared by ``embed-wheel`` and ``wheel --embed``."""
+    if not sbom_basename:
+        return None
+    return (
+        f"{sbom_basename.removesuffix(SPDX3_JSONLD_EXTENSION)}{SPDX3_JSONLD_EXTENSION}"
+    )
 
 
 def _enforce_sbom_name_version(
@@ -232,14 +244,8 @@ def embed_wheel_sbom(
             sbom_json,
             allow_mismatch=allow_mismatch,
         )
-    target_filename = (
-        f"{eff_basename.removesuffix(SPDX3_JSONLD_EXTENSION)}{SPDX3_JSONLD_EXTENSION}"
-        if eff_basename
-        else None
-    )
-
     res_path, arcname, removed_arcnames, timestamp_floored = embed_sbom_in_wheel(
-        wheel_obj, sbom_json, sbom_filename=target_filename
+        wheel_obj, sbom_json, sbom_filename=embed_filename(eff_basename)
     )
 
     if output_path is not None:

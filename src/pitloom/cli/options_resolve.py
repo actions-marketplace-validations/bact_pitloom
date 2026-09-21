@@ -233,6 +233,8 @@ def _resolve_project_generation_settings(
     )
     if explicit is not None:
         config_path = args.config
+    elif is_sdist_archive(project_dir):
+        config_path = None  # an sdist's own [tool.pitloom] is not read
     creation = _resolve_creation_metadata(
         args, pitloom_config, config_source_label(config_path)
     )

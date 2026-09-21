@@ -269,8 +269,9 @@ def resolve_project_with_lockfile(
 
     *explicit_config* (``--config``, ``pitloom_config=``) replaces the
     project's own ``[tool.pitloom]`` and is returned as the config; the
-    returned path is still the project's own. Its ``use-lockfile`` is not a
-    given ``--use-lockfile``: an sdist does not warn about it.
+    returned path is still the project's own. This function never warns:
+    a given *use_lockfile* that has no effect (an sdist) is settled by the
+    caller's inert-option check.
 
     The cascade decision has to be known before the real metadata read
     runs, but ``[tool.pitloom] use-lockfile`` only becomes known *from* a
@@ -288,8 +289,10 @@ def resolve_project_with_lockfile(
     *include_locked_dependencies* for sdist targets (no lock/pin cascade
     support for archives yet), so peeking would always see the cascade as
     "on" and re-read (and re-extract the archive) for an identical result.
-    Shared by :func:`pitloom.assemble.generate_project_sbom` and
-    ``pitloom.cli.commands.project._run_project_command`` so the resolution
+    Shared by :func:`pitloom.assemble.generate_project_sbom`,
+    :func:`pitloom.assemble.enrich_model` and
+    ``pitloom.cli.options_resolve._resolve_project_generation_settings`` so
+    the resolution
     logic (and its remaining double-parse tradeoff for the on-cascade,
     non-sdist case -- an accepted cost, see
     ``working-docs/implementation/lock-file-cascade.md``) exists in one

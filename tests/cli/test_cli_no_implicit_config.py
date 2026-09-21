@@ -241,7 +241,9 @@ def test_config_replaces_the_projects_own(
 
     assert b"from-project" in own
     assert b"from-project" not in replaced
-    assert replaced.startswith(b"{\n  "), "the explicit config did not apply"
+    # pretty: indented (the line ending is the platform's, CRLF on Windows)
+    assert b'\n  "@context"' in replaced, "the explicit config did not apply"
+    assert b'\n  "@context"' not in own
 
 
 @pytest.mark.parametrize("command", ["wheel", "project"])

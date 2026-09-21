@@ -36,6 +36,7 @@ from pitloom.cli.options_resolve import (
 from pitloom.core.build_options import BuildOptions
 from pitloom.core.config import PitloomConfig
 from pitloom.core.config_cascade import ConfigOverrides
+from pitloom.core.no_effect import INERT_LOG_PREFIX, warn_no_effect
 
 #: Shared flags whose ``argparse`` dest is also the library parameter name.
 #: ``offline`` and ``use_lockfile`` are per-command (absent on some), so
@@ -93,6 +94,17 @@ def run_options(args: argparse.Namespace, config: PitloomConfig) -> dict[str, An
     return options
 
 
+def explicit_config_and_options(
+    args: argparse.Namespace,
+) -> tuple[PitloomConfig | None, dict[str, Any]]:
+    """``--config`` (``None`` when not given) and :func:`run_options`
+    resolved against it -- the pair every command without a project of its
+    own starts from, since only an explicitly named config applies there.
+    """
+    explicit = load_explicit_config(args)
+    return explicit, run_options(args, explicit or PitloomConfig())
+
+
 def overrides_from_options(
     options: dict[str, Any], build_options: BuildOptions = BuildOptions()
 ) -> ConfigOverrides:
@@ -111,6 +123,16 @@ def overrides_from_options(
         max_source_metadata_bytes=options["max_source_metadata_bytes"],
         build_options=build_options,
     )
+
+
+def warn_verbose_no_effect(
+    args: argparse.Namespace, subject: object, reason: str
+) -> None:
+    """Warn, in the shared no-effect wording, when ``-v`` was given to a
+    command path that prints no verbose details. ``-v`` is CLI-only, so it
+    is not an :data:`~pitloom.core.inert_options.INERT` parameter."""
+    if getattr(args, "verbose", False):
+        warn_no_effect(INERT_LOG_PREFIX, subject, ("-v/--verbose",), reason)
 
 
 def add_config_argument(parser: argparse.ArgumentParser) -> None:
@@ -133,7 +155,9 @@ def add_config_argument(parser: argparse.ArgumentParser) -> None:
 __all__ = [
     "add_config_argument",
     "creation_flags_given",
+    "explicit_config_and_options",
     "load_explicit_config",
     "overrides_from_options",
     "run_options",
+    "warn_verbose_no_effect",
 ]

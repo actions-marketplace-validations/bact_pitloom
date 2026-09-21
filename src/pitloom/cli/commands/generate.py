@@ -23,9 +23,11 @@ from pitloom.cli.options import (
     add_use_lockfile_argument,
     build_options_from_args,
 )
-from pitloom.cli.options_config import load_explicit_config, run_options
+from pitloom.cli.options_config import (
+    explicit_config_and_options,
+    warn_verbose_no_effect,
+)
 from pitloom.core.build_options import NON_PROJECT_TARGET_REASON
-from pitloom.core.config import PitloomConfig
 
 
 @cli_error_handler("SBOM generation failed")
@@ -67,13 +69,19 @@ def _run_generate_command(args: argparse.Namespace) -> int:
     build_options = build_options_from_args(args).settle_not_applicable(
         target, NON_PROJECT_TARGET_REASON
     )
-    pitloom_config = load_explicit_config(args)
+    warn_verbose_no_effect(
+        args,
+        target,
+        "for this target under 'generate' (the target's own command, e.g. "
+        "'loom wheel -v', prints them)",
+    )
+    pitloom_config, options = explicit_config_and_options(args)
     generate(
         args.target,
         output_path=args.output,
         build_options=build_options,
         pitloom_config=pitloom_config,
-        **run_options(args, pitloom_config or PitloomConfig()),
+        **options,
     )
     _print_sbom_output_path(args.output)
     return 0

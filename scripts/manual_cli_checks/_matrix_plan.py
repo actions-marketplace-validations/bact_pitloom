@@ -203,6 +203,8 @@ PLAN: dict[str | tuple[str, str], str | list[Variant]] = {
         _v("--describe-relationship", "same", "--describe-relationship"),
         _v("--no-describe-relationship", "same", "--no-describe-relationship"),
     ],
+    # embed-wheel prints no verbose details, and says so.
+    ("embed-wheel", "-v"): [_v("-v", "warns:-v", "-v")],
     "<target>": f"exclude:{_TARGET}",
     "<project_dir>": f"exclude:{_TARGET}",
     "<wheel_files>": f"exclude:{_TARGET}",

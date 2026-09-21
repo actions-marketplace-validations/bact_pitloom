@@ -134,8 +134,9 @@ Steps:
    regenerate the base SBOM and re-run enrichment before merging again.
 
    **Dangling references can also come from a registry mismatch, not
-   just a Pitloom upgrade:** `project`/`wheel`/`env` auto-harvest ids
-   into a Loom ID registry file so ids normally stay stable across
+   just a Pitloom upgrade:** `project`/`wheel`/`env` harvest ids into a
+   Loom ID registry file (`project` finds one in the project;
+   `wheel`/`env` need `--registry`) so ids normally stay stable across
    reruns without any action needed (see `sbom-generate`'s "Why element
    ids stay stable across reruns" section) -- but if a different
    `--registry` file was used (or none) between the base-SBOM run and

@@ -445,7 +445,7 @@ def merge_fragments(
     unmet_required: list[str] = []
 
     for frag in fragments:
-        fragment_path = project_dir / frag.path
+        fragment_path = Path(frag.base_dir or project_dir) / frag.path
         if _fragment_is_missing(fragment_path):
             log.warning(
                 _missing_fragment_message(fragment_path, required=frag.required)

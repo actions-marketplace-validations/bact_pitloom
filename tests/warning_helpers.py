@@ -25,7 +25,7 @@ from collections.abc import Iterable
 
 import pytest
 
-_OPTIONS_WARNING = re.compile(r"Options: .*?: (--\S+) has no effect ")
+_OPTIONS_WARNING = re.compile(r"Options: .*?: (-\S+) has no effect ")
 
 
 def names_option(spelling: str, option: str) -> bool:

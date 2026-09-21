@@ -125,6 +125,13 @@ re-reads `project_target`'s metadata fresh, but with the project's own
 `--max-source-metadata-bytes` on the CLI (see [Metadata
 provenance](metadata-provenance.md)).
 
+A relative `registry=` path resolves against the project directory for
+a project directory target (and `embed_wheel_sbom(project_dir=...)`),
+and against the current directory for any other target, an sdist
+included. The CLI makes `--registry`
+absolute against the current directory first, so there it always means
+the file under the current directory.
+
 Pass `build_options=BuildOptions(allow=True)` to
 `generate()`/`generate_project_sbom()` to let Pitloom invoke a project's
 own PEP 517 build backend to discover its real file list, when static
@@ -309,7 +316,9 @@ default, `None`) to auto-match `project_target`'s own
 base SBOM's generation used an explicit override that disagreed with
 that config.
 Pass `registry=` (a path, or an already-loaded `IdRegistry`) to reference
-a pinned entity id instead of one freshly computed from the model's own
+a pinned entity id (a relative path resolves against `project_target`
+when it is a directory, else against the current directory) instead of
+one freshly computed from the model's own
 identity. Raises `ValueError` for a Hugging Face Hub source -- Hugging
 Face model cards are already parsed natively when generating the SBOM,
 so local enrichment doesn't apply there.

@@ -20,15 +20,16 @@ from pitloom.assemble import (
 from pitloom.cli.commands.embed_wheel import _report_embed_result
 from pitloom.cli.commands.utils import _print_sbom_output_path, cli_error_handler
 from pitloom.cli.options import add_offline_argument
-from pitloom.cli.options_config import load_explicit_config, run_options
-from pitloom.core.config import PitloomConfig
+from pitloom.cli.options_config import explicit_config_and_options
 from pitloom.core.inert_options import (
     EMBED_STANDALONE,
     EMBEDDED_SBOM_PARAMS,
+    INERT,
     WHEEL,
     forward_options,
     settle_inert,
 )
+from pitloom.embed import embed_filename
 from pitloom.export.spdx3_json import SPDX3_JSONLD_EXTENSION
 
 
@@ -50,19 +51,17 @@ def _run_wheel_command(args: argparse.Namespace) -> int:
         print(f"ERROR: wheel file not found: {wheel_path}", file=sys.stderr)
         return 1
 
-    pitloom_config = load_explicit_config(args)
-    options = run_options(args, pitloom_config or PitloomConfig())
+    pitloom_config, options = explicit_config_and_options(args)
 
     embed = getattr(args, "embed", False)
     if embed:
-        # The same SBOM as embed-wheel embeds: canonical, no relationship
-        # descriptions, no registry harvest. -o writes a copy of it.
-        settle_inert(
-            EMBED_STANDALONE,
-            target,
-            {name: options[name] for name in EMBEDDED_SBOM_PARAMS},
-        )
-        options.update(pretty=False, describe_relationship=False, update_registry=False)
+        # The same SBOM, and the same warnings, as embed-wheel without a
+        # project: canonical, no relationship descriptions, no registry
+        # harvest. -o writes a copy of it.
+        inert = INERT[EMBED_STANDALONE]
+        settle_inert(EMBED_STANDALONE, target, {name: options[name] for name in inert})
+        options.update(dict.fromkeys(inert))
+        options.update(dict.fromkeys(EMBEDDED_SBOM_PARAMS, False))
     # With --embed, only write a standalone copy if the user explicitly
     # asked for one via -o; embedding into the wheel is the primary
     # output and shouldn't also litter cwd with a same-named file.
@@ -86,7 +85,13 @@ def _run_wheel_command(args: argparse.Namespace) -> int:
     )
 
     if embed:
-        _, arcname, removed, floored = embed_sbom_in_wheel(wheel_path, sbom_json)
+        _, arcname, removed, floored = embed_sbom_in_wheel(
+            wheel_path,
+            sbom_json,
+            sbom_filename=embed_filename(
+                pitloom_config.sbom_basename if pitloom_config else None
+            ),
+        )
         _report_embed_result(arcname, wheel_path.name, removed, floored)
 
     if output_path is not None:

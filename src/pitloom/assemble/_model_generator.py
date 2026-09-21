@@ -93,9 +93,11 @@ def _doc_identity_of(
     # helper is only reachable from the model/enrich commands, which have
     # no --allow-build CLI flag of their own to read. The returned
     # cleanup is therefore always a no-op; call it immediately.
-    merkle_root, project_files, _cleanup = get_wheel_files(project_dir)
-    _cleanup()
-    project_metadata.files = project_files
+    merkle_root: str | None = None
+    if not project_dir.is_file():  # an sdist has no file walk, as in its SBOM
+        merkle_root, project_files, _cleanup = get_wheel_files(project_dir)
+        _cleanup()
+        project_metadata.files = project_files
     doc_uuid = compute_doc_uuid(
         name=project_metadata.name,
         version=project_metadata.version or "unknown",
@@ -243,7 +245,6 @@ def enrich_model(
         settle_inert(ENRICH_STANDALONE, source_str, {"use_lockfile": use_lockfile})
     elif is_sdist_archive(Path(project_target)):
         settle_inert(SDIST, project_target, {"use_lockfile": use_lockfile})
-        use_lockfile = None
     if project_target is None:
         base_doc_identity = None
         resolved_registry = resolve_explicit_registry(registry, cfg.ids_file)
@@ -256,8 +257,12 @@ def enrich_model(
             project_dir, use_lockfile, pitloom_config
         )
         base_doc_identity = _doc_identity_of(project_dir, base_metadata)
-        resolved_registry = resolve_registry(
-            project_dir, registry if registry is not None else base_config.ids_file
+        ids_file = registry if registry is not None else base_config.ids_file
+        # An sdist's directory is not its project, as in its base SBOM.
+        resolved_registry = (
+            resolve_explicit_registry(registry, base_config.ids_file)
+            if project_dir.is_file()
+            else resolve_registry(project_dir, ids_file)
         )
     entity_spdx_id = (
         resolved_registry.lookup_entity(model_path.stem, "ai_AIPackage")

@@ -202,12 +202,27 @@ def test_load_config_file_fails_for_invalid_toml(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize(
     "payload",
-    [b"[tool.pitloom\ninvalid", b"\xff\xfe[tool.pitloom]\n"],
-    ids=["invalid-toml", "not-utf8"],
+    [
+        b"[tool.pitloom\ninvalid",
+        b"\xff\xfe[tool.pitloom]\n",
+        b'[tool.pitloom]\npretty = "yes"\n',
+        b"[tool.pitloom]\nfragment = []\n",
+        b"tool = 3\n",
+        b"[tool]\npitloom = 3\n",
+    ],
+    ids=[
+        "invalid-toml",
+        "not-utf8",
+        "bad-value",
+        "fragment-list",
+        "tool-int",
+        "pitloom-int",
+    ],
 )
 def test_load_config_file_error_names_the_file(tmp_path: Path, payload: bytes) -> None:
-    """Undecodable bytes are a ValueError too, never a bare
-    UnicodeDecodeError traceback, and the message says which file."""
+    """Undecodable bytes or a wrong table shape are a ValueError too, never
+    a bare UnicodeDecodeError/AttributeError traceback, and the message says
+    which file."""
     path = tmp_path / "team.toml"
     path.write_bytes(payload)
     with pytest.raises(ValueError, match="team.toml"):
@@ -373,3 +388,16 @@ def test_project_serialisation_settings_default_off(tmp_path: Path) -> None:
         False,
         False,
     )
+
+
+def test_load_config_file_fragments_resolve_beside_it(tmp_path: Path) -> None:
+    """A fragment path keeps its written form (it is recorded in the SBOM)
+    and gains the config file's directory as its base."""
+    path = tmp_path / "ci" / "c.toml"
+    path.parent.mkdir()
+    path.write_text(
+        '[tool.pitloom.fragment]\nfiles = ["frag.spdx3.json"]\n', encoding="utf-8"
+    )
+    (fragment,) = load_config_file(path).fragments
+    assert fragment.path == "frag.spdx3.json"
+    assert fragment.base_dir == str(path.parent)

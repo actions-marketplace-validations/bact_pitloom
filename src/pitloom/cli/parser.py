@@ -196,8 +196,8 @@ def _build_parent_parser() -> argparse.ArgumentParser:
             "[tool.pitloom] update-registry (on by default) when omitted; "
             "no effect when no registry is resolved. Only consulted by "
             "'project'/'wheel'/'env'/'generate' -- 'model'/'enrich'/"
-            "'embed-wheel' never auto-update the registry and log a "
-            "WARNING: if it is given."
+            "'embed-wheel'/'wheel --embed' never update the registry and "
+            "log a WARNING: if it is given."
         ),
     )
 

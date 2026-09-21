@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import dataclasses
 import functools
+import json
 import logging
 import shutil
 from pathlib import Path
@@ -284,3 +285,95 @@ def test_sdist_relative_registry_resolves_as_for_a_wheel(
     monkeypatch.setattr(IdRegistry, "load", spy_load)
     generate_project_sbom(sdist, creation_metadata=_PINNED, registry="ids.json")
     assert [p.resolve() for p in loaded] == [(tmp_path / "ids.json").resolve()]
+
+
+def _doc_uuid(sbom_json: str) -> str:
+    graph = json.loads(sbom_json)["@graph"]
+    doc_id: str = next(o["spdxId"] for o in graph if o["type"] == "SpdxDocument")
+    return doc_id[-36:]
+
+
+def test_enrich_against_an_sdist_names_the_sdist_sbom_document(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """``enrich --project-dir x.tar.gz`` computes the identity the sdist's
+    own SBOM has, without walking the archive as if it were a directory
+    (which only logs a file-discovery failure)."""
+    sdist = _make_sdist(tmp_path)
+    base_uuid = _doc_uuid(generate_project_sbom(sdist, creation_metadata=_PINNED))
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        # pylint: disable-next=protected-access
+        name, uuid = _model_generator._project_doc_identity(sdist)
+    assert (name, uuid) == ("demo", base_uuid)
+    assert not logged_warnings(caplog)
+
+
+def test_enrich_against_an_sdist_does_not_search_for_a_registry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """As for the sdist's own SBOM: the archive's directory is not a
+    project, so no ``loom-ids.json`` is searched for there."""
+    sdist = _make_sdist(tmp_path)
+    IdRegistry(
+        namespace="https://example.org/ns", path=tmp_path / DEFAULT_REGISTRY_FILENAME
+    ).save()
+    monkeypatch.chdir(tmp_path)
+    searched: list[object] = []
+    find = IdRegistry.find
+
+    def spy_find(**kwargs: Any) -> IdRegistry | None:
+        searched.append(kwargs)
+        return find(**kwargs)
+
+    monkeypatch.setattr(IdRegistry, "find", spy_find)
+    enrich_model(
+        SAFETENSORS_FIXTURE,
+        project_target=sdist,
+        creation_metadata=_PINNED,
+        output_path=tmp_path / "frag.json",
+    )
+    assert not searched
+
+
+@pytest.mark.parametrize("value", [True, False])
+def test_enrich_against_an_sdist_warns_about_use_lockfile_once(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, value: bool
+) -> None:
+    """An sdist has no lock-file cascade, as for its own SBOM."""
+    sdist = _make_sdist(tmp_path)
+    with caplog.at_level(logging.WARNING):
+        enrich_model(
+            SAFETENSORS_FIXTURE,
+            project_target=sdist,
+            creation_metadata=_PINNED,
+            output_path=tmp_path / "frag.json",
+            use_lockfile=value,
+        )
+    assert count_naming(logged_warnings(caplog), "--use-lockfile") == 1
+
+
+def test_standalone_embed_uses_the_config_ids_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A wheel embedded without a project takes its registry from the given
+    config's ``ids-file`` -- the only registry source it has."""
+    wheel = _make_dummy_wheel(tmp_path / "w", name="demo")
+    named = tmp_path / "named-ids.json"
+    IdRegistry(namespace="https://example.org/ns", path=named).save()
+    loaded: list[Path] = []
+    load = IdRegistry.load
+
+    def spy_load(path: Path) -> IdRegistry:
+        loaded.append(Path(path))
+        return load(path)
+
+    monkeypatch.setattr(IdRegistry, "load", spy_load)
+    config = dataclasses.replace(PitloomConfig(), ids_file=str(named))
+    embed_wheel_sbom(
+        wheel,
+        pitloom_config=config,
+        output_path=tmp_path / "out.whl",
+        creation_metadata=_PINNED,
+    )
+    assert loaded == [named]

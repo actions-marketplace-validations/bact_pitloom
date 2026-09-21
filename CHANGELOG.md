@@ -62,7 +62,8 @@ and this project adheres to
   never the current directory's `[tool.pitloom]` or `loom-ids.json`
   ([#228], [#231])
 - `ConfigOverrides` gained `pretty`, `describe_relationship` and
-  `update_registry`, read by the project/wheel/env/model generators;
+  `update_registry`, read by the project/wheel/env generators (not
+  `update_registry` for a model);
   inert (warns) on `embed_wheel_sbom(overrides=...)` ([#228], [#231])
 - `embed_wheel_sbom(project_dir=..., pitloom_config=...)`: an invalid
   `content_type_method` in the supplied config now raises, as it already
@@ -89,6 +90,8 @@ and this project adheres to
   `extension` ([#228])
 - A missing, unreadable, non-UTF-8 or invalid `--config FILE` is one
   `ERROR:` naming the file ([#231])
+- `enrich --project-dir <sdist>` names the sdist SBOM's document and no
+  longer searches beside the archive for `loom-ids.json` ([#231])
 - `embed-wheel <wheel1> <wheel2> ...`: the project directory's file list
   is now resolved (and, with `--allow-build`, built) once per command,
   not once per wheel ([#226])

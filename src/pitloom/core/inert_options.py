@@ -181,7 +181,9 @@ INERT: dict[str, dict[str, str]] = {
             ),
             EXTERNAL_SBOM_REASON,
         ),
-        **_EMBED_COMMON,
+        # The given file is embedded as is: nothing -- not even formatting
+        # -- is regenerated, so the embed-only reasons would be wrong.
+        **dict.fromkeys(_EMBED_COMMON, EXTERNAL_SBOM_REASON),
     },
 }
 

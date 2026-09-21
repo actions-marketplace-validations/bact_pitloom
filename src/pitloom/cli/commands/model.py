@@ -22,8 +22,7 @@ from pitloom.cli.options import (
     _resolve_model_output_path,
     add_offline_argument,
 )
-from pitloom.cli.options_config import load_explicit_config, run_options
-from pitloom.core.config import PitloomConfig
+from pitloom.cli.options_config import explicit_config_and_options
 from pitloom.core.inert_options import HF, MODEL_FILE, forward_options
 from pitloom.extract.remote import is_huggingface_source, parse_hf_model_id
 
@@ -59,8 +58,7 @@ def _run_model_command(args: argparse.Namespace) -> int:
             print(f"Output path     : {output_path}")
         model_target = model_path
 
-    pitloom_config = load_explicit_config(args)
-    options = run_options(args, pitloom_config or PitloomConfig())
+    pitloom_config, options = explicit_config_and_options(args)
     # Same subject generate_model_sbom() settles its own options under.
     kind = MODEL_FILE if isinstance(model_target, Path) else HF
     generate_model_sbom(

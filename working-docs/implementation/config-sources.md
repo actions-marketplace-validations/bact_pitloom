@@ -109,13 +109,27 @@ only a project directory's own `pyproject.toml` was reachable.
   `generate_project_sbom()` for an sdist, `enrich_model()` without
   `--project-dir` (kind `ENRICH_STANDALONE`). One ordering and one
   wording everywhere, and the reach matrix covers it.
-- **`wheel --embed` embeds what `embed-wheel` embeds**: the
-  `EMBEDDED_SBOM_PARAMS` (`pretty`, `describe_relationship`,
-  `update_registry`) are settled with `embed-wheel`'s reasons, then
-  forced off, so `-o` writes a copy of the embedded bytes. Rejected:
+- **`wheel --embed` embeds what `embed-wheel` embeds**: it settles the
+  whole `EMBED_STANDALONE` row (same reasons as `embed-wheel` without a
+  project), clears those options, and forces `EMBEDDED_SBOM_PARAMS`
+  (`pretty`, `describe_relationship`, `update_registry`) off, so `-o`
+  writes a copy of the embedded bytes. Rejected:
   a pretty `-o` plus a canonical embedded copy -- two different SBOMs
   from one run, and `describe_relationship` changes content, not only
   formatting.
+- **A config key a target cannot use is documented, not warned**:
+  `[tool.pitloom.fragment]` on a non-directory target, `pretty`/
+  `describe-relationship` on an embedded SBOM. One config usually serves
+  several commands (a shared `--config` for `project` and `wheel`), so a
+  per-run warning would fire on every legitimate use. The matching
+  *flag* still warns, since a flag is given for that one run.
+- **`enrich --project-dir <sdist>`** resolves identity and registry as
+  the sdist's own SBOM does: no file walk (`merkle_root` stays `None`),
+  and only an explicit registry (the archive's directory is not a
+  project).
+- **`embed-wheel --sbom` does not read `--config`**: the file cannot
+  change an SBOM embedded as is, so a missing or invalid file only gets
+  the no-effect warning, not an `ERROR:`.
 
 ## Tests
 
@@ -228,3 +242,17 @@ only a project directory's own `pyproject.toml` was reachable.
   `setup.py` config path, so `--verbose` reports `"default"` for
   `pretty`/`describe_relationship` even when `setup.cfg` set one and it
   took effect.
+- **Enrichment `CreationInfo.created` is wall-clock time**
+  (`build_enrichment_creation_info()`, `spdx3_utc_now()`), ignoring
+  `--creation-datetime`/`SOURCE_DATE_EPOCH`: any SBOM with enrichment is
+  not reproducible. Pre-existing on `main`; a `--config` `enrich = true`
+  now reaches it on more targets. Fits with step 8 (determinism).
+- **`enrich --project-dir D` without `--config` names the default
+  "Pitloom" creator, not D's `creators`**, while `project D` uses D's.
+  Documented (identity keys come from an explicit config only), but the
+  fragment's creators then differ from its base SBOM's. Pre-existing.
+- **Unknown `[tool.pitloom]` keys are ignored silently** (a typo like
+  `ofline = true`). Pre-existing; more likely to bite in a named
+  `--config` file.
+- **`Registry: could not load` repeats once per wheel** in an
+  `embed-wheel` batch. Pre-existing.

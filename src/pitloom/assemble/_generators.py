@@ -149,7 +149,6 @@ def generate_project_sbom(
                 "use_lockfile": use_lockfile,
             },
         )
-        use_lockfile = None  # settled: the reader has nothing to warn about
 
     if project_metadata is None or pitloom_config is None:
         _warn_if_metadata_without_config(project_metadata, pitloom_config, target_path)

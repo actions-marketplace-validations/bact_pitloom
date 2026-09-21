@@ -18,9 +18,8 @@ from pitloom.assemble import (
 )
 from pitloom.cli.commands.utils import cli_error_handler
 from pitloom.cli.options import add_use_lockfile_argument
-from pitloom.cli.options_config import load_explicit_config, run_options
-from pitloom.core.config import PitloomConfig
-from pitloom.core.inert_options import ENRICH, ENRICH_STANDALONE, forward_options
+from pitloom.cli.options_config import explicit_config_and_options
+from pitloom.core.inert_options import ENRICH, forward_options
 from pitloom.export.spdx3_json import SPDX3_JSONLD_EXTENSION
 
 
@@ -35,8 +34,7 @@ def _run_enrich_command(args: argparse.Namespace) -> int:
 
     # Only an explicitly named config applies: a pyproject.toml near the
     # model or in the current directory may belong to an unrelated project.
-    pitloom_config = load_explicit_config(args)
-    options = run_options(args, pitloom_config or PitloomConfig())
+    pitloom_config, options = explicit_config_and_options(args)
 
     output_path = args.output or (
         Path.cwd() / f"{model_path.name}.enrich{SPDX3_JSONLD_EXTENSION}"
@@ -54,12 +52,9 @@ def _run_enrich_command(args: argparse.Namespace) -> int:
         output_path=output_path,
         project_target=args.project_dir,
         pitloom_config=pitloom_config,
-        **forward_options(
-            ENRICH if args.project_dir else ENRICH_STANDALONE,
-            str(model_path),
-            enrich_model,
-            options,
-        ),
+        # enrich_model settles use_lockfile itself (it depends on the
+        # project target); forward_options warns only for the rest.
+        **forward_options(ENRICH, str(model_path), enrich_model, options),
     )
     print(f"Enrichment fragment written to: {output_path}")
     print(

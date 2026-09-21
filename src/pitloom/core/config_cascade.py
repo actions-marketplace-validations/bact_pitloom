@@ -131,9 +131,10 @@ def load_config_file(path: Path) -> PitloomConfig:
 
     Unlike a target project's own config, a file the user named is a source
     that claimed to carry settings, so every failure raises instead of
-    degrading to defaults. A relative ``ids-file`` is made absolute against
-    the file's own directory, so the config means the same thing whatever
-    directory Pitloom runs from.
+    degrading to defaults. A relative ``ids-file`` or fragment path resolves
+    against the file's own directory, so the config means the same thing
+    whatever directory Pitloom runs from (as a project's own
+    ``pyproject.toml`` already does).
 
     A file with no ``[tool.pitloom]`` table gives the defaults and one
     ``WARNING:``, since a wrong path would otherwise pass unnoticed. A
@@ -145,16 +146,19 @@ def load_config_file(path: Path) -> PitloomConfig:
             directory). ``os.path.isfile`` never raises, on any Python
             version (see AGENTS.md on ``Path.exists()``).
         ValueError: the file is not UTF-8, not valid TOML, or its settings
-            are invalid; the message names *path*.
+            are invalid (a wrong value or a wrong table shape); the message
+            names *path*.
         OSError: the file cannot be read.
     """
     if not os.path.isfile(path):
-        raise FileNotFoundError(f"config file not found: {path}")
+        raise FileNotFoundError(f"config file not found or not a file: {path}")
     try:
         data = load_toml_file(Path(path))
         cfg = parse_pitloom_config(data)
     except ValueError as exc:  # also TOMLDecodeError, UnicodeDecodeError
         raise ValueError(f"config file {path}: {exc}") from exc
+    except (AttributeError, TypeError) as exc:  # a table where none is, etc.
+        raise ValueError(f"config file {path}: invalid structure: {exc}") from exc
     tool = data.get("tool")
     if not isinstance(tool, dict) or not isinstance(tool.get("pitloom"), dict):
         log.warning(
@@ -162,11 +166,18 @@ def load_config_file(path: Path) -> PitloomConfig:
             INERT_LOG_PREFIX,
             path,
         )
+    # Every relative path in the file means the same thing wherever
+    # Pitloom runs: it resolves against the file's own directory.
+    config_dir = Path(path).absolute().parent
     if cfg.ids_file is not None and not Path(cfg.ids_file).is_absolute():
-        cfg = dataclasses.replace(
-            cfg, ids_file=str(Path(path).absolute().parent / cfg.ids_file)
-        )
-    return cfg
+        cfg = dataclasses.replace(cfg, ids_file=str(config_dir / cfg.ids_file))
+    return dataclasses.replace(
+        cfg,
+        fragments=[
+            dataclasses.replace(fragment, base_dir=str(config_dir))
+            for fragment in cfg.fragments
+        ],
+    )
 
 
 def apply_overrides(cfg: PitloomConfig, overrides: ConfigOverrides) -> PitloomConfig:

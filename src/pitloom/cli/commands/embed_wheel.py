@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import logging
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -39,6 +40,7 @@ from pitloom.cli.options_config import (
     load_explicit_config,
     overrides_from_options,
     run_options,
+    warn_verbose_no_effect,
 )
 from pitloom.core.build_options import EXTERNAL_SBOM_REASON, NO_PROJECT_DIR_REASON
 from pitloom.core.config import PitloomConfig
@@ -228,6 +230,7 @@ def _settle_batch_options(
         kind, subject = EMBED_PROJECT, project_dir
     else:
         kind, subject = EMBED_STANDALONE, "embed-wheel"
+    warn_verbose_no_effect(args, subject, "for embed-wheel (it prints no details)")
     given = dict(options)
     if not creation_flags_given(args):
         given["creation_metadata"] = None
@@ -245,15 +248,18 @@ def _batch_options(
 
     ``--config`` replaces the project's own ``[tool.pitloom]``, and is the
     only config a wheel embedded without a project gets. An ``--sbom`` is
-    embedded as is: it uses neither, and the batch settle warns about a
-    given ``--config``."""
+    embedded as is: it uses neither, so a given ``--config`` is not read
+    (not even checked to exist), only warned about by the batch settle."""
+    if args.sbom is not None:
+        options = run_options(args, PitloomConfig())
+        options["pitloom_config"] = args.config
+        _settle_batch_options(args, project_dir, options)
+        return options, None
     explicit_config = load_explicit_config(args)
     options = run_options(args, explicit_config or project_config or PitloomConfig())
     options["pitloom_config"] = explicit_config
     _settle_batch_options(args, project_dir, options)
-    if args.sbom is not None:
-        return options, None
-    return options, options["pitloom_config"] or project_config
+    return options, explicit_config or project_config
 
 
 @cli_error_handler("wheel SBOM embedding failed")
@@ -290,9 +296,17 @@ def _run_embed_wheel_command(args: argparse.Namespace) -> int:
         # ERROR alone, as `loom project` does.
         build_options = build_options.settle_target(Path(args.project_dir))
     else:
+        # Same subject and reason as the options settled below.
         build_options = build_options.settle_not_applicable(
-            "embed-wheel", f"{NO_PROJECT_DIR_REASON} (no --project-dir given)"
+            "embed-wheel", NO_PROJECT_DIR_REASON
         )
+        if os.path.isfile("pyproject.toml"):
+            # For a user expecting the project here to be rescanned.
+            log.info(
+                "embed-wheel: no --project-dir given; the SBOM is built from "
+                "the wheel alone (the project in the current directory is "
+                "not used)"
+            )
 
     resolved = _resolve_project_dir_and_config(
         args.project_dir,
@@ -414,7 +428,9 @@ def add_parser(subparsers: Any, parent_parser: argparse.ArgumentParser) -> None:
         metavar="DIR",
         help=(
             "Project directory containing pyproject.toml to extract project "
-            "metadata, AI models, and file headers from (defaults to cwd)."
+            "metadata, AI models, and file headers from. Without it, the "
+            "SBOM is built from the wheel alone; the current directory is "
+            "never used."
         ),
     )
     embed_parser.add_argument(

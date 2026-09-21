@@ -179,10 +179,11 @@ set -- regenerating from the same unchanged source normally reproduces
 the same ids, letting a fragment written against one run still merge
 cleanly into a later regeneration (see the `sbom-enrich` skill's
 fragment workflow, which depends on this). `project`/`wheel`/`env`
-auto-harvest newly-minted ids into a registry file
-(`.pitloom-ids.json` by default, `--registry FILE` to override,
-`--update-registry`/`--no-update-registry` toggles it, on by default)
-after each run, so this is normally automatic -- just don't switch
+harvest newly-minted ids into the registry file after each run
+(`--update-registry`/`--no-update-registry`, on by default). `project`
+finds `loom-ids.json` in the project itself; `wheel`/`env` use one only
+when given `--registry FILE` or a `--config` file with `ids-file`. So
+this is normally automatic -- just don't switch
 `--registry` files between a base-SBOM run and a later
 enrichment/regeneration of the same project, or ids can drift.
 
@@ -240,7 +241,7 @@ To check the wheel's embedded SBOM right after this same embed, pass
 one disk read this embed already did:
 
 ```bash
-loom embed-wheel dist/*.whl --verify --validate
+loom embed-wheel dist/*.whl --project-dir . --verify --validate
 ```
 
 For checking an already-embedded wheel later (not right after an embed

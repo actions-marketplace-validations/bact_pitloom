@@ -6,13 +6,13 @@
 """The one ``WARNING:`` shape for an explicit option that has no effect.
 
 Every "has no effect" warning -- a build flag without ``--allow-build``, an
-option the target cannot act on, ``--use-lockfile`` for a non-project
-target -- is logged here, so the wording cannot drift between subsystems:
+option the target cannot act on (``--use-lockfile`` for a non-project
+target included) -- is logged here, so the wording cannot drift between subsystems:
 
 ``WARNING: <prefix><subject>: <flag> has no effect <reason>``
 
-No leading underscore: imported from ``pitloom.extract`` and
-``pitloom.assemble`` as well as from within ``pitloom.core``.
+No leading underscore: imported from ``pitloom.cli`` as well as from
+within ``pitloom.core``.
 
 See also: :mod:`pitloom.core.build_options` and
 :mod:`pitloom.core.inert_options`, the two callers that decide *which*

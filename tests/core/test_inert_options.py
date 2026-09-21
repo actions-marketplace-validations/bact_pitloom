@@ -38,6 +38,8 @@ _ROW_KINDS = {
     "embed-wheel --project-dir": inert_options.EMBED_PROJECT,
     "embed-wheel without --project-dir": inert_options.EMBED_STANDALONE,
     "embed-wheel --sbom": inert_options.EMBED_SBOM,
+    # The same embedded SBOM, and warnings, as embed-wheel without a project.
+    "wheel --embed": inert_options.EMBED_STANDALONE,
 }
 
 
@@ -59,8 +61,8 @@ def _documented_rows() -> dict[str, list[str]]:
 
 def test_docs_table_matches_inert() -> None:
     """The user docs list exactly the options each target warns about, in
-    the order the warnings come -- a row added to INERT without the docs
-    (or the reverse) fails here."""
+    flag-table order (the order one settle warns in) -- a row added to
+    INERT without the docs (or the reverse) fails here."""
     documented = _documented_rows()
     assert set(documented) == set(_ROW_KINDS)
     for label, kind in _ROW_KINDS.items():
