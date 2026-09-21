@@ -157,8 +157,6 @@ def load_config_file(path: Path) -> PitloomConfig:
         cfg = parse_pitloom_config(data)
     except ValueError as exc:  # also TOMLDecodeError, UnicodeDecodeError
         raise ValueError(f"config file {path}: {exc}") from exc
-    except (AttributeError, TypeError) as exc:  # a table where none is, etc.
-        raise ValueError(f"config file {path}: invalid structure: {exc}") from exc
     tool = data.get("tool")
     if not isinstance(tool, dict) or not isinstance(tool.get("pitloom"), dict):
         log.warning(

@@ -227,6 +227,12 @@ def enrich_model(
             "does not apply there -- Hugging Face model cards are already "
             "parsed natively when generating the SBOM."
         )
+    # The CLI passes use_lockfile through, so this is the one layer that
+    # settles it, before any work (an sdist project target as a project).
+    if project_target is None:
+        settle_inert(ENRICH_STANDALONE, source_str, {"use_lockfile": use_lockfile})
+    elif is_sdist_archive(Path(project_target)):
+        settle_inert(SDIST, project_target, {"use_lockfile": use_lockfile})
     cfg = resolve_standalone_config(pitloom_config, ConfigOverrides(pretty=pretty))
 
     model_path = Path(source)
@@ -239,12 +245,6 @@ def enrich_model(
     enrich_config = dataclasses.replace(cfg.enrich, local=enrich is not False)
     results = run_enrichers(model, enrich_config, model_path.parent)
 
-    # The CLI passes use_lockfile through, so this is the one layer that
-    # settles it (an sdist project target settles it as a project would).
-    if project_target is None:
-        settle_inert(ENRICH_STANDALONE, source_str, {"use_lockfile": use_lockfile})
-    elif is_sdist_archive(Path(project_target)):
-        settle_inert(SDIST, project_target, {"use_lockfile": use_lockfile})
     if project_target is None:
         base_doc_identity = None
         resolved_registry = resolve_explicit_registry(registry, cfg.ids_file)

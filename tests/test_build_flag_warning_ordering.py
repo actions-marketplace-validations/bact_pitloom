@@ -221,7 +221,7 @@ def test_cli_project_sdist_build_flag_warning_precedes_metadata_warning(
     )
 
 
-def test_cli_generate_sdist_build_flag_warning_precedes_metadata_warning(
+def test_cli_generate_sdist_build_flag_warns_once_and_ignores_sibling_pyproject(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
@@ -274,7 +274,7 @@ def _make_wheel_with_malformed_sibling_pyproject(tmp_path: Path) -> Path:
     return wheel_path
 
 
-def test_cli_generate_wheel_build_flag_warning_precedes_metadata_warning(
+def test_cli_generate_wheel_build_flag_warns_once_and_ignores_sibling_pyproject(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,

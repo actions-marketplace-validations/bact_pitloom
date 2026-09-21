@@ -32,7 +32,6 @@ import json
 import shutil
 import subprocess
 import sys
-import zipfile
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -399,26 +398,3 @@ def test_too_small_byte_cap_warns_once(
     printed = [m for m in stderr_warnings(capsys.readouterr().err) if "too small" in m]
     assert len(logged) == 1, logged
     assert len(printed) == 1, printed
-
-
-def test_config_with_external_sbom_is_used_or_warned(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """``embed-wheel --sbom`` generates nothing, but ``--config`` still
-    names an embed setting (``sbom-basename``): it applies, or one
-    ``WARNING:`` says it does not -- never a silent drop."""
-    monkeypatch.chdir(tmp_path)
-    wheel = demo_wheel(tmp_path)
-    sbom = tmp_path / "external.spdx3.json"
-    assert _loom(["wheel", str(wheel), "--offline", "-o", str(sbom)], monkeypatch) == 0
-    config = _write(tmp_path / "c.toml", '[tool.pitloom]\nsbom-basename = "cfgname"\n')
-    capsys.readouterr()
-
-    argv = ["embed-wheel", str(wheel), "--sbom", str(sbom), "--config", str(config)]
-    assert _loom(argv, monkeypatch) == 0
-
-    with zipfile.ZipFile(wheel) as archive:
-        used = any(name.endswith("/cfgname.spdx3.json") for name in archive.namelist())
-    warned = [w for w in stderr_warnings(capsys.readouterr().err) if "--config" in w]
-    assert used != bool(warned), (used, warned)
-    assert len(warned) <= 1, warned

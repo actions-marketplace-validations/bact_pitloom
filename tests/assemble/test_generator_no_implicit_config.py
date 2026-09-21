@@ -150,6 +150,9 @@ def test_no_config_is_borrowed_from_the_current_directory(
     wheel = _make_dummy_wheel(targets, _TARGET, "1.0.0")
     model = targets / "model.safetensors"
     shutil.copyfile(SAFETENSORS_FIXTURE, model)
+    # A model card, so `enrich` has a result to attach a registry id to --
+    # without one a wrongly adopted registry could not change the output.
+    (targets / "README.md").write_text("---\nlicense: mit\n---\n", "utf-8")
     # The rewritten wheel is compared across runs, so each run embeds into
     # its own copy of the pristine wheel.
     pristine = wheel.read_bytes()

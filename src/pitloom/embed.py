@@ -332,6 +332,7 @@ def _generate_embed_sbom_json(
         "registry": registry,
         "creation_metadata": creation_metadata,
         "pitloom_config": pitloom_config,
+        "project_dir": project_dir,
     }
     if sbom_path is not None:
         _settle_build_options(

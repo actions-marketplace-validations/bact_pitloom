@@ -377,3 +377,47 @@ def test_standalone_embed_uses_the_config_ids_file(
         creation_metadata=_PINNED,
     )
     assert loaded == [named]
+
+
+def test_embed_external_sbom_warns_about_a_project_dir(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A project directory cannot change an SBOM embedded as is: the library
+    says so, as the CLI does, instead of ignoring it."""
+    wheel = _make_dummy_wheel(tmp_path / "w", name="demo")
+    sbom = tmp_path / "given.spdx3.json"
+    sbom.write_text(generate_project_sbom(_make_sdist(tmp_path)), encoding="utf-8")
+    with caplog.at_level(logging.WARNING):
+        embed_wheel_sbom(
+            wheel,
+            sbom_path=sbom,
+            project_dir=tmp_path / "nodir",
+            output_path=tmp_path / "out.whl",
+            allow_mismatch=True,
+        )
+    assert count_naming(logged_warnings(caplog), "--project-dir") == 1
+
+
+def test_standalone_embed_warns_about_file_scan_options(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A wheel embedded without a project has no files to scan or models to
+    enrich: the library warns once per such option, as the CLI does (the
+    CLI clears them before the library sees them, so only this checks the
+    library's own settle)."""
+    wheel = _make_dummy_wheel(tmp_path / "w", name="demo")
+    overrides = ConfigOverrides(
+        enrich=True, content_type=True, extract_file_header=False
+    )
+    with caplog.at_level(logging.WARNING):
+        embed_wheel_sbom(
+            wheel,
+            output_path=tmp_path / "out.whl",
+            creation_metadata=_PINNED,
+            overrides=overrides,
+        )
+    warnings = logged_warnings(caplog)
+    for flag in ("--enrich", "--content-type", "--extract-file-header"):
+        named = [w for w in warnings if f" {flag}/" in w]
+        assert len(named) == 1, (flag, warnings)
+        assert "no project directory" in named[0]

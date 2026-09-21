@@ -301,6 +301,19 @@ def _read_use_lockfile_setting(pitloom_data: dict[str, Any]) -> bool:
     return _read_bool_setting(pitloom_data, "use-lockfile", True)
 
 
+def _read_table(parent: dict[str, Any], key: str, name: str) -> dict[str, Any]:
+    """*parent*'s sub-table *key* (``{}`` when absent), named *name* in the
+    error for a value that is not a table."""
+    value = parent.get(key)
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError(
+            f"{name} must be a table, got {type(value).__name__}: {value!r}"
+        )
+    return value
+
+
 def _read_fragments(pitloom_data: dict[str, Any]) -> list[FragmentConfig]:
     """Read ``[tool.pitloom.fragment] files`` into ``FragmentConfig`` entries.
 
@@ -308,9 +321,14 @@ def _read_fragments(pitloom_data: dict[str, Any]) -> list[FragmentConfig]:
     ``FragmentConfig(path=...)``) or an inline table with ``path`` plus any
     of ``role``, ``description``, ``required``, ``sha256``, ``link-to-main``.
     """
-    raw = pitloom_data.get("fragment", {}).get("files", [])
+    raw = _read_table(pitloom_data, "fragment", "[tool.pitloom.fragment]").get(
+        "files", []
+    )
     if not isinstance(raw, list):
-        return []
+        raise ValueError(
+            "[tool.pitloom.fragment] 'files' must be an array, got "
+            f"{type(raw).__name__}: {raw!r}"
+        )
     fragments: list[FragmentConfig] = []
     for entry in raw:
         if isinstance(entry, str):
@@ -397,22 +415,31 @@ def _apply_no_creation_tool(
 
 
 def _pick_str(*sources: tuple[dict[str, Any], tuple[str, ...]]) -> str | None:
-    """Return the first string found by key, scanning sources in order."""
+    """Return the first string found by key, scanning sources in order.
+
+    Raises:
+        ValueError: a key is present with a value that is not a string.
+    """
     for source, keys in sources:
         for key in keys:
             value = source.get(key)
-            if isinstance(value, str):
-                return value
+            if value is None:
+                continue
+            if not isinstance(value, str):
+                raise ValueError(
+                    f"[tool.pitloom] {key!r} must be a string, got "
+                    f"{type(value).__name__}: {value!r}"
+                )
+            return value
     return None
 
 
 # pylint: disable=too-many-locals
 def parse_pitloom_config(data: dict[str, Any]) -> PitloomConfig:
     """Read ``[tool.pitloom]`` settings and return a :class:`PitloomConfig`."""
-    pitloom_data = data.get("tool", {}).get("pitloom", {})
-    creation_data = pitloom_data.get("creation", {})
-    if not isinstance(creation_data, dict):
-        creation_data = {}
+    tool_data = _read_table(data, "tool", "[tool]")
+    pitloom_data = _read_table(tool_data, "pitloom", "[tool.pitloom]")
+    creation_data = _read_table(pitloom_data, "creation", "[tool.pitloom.creation]")
 
     _check_moved_creation_keys(pitloom_data, creation_data)
     _check_moved_top_level_tables(pitloom_data)
@@ -444,7 +471,7 @@ def parse_pitloom_config(data: dict[str, Any]) -> PitloomConfig:
                 f"[tool.pitloom] describe-relationship must be a boolean, got "
                 f"{type(desc_rel).__name__}: {desc_rel!r}"
             )
-    sbom_basename: str | None = pitloom_data.get("sbom-basename") or None
+    sbom_basename = _pick_str((pitloom_data, ("sbom-basename",))) or None
     offline = _read_offline_setting(pitloom_data)
     use_lockfile = _read_use_lockfile_setting(pitloom_data)
 

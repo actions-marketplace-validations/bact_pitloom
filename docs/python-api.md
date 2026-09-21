@@ -91,9 +91,10 @@ includes its exact transitive dependencies -- see
 (on by default; same as the CLI's `--no-use-lockfile`). Has no effect if
 pre-resolved `project_metadata`/`pitloom_config` are BOTH also passed in
 -- the cascade decision was already made when that metadata was
-produced. Passing only one of the two is not a supported combination:
-both are discarded and re-resolved from the target instead, with a
-`WARNING:` explaining why.
+produced. Passing `project_metadata` without `pitloom_config` is not
+supported: it is discarded and re-read from the target, with a
+`WARNING:` explaining why. `pitloom_config` alone is supported -- see
+below.
 
 ### Explicit config (`pitloom_config=`)
 

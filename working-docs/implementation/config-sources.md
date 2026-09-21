@@ -127,9 +127,18 @@ only a project directory's own `pyproject.toml` was reachable.
   the sdist's own SBOM does: no file walk (`merkle_root` stays `None`),
   and only an explicit registry (the archive's directory is not a
   project).
-- **`embed-wheel --sbom` does not read `--config`**: the file cannot
-  change an SBOM embedded as is, so a missing or invalid file only gets
-  the no-effect warning, not an `ERROR:`.
+- **`embed-wheel --sbom` does not read `--config` or `--project-dir`**:
+  neither can change an SBOM embedded as is, so a missing or invalid one
+  only gets the no-effect warning, not an `ERROR:`. `project_dir` is an
+  `INERT[EMBED_SBOM]` parameter, so `embed_wheel_sbom(sbom_path=...,
+  project_dir=...)` warns the same way.
+- **A wrong-shaped config value raises, in the parser**
+  (`_config_parse.py`): a non-table `[tool]`/`[tool.pitloom]`/`creation`/
+  `fragment`, a non-array `fragment.files`, a non-string
+  `sbom-basename`/`creation-datetime`/`creation-comment`. They used to
+  degrade to defaults (dropping a `required` fragment silently) or crash
+  later with `AttributeError`. Every config path gets it -- a project's
+  own `pyproject.toml` too, not only `--config`.
 
 ## Tests
 
@@ -194,12 +203,6 @@ only a project directory's own `pyproject.toml` was reachable.
   `core.config`. Not exercised today only because `core.config` happens
   to finish importing before `extract` does in every current entry
   point.
-- **`embed-wheel --project-dir D --sbom FILE` drops `D` silently.**
-  `--sbom` takes the `EMBED_SBOM` kind regardless of whether
-  `--project-dir` was also given, and `_generate_embed_sbom_json()`
-  returns *FILE*'s bytes before `project_dir` is ever consulted. No
-  warning names `--project-dir` itself, since it isn't a `PARAM_TO_FLAG`
-  entry.
 - **`--describe-relationship` warns on `embed-wheel`/`enrich`.** A
   current decision (a wheel-embedded SBOM is always canonical; a
   fragment has no relationships of its own to describe), not

@@ -185,7 +185,7 @@ def _resolve_project_dir_and_config(
     rationale, and purely to skip that I/O since this caller discards the
     metadata anyway.
 
-    Without *read_config* (a ``--config`` or ``--sbom`` replaces it) the
+    Without *read_config* (a ``--config`` replaces it) the
     project's own config is not read at all, as
     :func:`~pitloom.embed.embed_wheel_sbom` does not read it when given a
     config, so an unrelated fault in it cannot fail the embed.
@@ -248,11 +248,14 @@ def _batch_options(
 
     ``--config`` replaces the project's own ``[tool.pitloom]``, and is the
     only config a wheel embedded without a project gets. An ``--sbom`` is
-    embedded as is: it uses neither, so a given ``--config`` is not read
-    (not even checked to exist), only warned about by the batch settle."""
+    embedded as is: it uses neither, so a given ``--config`` or
+    ``--project-dir`` is not read (not even checked to exist), only warned
+    about by the batch settle."""
     if args.sbom is not None:
         options = run_options(args, PitloomConfig())
+        # Given, not read: the batch settle warns about both.
         options["pitloom_config"] = args.config
+        options["project_dir"] = args.project_dir
         _settle_batch_options(args, project_dir, options)
         return options, None
     explicit_config = load_explicit_config(args)
@@ -308,9 +311,14 @@ def _run_embed_wheel_command(args: argparse.Namespace) -> int:
                 "not used)"
             )
 
-    resolved = _resolve_project_dir_and_config(
-        args.project_dir,
-        read_config=args.config is None and args.sbom is None,
+    # An --sbom is embedded as is: --project-dir is not even checked (the
+    # batch settle warns that it has no effect).
+    resolved = (
+        (None, None)
+        if args.sbom is not None
+        else _resolve_project_dir_and_config(
+            args.project_dir, read_config=args.config is None
+        )
     )
     if resolved is None:
         return 1

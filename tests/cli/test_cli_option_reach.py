@@ -24,8 +24,12 @@ settling. Per cell, one of two outcomes must hold:
   ``WARNING: Options:`` line named it before the entry point.
 
 The expected outcome is never read from
-:data:`pitloom.core.inert_options.INERT`, so deleting a row there, or
-warning about an option while still forwarding it, fails here.
+:data:`pitloom.core.inert_options.INERT`: it comes from the user docs'
+"Options with no effect" table (``docs/cli.md``). An option the docs list
+for the target must warn exactly once, wherever it is dropped; any other
+must warn zero times. So deleting a row in ``INERT``, dropping an option
+silently inside an entry point, or warning about an option while still
+forwarding it, fails here.
 
 The last test runs a few commands end to end, with no spies, to count an
 option crossing several layers (CLI, :func:`pitloom.assemble.generate`, the
@@ -62,9 +66,11 @@ from pitloom.assemble import (
 from pitloom.cli.parser import _build_parser
 from pitloom.core.config_cascade import ConfigOverrides
 from pitloom.core.creation import CreationMetadata
+from pitloom.core.inert_options import PARAM_TO_FLAG
 from tests.assemble.conftest import _make_dummy_wheel, _make_sdist
 from tests.assemble.embed_surfaces_shared import demo_project, demo_wheel
 from tests.cli.shared import SAFETENSORS_FIXTURE
+from tests.core.test_inert_options import documented_rows
 from tests.warning_helpers import (
     count_naming,
     logged_warnings,
@@ -221,6 +227,38 @@ _TARGETS: dict[str, tuple[str, tuple[str, ...]]] = {
     "embed-wheel:project": ("embed-wheel", ("{wheel}", "--project-dir", "{project}")),
     "embed-wheel:standalone": ("embed-wheel", ("{wheel}",)),
 }
+
+
+#: Target id -> its row in the docs "Options with no effect" table.
+_DOC_ROWS = {
+    "generate:wheel": "wheel",
+    "wheel": "wheel",
+    "generate:env": "installed environment",
+    "env": "installed environment",
+    "generate:model_file": "local model file",
+    "model:model_file": "local model file",
+    "generate:hf": "Hugging Face model",
+    "model:hf": "Hugging Face model",
+    "generate:project": "project directory",
+    "project:project": "project directory",
+    "generate:sdist": "sdist archive",
+    "project:sdist": "sdist archive",
+    "enrich": "enrich without --project-dir",
+    "embed-wheel:sbom": "embed-wheel --sbom",
+    "embed-wheel:project": "embed-wheel --project-dir",
+    "embed-wheel:standalone": "embed-wheel without --project-dir",
+}
+
+
+def _documented_no_effect(target: str, option: str) -> bool:
+    """Whether the user docs say *option* has no effect for *target*. A
+    table cell lists a flag's first spelling (``--creator-*`` for the
+    creator/creation group); :data:`PARAM_TO_FLAG` gives its full one."""
+    full = {spelling.split("/")[0]: spelling for spelling in PARAM_TO_FLAG.values()}
+    return any(
+        names_option(full.get(listed, listed), option)
+        for listed in documented_rows()[_DOC_ROWS[target]]
+    )
 
 
 def _cells() -> list[Any]:
@@ -389,9 +427,14 @@ def test_option_reaches_library_xor_warns_once(
     assert count_naming(printed, form.option) == count_naming(logged, form.option)
     before = count_naming(entry.warnings_before, form.option)
     total = count_naming(logged, form.option)
+    documented = _documented_no_effect(target, form.option)
+    assert total == int(documented), (
+        f"{form.option}: {total} warnings, docs say "
+        f"{'no effect' if documented else 'effective'}: {logged}"
+    )
     if _received(entry.kwargs, form, paths[_REGISTRY]):
+        # The entry point may drop it itself; it is then the one warning.
         assert before == 0, f"{form.option} was warned about and still forwarded"
-        assert total <= 1, logged
     else:
         assert (before, total) == (1, 1), (
             f"{form.option} was dropped with {total} warnings: {logged}"

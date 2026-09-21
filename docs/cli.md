@@ -425,7 +425,7 @@ and drops it, rather than silently ignoring it:
 | enrich without --project-dir | `--describe-relationship`, `--extract-file-header`, `--content-type`, `--content-type-method`, `--max-source-metadata-bytes`, `--use-lockfile`, `--update-registry` |
 | embed-wheel --project-dir | `--pretty`, `--describe-relationship`, `--update-registry` |
 | embed-wheel without --project-dir | `--pretty`, `--describe-relationship`, `--enrich`, `--extract-file-header`, `--content-type`, `--update-registry` |
-| embed-wheel --sbom | `--pretty`, `--describe-relationship`, `--enrich`, `--extract-file-header`, `--content-type`, `--content-type-method`, `--max-source-metadata-bytes`, `--offline`, `--registry`, `--update-registry`, `--creator-*`, `--config` |
+| embed-wheel --sbom | `--pretty`, `--describe-relationship`, `--enrich`, `--extract-file-header`, `--content-type`, `--content-type-method`, `--max-source-metadata-bytes`, `--offline`, `--registry`, `--update-registry`, `--creator-*`, `--config`, `--project-dir` |
 
 Each `--flag` above also covers its `--no-flag` boolean-negation form
 where one exists (e.g. `--no-enrich`, `--no-pretty`); the warning names

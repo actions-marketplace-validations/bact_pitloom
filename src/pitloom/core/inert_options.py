@@ -64,6 +64,7 @@ PARAM_TO_FLAG: dict[str, str] = {
     "update_registry": "--update-registry/--no-update-registry",
     "creation_metadata": "--creator-*/--creation-*",
     "pitloom_config": "--config",
+    "project_dir": "--project-dir",
 }
 
 _NO_FILE_SCAN = (
@@ -178,6 +179,7 @@ INERT: dict[str, dict[str, str]] = {
                 "registry",
                 "creation_metadata",
                 "pitloom_config",
+                "project_dir",
             ),
             EXTERNAL_SBOM_REASON,
         ),
