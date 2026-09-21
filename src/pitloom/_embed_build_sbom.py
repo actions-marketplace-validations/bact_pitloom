@@ -20,10 +20,10 @@ from __future__ import annotations
 import contextlib
 import dataclasses
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Hashable
 from pathlib import Path
 from types import TracebackType
-from typing import cast
+from typing import TypeVar, cast
 
 from spdx_python_model.bindings import v3_0_1 as spdx3
 
@@ -40,6 +40,8 @@ from pitloom.enrich import run_enrichers_for_models
 from pitloom.extract.binary import find_phantom_dependencies
 from pitloom.extract.scanner import scan_project_for_ai_models
 from pitloom.ids import IdRegistry
+
+_T = TypeVar("_T")
 
 
 def _merge_file_extras(
@@ -108,11 +110,12 @@ class EmbedFileCache:
     Use it as a context manager around the whole batch. Inside the block,
     :meth:`resolve` runs discovery (and any ``--allow-build`` build) on its
     first call only, and :meth:`settle` warns about each ineffective build
-    flag once -- both hold a lock, so threads sharing one batch still get
-    one discovery and one warning each. Leaving the block runs the
-    discovery's cleanup once, after every wheel is done -- never per
-    wheel, as an earlier wheel's cleanup would delete files a later one
-    still reads. The block holds a
+    flag once (:meth:`once` does the same for any other per-batch warning,
+    e.g. an option the embed cannot use) -- all hold a lock, so threads
+    sharing one batch still get one discovery and one warning each.
+    Leaving the block runs the discovery's cleanup once, after every wheel
+    is done -- never per wheel, as an earlier wheel's cleanup would delete
+    files a later one still reads. The block holds a
     :class:`~pitloom.core.build_signals.TerminationGuard`, so a signal
     during the batch still removes the build's temp directory -- but only
     for a discovery the block's own thread ran. Guard ownership is
@@ -132,8 +135,8 @@ class EmbedFileCache:
         self._resolved: tuple[list[ProjectFile], Callable[[], None]] | None = None
         # What the cached file list was resolved from; see resolve().
         self._resolved_from: tuple[object, ...] | None = None
-        # (given options, reason) -> settled options; see settle().
-        self._settled: dict[tuple[BuildOptions, str | None], BuildOptions] = {}
+        # Batch memo, key -> result; see once() and settle().
+        self._settled: dict[Hashable, object] = {}
         # The block's guard; None outside the block.
         self._guard: TerminationGuard | None = None
         # Threads sharing one batch get one discovery and one cleanup.
@@ -289,21 +292,36 @@ class EmbedFileCache:
 
         Raises :class:`RuntimeError` outside a ``with`` block.
         """
+        return self.once(
+            ("build_options", build_options, reason),
+            lambda: (
+                build_options.settle(subject)
+                if reason is None
+                else build_options.settle_not_applicable(subject, reason)
+            ),
+            "settle",
+        )
+
+    def once(
+        self, key: Hashable, compute: Callable[[], _T], method: str = "once"
+    ) -> _T:
+        """*compute*'s result, computed on the first call with *key* in
+        this block and reused after -- so a warning *compute* logs is
+        logged once for the batch. The caller keys on everything the result
+        depends on.
+
+        Raises :class:`RuntimeError` outside a ``with`` block.
+        """
         with self._lock:
-            self._require_block("settle")
+            self._require_block(method)
             # This block's memo, taken once: __enter__ gives the next
             # block a new one, so a late call here cannot warn into it.
             settled = self._settled
-            key = (build_options, reason)
             if key not in settled:
-                # Under the lock: the warning is part of settling, so two
+                # Under the lock: a warning is part of computing, so two
                 # threads must not both emit it.
-                settled[key] = (
-                    build_options.settle(subject)
-                    if reason is None
-                    else build_options.settle_not_applicable(subject, reason)
-                )
-            return settled[key]
+                settled[key] = compute()
+            return cast(_T, settled[key])
 
     def _require_block(self, method: str) -> None:
         if self._guard is None:

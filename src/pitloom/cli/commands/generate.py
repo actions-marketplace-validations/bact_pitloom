@@ -12,19 +12,10 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from pitloom.assemble import (
-    generate,
-    generate_project_sbom,
-    target_resolves_to_project,
-)
-from pitloom.cli.commands.utils import (
-    _print_sbom_output_path,
-    cli_error_handler,
-    resolve_effective_provenance,
-)
+from pitloom.assemble import generate, target_resolves_to_project
+from pitloom.cli.commands.project import generate_project_from_args
+from pitloom.cli.commands.utils import _print_sbom_output_path, cli_error_handler
 from pitloom.cli.options import (
-    _resolve_common_options,
-    _resolve_project_generation_settings,
     add_allow_build_argument,
     add_build_timeout_argument,
     add_no_build_isolation_argument,
@@ -32,9 +23,11 @@ from pitloom.cli.options import (
     add_use_lockfile_argument,
     build_options_from_args,
 )
-from pitloom.core.build_options import (
-    NON_PROJECT_TARGET_REASON,
+from pitloom.cli.options_config import (
+    explicit_config_and_options,
+    warn_verbose_no_effect,
 )
+from pitloom.core.build_options import NON_PROJECT_TARGET_REASON
 
 
 @cli_error_handler("SBOM generation failed")
@@ -59,91 +52,36 @@ def _run_generate_command(args: argparse.Namespace) -> int:
         )
         return 1
 
-    target_path = Path(args.target) if args.target else None
-    if (
-        target_path is not None
-        and target_path.is_dir()
-        and target_resolves_to_project(args.target)
-    ):
-        # Settle before the metadata/lock-file read below, as 'loom
-        # project' does.
+    if target_resolves_to_project(args.target):
+        # A project directory or sdist archive: exactly what `loom project`
+        # does, so the two cannot drift. Settle first, as `loom project`
+        # does, so the build-flag WARNING: precedes any metadata WARNING:.
+        target_path = Path(args.target).resolve()
         build_options = build_options_from_args(args).settle_target(target_path)
-
-        # Resolve it once via the same shared helper 'loom project' uses,
-        # then pre-supply the result to generate_project_sbom() -- a
-        # single real read, instead of a config-only peek here followed
-        # by generate()'s own read.
-        (
-            project_metadata,
-            pitloom_config,
-            _config_path,
-            creation,
-            effective_pretty,
-            effective_describe_relationship,
-        ) = _resolve_project_generation_settings(args, target_path)
-        generate_project_sbom(
-            target_path,
-            output_path=args.output,
-            creation_metadata=creation.to_creation_metadata(),
-            pretty=effective_pretty,
-            describe_relationship=effective_describe_relationship,
-            project_metadata=project_metadata,
-            pitloom_config=pitloom_config,
-            registry=args.registry,
-            update_registry=args.update_registry,
-            provenance=resolve_effective_provenance(pitloom_config, args),
-            enrich=args.enrich,
-            offline=args.offline,
-            extract_file_header=args.extract_file_header,
-            content_type=args.content_type,
-            content_type_method=args.content_type_method,
-            build_options=build_options,
-        )
+        generate_project_from_args(args, target_path, build_options)
         _print_sbom_output_path(args.output)
         return 0
 
-    # Every other target (env / wheel / model file / HF URL / sdist
-    # archive): quieting this peek would silently drop its WARNING: for a
-    # target whose real read parses something else entirely (an sdist
-    # archive's internal metadata via read_sdist(), not this peek's
-    # sibling pyproject.toml), deferring it to a re-emission that never
-    # happens. One overlap remains: this peek reads the target's own
-    # directory, and the wheel generator's cascade reads the current one,
-    # so for a .whl sitting in the current directory both read the same
-    # pyproject.toml and an invalid one is reported twice, in two wordings.
-    build_options = build_options_from_args(args)
-    if args.target is not None and not target_resolves_to_project(args.target):
-        # env / wheel / model file / HF target: settle with the same reason
-        # generate() uses, before _resolve_common_options()'s peek below, so
-        # the build-flag WARNING precedes any metadata WARNING the peek logs.
-        build_options = build_options.settle_not_applicable(
-            str(args.target).strip(), NON_PROJECT_TARGET_REASON
-        )
-    elif target_path is not None and target_path.is_file():
-        # sdist archive: settle before _resolve_common_options()'s peek
-        # below, so the build-flag WARNING precedes any metadata WARNING
-        # that peek can produce.
-        build_options = build_options.settle_target(target_path)
-
-    pitloom_config, creation_metadata, pretty, describe_relationship = (
-        _resolve_common_options(args, target_dir=target_path)
+    # env / wheel / model file / HF: no project of its own, so only an
+    # explicitly named config applies, and generate() settles every option
+    # the target cannot use.
+    target = str(args.target).strip()
+    build_options = build_options_from_args(args).settle_not_applicable(
+        target, NON_PROJECT_TARGET_REASON
     )
+    warn_verbose_no_effect(
+        args,
+        target,
+        "for this target under 'generate' (the target's own command, e.g. "
+        "'loom wheel -v', prints them)",
+    )
+    pitloom_config, options = explicit_config_and_options(args)
     generate(
         args.target,
-        offline=args.offline,
-        use_lockfile=args.use_lockfile,
         output_path=args.output,
-        creation_metadata=creation_metadata,
-        pretty=pretty,
-        describe_relationship=describe_relationship,
-        registry=args.registry,
-        update_registry=args.update_registry,
-        provenance=resolve_effective_provenance(pitloom_config, args),
-        enrich=args.enrich,
-        extract_file_header=args.extract_file_header,
-        content_type=args.content_type,
-        content_type_method=args.content_type_method,
         build_options=build_options,
+        pitloom_config=pitloom_config,
+        **options,
     )
     _print_sbom_output_path(args.output)
     return 0

@@ -322,12 +322,19 @@ def test_read_fragments_entry_neither_string_nor_table_raises() -> None:
         _read_fragments(pitloom_data)
 
 
-def test_read_fragments_files_not_a_list_returns_empty() -> None:
-    """A malformed 'files' (e.g. a table instead of a list) degrades to
-    empty rather than raising -- matches every other _read_* helper's
-    "wrong container shape at the top" behavior in this file."""
-    pitloom_data = {"fragment": {"files": "a.json"}}
-    assert _read_fragments(pitloom_data) == []
+@pytest.mark.parametrize("files", ["a.json", {"path": "a.json"}, 3])
+def test_read_fragments_files_not_a_list_raises(files: object) -> None:
+    """A malformed 'files' is the user's opinion delivered wrongly, not an
+    absent setting: it raises, as a wrong-shaped [tool.pitloom.provenance]
+    or [tool.pitloom.content-type] does, instead of dropping every fragment
+    (a ``required`` one included) without a word."""
+    with pytest.raises(ValueError, match="'files' must be an array"):
+        _read_fragments({"fragment": {"files": files}})
+
+
+def test_read_fragments_fragment_not_a_table_raises() -> None:
+    with pytest.raises(ValueError, match=r"\[tool.pitloom.fragment\] must be a table"):
+        _read_fragments({"fragment": 3})
 
 
 def test_read_fragments_table_entry_non_str_role_raises() -> None:
@@ -486,22 +493,42 @@ def test_read_provenance_invalid_format_raises() -> None:
         parse_pitloom_config(data)
 
 
-def test_parse_pitloom_config_non_table_creation_falls_back_empty() -> None:
-    """A ``[tool.pitloom.creation]`` value that isn't a table (e.g. a bare
-    string) is treated as absent rather than raising -- other sections of
-    ``[tool.pitloom]`` are unaffected."""
-    data = {
-        "tool": {
-            "pitloom": {
-                "creation": "not-a-table",
-                "ids-file": "loom-ids.json",
-            }
-        }
-    }
-    config = parse_pitloom_config(data)
-    assert config.ids_file == "loom-ids.json"
-    assert config.creation_datetime is None
-    assert config.creation_comment is None
+@pytest.mark.parametrize(
+    ("data", "match"),
+    [
+        ({"tool": 3}, r"\[tool\] must be a table"),
+        ({"tool": {"pitloom": 3}}, r"\[tool.pitloom\] must be a table"),
+        (
+            {"tool": {"pitloom": {"creation": "not-a-table"}}},
+            r"\[tool.pitloom.creation\] must be a table",
+        ),
+        (
+            {"tool": {"pitloom": {"creation": {"creation-datetime": 3}}}},
+            "'creation-datetime' must be a string",
+        ),
+        (
+            {"tool": {"pitloom": {"sbom-basename": 3}}},
+            "'sbom-basename' must be a string",
+        ),
+    ],
+    ids=["tool", "pitloom", "creation", "creation-datetime", "sbom-basename"],
+)
+def test_parse_pitloom_config_wrong_shape_raises(
+    data: dict[str, object], match: str
+) -> None:
+    """A present value of the wrong type raises a ValueError naming the key,
+    never degrades to the default (it would silently drop the user's
+    setting) nor crashes later with an AttributeError."""
+    with pytest.raises(ValueError, match=match):
+        parse_pitloom_config(data)
+
+
+def test_parse_pitloom_config_absent_tables_are_defaults() -> None:
+    """Absent is not wrong: no [tool], no [tool.pitloom], an empty
+    ``sbom-basename`` all give the defaults."""
+    assert parse_pitloom_config({}) == parse_pitloom_config({"tool": {}})
+    config = parse_pitloom_config({"tool": {"pitloom": {"sbom-basename": ""}}})
+    assert config.sbom_basename is None
 
 
 def test_parse_pitloom_config_describe_relationship_non_bool_raises() -> None:

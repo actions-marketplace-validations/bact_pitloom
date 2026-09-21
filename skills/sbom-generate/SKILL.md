@@ -1,6 +1,6 @@
 ---
 # Created: 2026-07-05
-# Last-Modified: 2026-09-19
+# Last-Modified: 2026-09-21
 # SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 # SPDX-FileType: SOURCE
 # SPDX-License-Identifier: Apache-2.0
@@ -179,10 +179,11 @@ set -- regenerating from the same unchanged source normally reproduces
 the same ids, letting a fragment written against one run still merge
 cleanly into a later regeneration (see the `sbom-enrich` skill's
 fragment workflow, which depends on this). `project`/`wheel`/`env`
-auto-harvest newly-minted ids into a registry file
-(`.pitloom-ids.json` by default, `--registry FILE` to override,
-`--update-registry`/`--no-update-registry` toggles it, on by default)
-after each run, so this is normally automatic -- just don't switch
+harvest newly-minted ids into the registry file after each run
+(`--update-registry`/`--no-update-registry`, on by default). `project`
+finds `loom-ids.json` in the project itself; `wheel`/`env` use one only
+when given `--registry FILE` or a `--config` file with `ids-file`. So
+this is normally automatic -- just don't switch
 `--registry` files between a base-SBOM run and a later
 enrichment/regeneration of the same project, or ids can drift.
 
@@ -203,9 +204,15 @@ as a standalone file -- PEP 770's `.dist-info/sboms/` convention -- use
 `embed-wheel` instead of `wheel`:
 
 ```bash
-loom embed-wheel dist/mypackage-1.0.0-py3-none-any.whl
+loom embed-wheel dist/mypackage-1.0.0-py3-none-any.whl        # standalone: no project scan
 loom embed-wheel dist/*.whl --project-dir .   # multiple wheels, Build SBOM
 ```
+
+`--project-dir` is required to have `embed-wheel` rescan the source
+project (it is never inferred from the current directory, even when the
+shell is already there) -- pass it whenever the user has a project
+directory to scan; omit it only for a genuinely standalone wheel with no
+project of its own.
 
 Or embed an already-generated SBOM file directly -- its declared subject
 name/version is cross-checked against the wheel's own METADATA first; a
@@ -234,7 +241,7 @@ To check the wheel's embedded SBOM right after this same embed, pass
 one disk read this embed already did:
 
 ```bash
-loom embed-wheel dist/*.whl --verify --validate
+loom embed-wheel dist/*.whl --project-dir . --verify --validate
 ```
 
 For checking an already-embedded wheel later (not right after an embed
@@ -246,10 +253,20 @@ presence-only ask).
 ## Useful flags
 
 - `-o FILE` / `--output FILE` -- explicit output path.
+- `--config FILE` -- read `[tool.pitloom]` from *FILE* instead of the
+  target's own `pyproject.toml`. Needed whenever the user wants
+  non-default settings applied to a `wheel`/`env`/`model`/`enrich`
+  target, or an `embed-wheel` without `--project-dir` -- those never
+  read the current directory or the target's own location, so `--config`
+  is the only way to give them a `[tool.pitloom]` at all. On a project
+  target it replaces the project's own config outright, not merges with
+  it.
 - `--pretty` -- indent the JSON for human reading (default: compact).
 - `--offline` -- enforce offline execution across `project`, `wheel`,
   `model`, `env`, `embed-wheel`, and `generate`.
-- `-v` / `--verbose` -- print effective options and where each came from.
+- `-v` / `--verbose` -- print effective options and where each came
+  from; source labelling (config file vs. default) only for `project`/
+  `generate` on a project directory or sdist.
 - `--creator-name NAME`, `--creator-email EMAIL` -- name who created the SBOM.
 - `--enrich` / `--no-enrich` -- opt in to (or force off) Pitloom's own
   deterministic, local, frontmatter-only enrichment pass as part of the

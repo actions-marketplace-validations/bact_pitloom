@@ -16,6 +16,7 @@ from unittest.mock import patch
 
 import pytest
 
+from pitloom.assemble import generate_project_sbom
 from pitloom.extract.project import (
     read_project,
     resolve_project_with_lockfile,
@@ -466,12 +467,13 @@ def test_resolve_project_with_lockfile_sdist_reads_archive_once(
     mock_read_sdist.assert_called_once()
 
 
-def test_resolve_project_with_lockfile_sdist_explicit_flag_warns_and_is_ignored(
+def test_sdist_explicit_use_lockfile_warns_once_and_is_ignored(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     """Regression: an explicit use_lockfile passed for an sdist archive has
     no effect (no lock/pin cascade support for archives yet) -- silently
-    discarding it instead of warning would hide the no-op from the user."""
+    discarding it instead of warning would hide the no-op from the user.
+    The generator settles it once; the resolver itself stays silent."""
     sdist_path = tmp_path / "demo-1.0.0.tar.gz"
     pkg_info = b"Metadata-Version: 2.1\nName: demo\nVersion: 1.0.0\n"
     with tarfile.open(sdist_path, "w:gz") as tf:
@@ -483,9 +485,12 @@ def test_resolve_project_with_lockfile_sdist_explicit_flag_warns_and_is_ignored(
         metadata, _pitloom_config, _config_path = resolve_project_with_lockfile(
             sdist_path, False
         )
-
     assert metadata.name == "demo"
-    assert "has no effect for an sdist archive target" in caplog.text
+    assert "has no effect" not in caplog.text
+
+    with caplog.at_level(logging.WARNING):
+        generate_project_sbom(sdist_path, use_lockfile=False)
+    assert caplog.text.count("has no effect for an sdist archive target") == 1
 
 
 def test_resolve_project_with_lockfile_does_not_duplicate_poetry_warning(

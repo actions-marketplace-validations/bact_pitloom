@@ -1,6 +1,6 @@
 ---
 Created: 2026-08-25
-Last-Modified: 2026-08-26
+Last-Modified: 2026-09-21
 SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 SPDX-FileType: DOCUMENTATION
 SPDX-License-Identifier: CC0-1.0
@@ -91,9 +91,9 @@ PEP 508 `declared_constraint`.
 - `max-source-metadata-bytes = <int>` — default `0` (unlimited). Byte
   budget for the serialized artifact-metadata `Annotation.statement`
   (2026-08-26); unlike its siblings, also has a `--max-source-metadata-bytes`
-  CLI flag / `action.yml` input, resolved at the CLI layer via
-  `cli/commands/utils.resolve_effective_provenance()` rather than a new
-  per-hop parameter — see "Size-bounded artifact-metadata preservation"
+  CLI flag / `action.yml` input, passed as the field-level override
+  `ConfigOverrides.max_source_metadata_bytes` (normalised once in
+  `apply_overrides()`) — see "Size-bounded artifact-metadata preservation"
   below.
 
 All parsed/validated in `core/_config_parse.py` (`_read_provenance_settings`),
@@ -163,14 +163,16 @@ construction route gets the same treatment.
 Unlike every other `[tool.pitloom.provenance]` key, this one also has a
 `--max-source-metadata-bytes` CLI flag and `action.yml` input — a byte
 cap is judged an operational knob worth overriding per-run, unlike the
-project-level policy choices the other keys represent. Resolved at the
-CLI layer (`cli/commands/utils.resolve_effective_provenance()`, composing
-a `dataclasses.replace()` onto the config-sourced `ProvenanceConfig`
-before it's ever passed into the assembly pipeline) rather than adding a
-new parameter at every hop the way `content_type_method` does — since
-`ProvenanceConfig` already flows through `generate_project_sbom()` →
-`build()` → `add_ai_models()` as one opaque object, no per-hop threading
-was needed.
+project-level policy choices the other keys represent. Originally
+resolved at the CLI layer (a `dataclasses.replace()` onto the
+config-sourced `ProvenanceConfig`); now the field-level override
+`ConfigOverrides.max_source_metadata_bytes`, layered in
+`apply_overrides()` onto whatever provenance settings the config (or a
+`provenance=` object) gave, and a `max_source_metadata_bytes=` parameter
+on every generator, so the library and every CLI command apply it the
+same way (see [config-sources.md](../config-sources.md)). Below the
+generators no per-hop threading is needed: `ProvenanceConfig` flows
+through `build()` → `add_ai_models()` as one opaque object.
 
 **Also 2026-08-26**: `_build_json_annotation()` (shared by all four
 schemas) switched from plain `json.dumps(..., sort_keys=True)` to true

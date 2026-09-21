@@ -49,7 +49,8 @@ class FragmentConfig:
     ``[tool.pitloom.fragment] files``.
 
     Attributes:
-        path: Path to the fragment file, relative to the project directory.
+        path: Path to the fragment file, relative to the project directory
+            (or to *base_dir*).
         role: Optional, free-form label for what *part* this fragment's
             root element(s) play in a pipeline/system -- input for a
             *future* decision about which relationship type to emit
@@ -94,6 +95,10 @@ class FragmentConfig:
         link_to_main: Reserved for a future SPDX relationship type between
             the fragment's root element and the project's main package.
             Stored but not yet acted on anywhere.
+        base_dir: The directory a relative *path* resolves against: that
+            of the ``--config`` file it came from. ``None`` (a project's
+            own config) means the project directory. *path* itself is
+            kept as written, since it is recorded in the SBOM.
     """
 
     path: str
@@ -102,6 +107,7 @@ class FragmentConfig:
     required: bool = False
     sha256: str | None = None
     link_to_main: str | None = None
+    base_dir: str | None = None
 
 
 @dataclass

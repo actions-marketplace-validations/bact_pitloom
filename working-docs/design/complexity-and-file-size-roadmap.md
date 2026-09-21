@@ -1,6 +1,6 @@
 ---
 Created: 2026-08-17
-Last-Modified: 2026-09-14
+Last-Modified: 2026-09-21
 SPDX-FileCopyrightText: 2026 Arthit Suriyawongkul
 SPDX-FileType: DOCUMENTATION
 SPDX-License-Identifier: CC0-1.0
@@ -65,7 +65,15 @@ trip review attention:
   `test_pyproject_license.py`, `test_hatch_hook_metadata_parity.py`, and
   `test_poetry_extract.py` respectively).
 
-None have crossed the 800-line hard cap, so nothing is currently broken --
+- **Docs** (same limits, ~30KB): as of 2026-09-21,
+  `working-docs/design/roadmap.md` is at 799 lines but 48KB, past the
+  byte cap -- move completed items' detail out per AGENTS.md's roadmap
+  rule. `docs/cli.md` grew to 564 lines in PR #231 (the "Options with no
+  effect" table and `--config`); a candidate split is a separate
+  `docs/cli-options.md` for the shared-options section. `CHANGELOG.md`
+  (1010 lines) is exempt by nature but could archive released versions.
+
+None of the code files have crossed the 800-line hard cap, so nothing is currently broken --
 but per AGENTS.md, a file should be split *before* crossing the soft
 limit. `deps_originator.py` and `setuptools_cfg.py` are the best next
 candidates: both were split once already (via the facade pattern used

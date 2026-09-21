@@ -1,6 +1,6 @@
 ---
 Created: 2026-09-04
-Last-Modified: 2026-09-11
+Last-Modified: 2026-09-21
 SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 SPDX-FileType: DOCUMENTATION
 SPDX-License-Identifier: CC0-1.0
@@ -535,18 +535,13 @@ through the shared read path, so the reread never re-emits what the peek
 already logged; the sdist-archive case (which never varies by this
 setting) skips the peek/reread dance entirely instead.
 
-`loom generate`'s command handler special-cases a project-directory
-target (`pitloom.assemble.target_resolves_to_project()` plus a directory
-check): it calls `resolve_project_with_lockfile()` and
-`generate_project_sbom()` directly -- the same single-read pattern
-`loom project` uses -- instead of going through the shared `generate()`
-dispatcher, which would otherwise still need a separate config-only peek
-(`_resolve_common_options()`) ahead of `generate_project_sbom()`'s own
-real read. For every other target (env/wheel/model-file/Hugging-Face/
-sdist-archive), `loom generate` does go through `generate()`, and its own
-`_resolve_common_options()` peek is a normal, always-non-quiet read: none
-of those targets' real reads re-parse the same directory this peek
-looked at, so there is nothing for it to duplicate.
+`loom generate`'s command handler special-cases a project target (a
+directory or sdist, `pitloom.assemble.target_resolves_to_project()`): it
+runs `loom project`'s own code path
+(`cli/commands/project.generate_project_from_args()`), so the project is
+read once. Every other target (env/wheel/model file/Hugging Face) goes
+through the shared `generate()` dispatcher and reads no project config
+at all (see `config-sources.md`).
 
 `loom enrich`'s `_project_doc_identity()` (`_model_generator.py`) also
 threads this setting: it must match whatever value produced the *base*

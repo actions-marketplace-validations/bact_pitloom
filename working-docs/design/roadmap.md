@@ -694,9 +694,11 @@ be built:
   top-level handler in `__main__.py` catches it, unlike every other
   failure mode (`ERROR:` via `cli_error_handler`). Found during a
   `--build-timeout` review, 2026-09-19.
-- [ ] **Shared options accepted, then silently ignored** -- `wheel`,
-  `model`, `enrich`, `env` and `embed-wheel --sbom` take shared options
-  they never use. Warn "has no effect" or stop offering them. See
+- [x] **Shared options accepted, then silently ignored** -- fixed via
+  `core/inert_options.INERT`, a per-target-kind "has no effect" warning
+  every shared flag now goes through. See
+  [config-sources.md](../implementation/config-sources.md); remaining
+  open gap in
   [cli-shared-options-ignored.md](cli-shared-options-ignored.md).
 - [ ] **Immediate follow-ups (next PR): canonical output** -- sort
   metadata keys for every file format, not only Safetensors (its
@@ -717,9 +719,10 @@ be built:
   fragment(s) into ...`), unlike `PITLOOM_SBOM_OUTPUT_PATH=` from every
   other SBOM command ("CLI output" in CLAUDE.md); so do `ids` and
   `fragment validate`.
-- [ ] **A relative `--registry` resolves against the project directory**,
-  not the current directory, and a miss is only a `WARNING:` -- every
-  other path option is relative to the current directory.
+- [x] **A relative `--registry` resolves against the project directory**
+  -- fixed: it now resolves against the current directory on every
+  command, like every other path option. See
+  [config-sources.md](../implementation/config-sources.md).
 - [ ] **`loom ids generate` crashes on a symlinked path** -- a project
   path through a symlink (macOS `/var` -> `/private/var`) fails
   `relative_to()` with a raw traceback instead of an `ERROR:`.
@@ -727,6 +730,11 @@ be built:
   UUID4 per run, so two fresh registries for the same project differ.
   Decide whether that is intended (a registry is minted once) or should
   be derived like an SBOM's namespace.
+
+- [ ] **11 small findings from the `--config`/`pitloom_config=` change**
+  (a `-v`/Hatchling-hook gap, an import cycle, a widened id-minting
+  collision, ...). See [config-sources.md](../implementation/config-sources.md#found-not-fixed-here).
+  An sdist's own config: **step 6.5**, [sdist-own-config.md](sdist-own-config.md).
 
 ### Internal codenames
 
@@ -743,8 +751,8 @@ be built:
 
 - [ ] **CHANGELOG.md split** -- `CHANGELOG.md` now exceeds 800 lines (hard limit).
   Archive completed entries to a `CHANGELOG-archive/` folder or move post-1.0 entries
-  to a per-version doc. `roadmap.md` itself (700+ lines) is past the soft
-  limit too: move detailed bullets into their own design docs.
+  to a per-version doc. `roadmap.md` itself is now at the 800-line hard
+  limit too: move more detailed bullets into design/implementation docs.
 - [ ] **CycloneDX assembler** -- add a CycloneDX serializer consuming the
   existing `DocumentModel`; no changes to extractors required.
 - [ ] **AIDOC / TechOps renderer** -- additional output format consuming

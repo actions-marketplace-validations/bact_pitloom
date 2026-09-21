@@ -148,7 +148,9 @@ unattended run is its own kind of unasked deviation.
 
 `sbom-generate`'s "Embed an SBOM into a wheel" section (URL in "See
 also" below) covers the combined flag form, run right after an embed
-in the same command: `loom embed-wheel dist/*.whl --verify --validate`.
+in the same command: `loom embed-wheel dist/*.whl --project-dir . --verify --validate`
+(`--project-dir` is required for a project rescan; without it the SBOM is
+built from the wheel alone).
 `embed-wheel` also accepts `--allow-build`; if the user asked for it,
 size `--build-timeout` first (bare number = seconds, or `h`/`m`/`s`
 units, default 20m, max 7 days; **in an agent session always pass an

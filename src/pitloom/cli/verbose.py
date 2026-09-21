@@ -20,6 +20,7 @@ from pitloom.cli.options import (
     _resolve_pretty,
     _ResolvedCreationMetadata,
 )
+from pitloom.cli.options_resolve import config_source_label
 
 
 def _build_creation_option_rows(
@@ -87,7 +88,7 @@ def _print_verbose(
     creation: _ResolvedCreationMetadata,
 ) -> None:
     pitloom_tool = _load_pitloom_tool_section(config_path)
-    config_source = config_path.name if config_path else "project config"
+    config_source = config_source_label(config_path)
     out_src = _resolve_output_source(args, pitloom_config, config_path)
     eff_pretty, pretty_src = _resolve_pretty(
         args, pitloom_config, pitloom_tool, config_source

@@ -38,25 +38,6 @@ from pitloom.extract.project.setuptools import read_setuptools
 log = logging.getLogger(__name__)
 
 
-def warn_use_lockfile_no_effect(subject: object, reason: str) -> None:
-    """Log the shared ``WARNING:`` for an explicit ``--use-lockfile``/
-    ``--no-use-lockfile`` (or the equivalent ``use_lockfile=`` library-API
-    argument) given for a target/mode the setting doesn't apply to.
-
-    *reason* is spliced in after "has no effect" (its own leading space,
-    no trailing punctuation) -- called from every no-op case: an sdist
-    archive target (:func:`resolve_project_with_lockfile` below), a non-
-    project :func:`~pitloom.assemble.generate` target, and
-    :func:`~pitloom.assemble.enrich_model` without ``--project-dir``.
-    """
-    log.warning(
-        "%s: --use-lockfile/--no-use-lockfile has no effect %s -- "
-        "ignoring the explicit override",
-        subject,
-        reason,
-    )
-
-
 # pylint: disable-next=too-many-arguments,too-many-positional-arguments
 def _fallback_to_setuptools(
     project_path: Path,
@@ -277,11 +258,20 @@ def _apply_installed_metadata(
 
 
 def resolve_project_with_lockfile(
-    project_path: Path, use_lockfile: bool | None
+    project_path: Path,
+    use_lockfile: bool | None,
+    explicit_config: PitloomConfig | None = None,
 ) -> tuple[ProjectMetadata, PitloomConfig, Path | None]:
     """Resolve project metadata, deciding the lock/pin cascade from
-    *use_lockfile* itself when given, or ``[tool.pitloom] use-lockfile``
-    when ``None``.
+    *use_lockfile* itself when given, else from *explicit_config*'s
+    ``use-lockfile``, else from the project's own ``[tool.pitloom]
+    use-lockfile``.
+
+    *explicit_config* (``--config``, ``pitloom_config=``) replaces the
+    project's own ``[tool.pitloom]`` and is returned as the config; the
+    returned path is still the project's own. This function never warns:
+    a given *use_lockfile* that has no effect (an sdist) is settled by the
+    caller's inert-option check.
 
     The cascade decision has to be known before the real metadata read
     runs, but ``[tool.pitloom] use-lockfile`` only becomes known *from* a
@@ -299,8 +289,10 @@ def resolve_project_with_lockfile(
     *include_locked_dependencies* for sdist targets (no lock/pin cascade
     support for archives yet), so peeking would always see the cascade as
     "on" and re-read (and re-extract the archive) for an identical result.
-    Shared by :func:`pitloom.assemble.generate_project_sbom` and
-    ``pitloom.cli.commands.project._run_project_command`` so the resolution
+    Shared by :func:`pitloom.assemble.generate_project_sbom`,
+    :func:`pitloom.assemble.enrich_model` and
+    ``pitloom.cli.options_resolve._resolve_project_generation_settings`` so
+    the resolution
     logic (and its remaining double-parse tradeoff for the on-cascade,
     non-sdist case -- an accepted cost, see
     ``working-docs/implementation/lock-file-cascade.md``) exists in one
@@ -313,16 +305,15 @@ def resolve_project_with_lockfile(
     separate tradeoff of its own.
     """
     if is_sdist_archive(project_path):
-        if use_lockfile is not None:
-            warn_use_lockfile_no_effect(
-                project_path,
-                "for an sdist archive target (no lock/pin cascade support "
-                "for archives yet)",
-            )
-        return read_project(project_path)
+        return _with_config(read_project(project_path), explicit_config)
 
+    if use_lockfile is None and explicit_config is not None:
+        use_lockfile = explicit_config.use_lockfile
     if use_lockfile is not None:
-        return read_project(project_path, include_locked_dependencies=use_lockfile)
+        return _with_config(
+            read_project(project_path, include_locked_dependencies=use_lockfile),
+            explicit_config,
+        )
 
     # Deliberately leaves include_installed_metadata at its default (True)
     # on both calls below -- do NOT copy include_locked_dependencies=False
@@ -341,8 +332,18 @@ def resolve_project_with_lockfile(
     return peeked_metadata, peeked_config, peeked_path
 
 
+def _with_config(
+    resolved: tuple[ProjectMetadata, PitloomConfig, Path | None],
+    explicit_config: PitloomConfig | None,
+) -> tuple[ProjectMetadata, PitloomConfig, Path | None]:
+    """*resolved* with its config replaced by *explicit_config*, if given."""
+    if explicit_config is None:
+        return resolved
+    metadata, _, path = resolved
+    return metadata, explicit_config, path
+
+
 __all__ = [
     "read_project",
     "resolve_project_with_lockfile",
-    "warn_use_lockfile_no_effect",
 ]

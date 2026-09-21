@@ -1,6 +1,6 @@
 ---
 Created: 2026-08-12
-Last-Modified: 2026-09-11
+Last-Modified: 2026-09-21
 SPDX-FileCopyrightText: 2026-present Arthit Suriyawongkul
 SPDX-FileType: DOCUMENTATION
 SPDX-License-Identifier: CC0-1.0
@@ -16,23 +16,79 @@ worked examples for the settings people reach for most (creator/creation
 metadata, provenance).
 
 A CLI flag or API parameter of `None` (its default, when omitted) always
-defers to `pyproject.toml`; passing an explicit value overrides it for
-that run only. A GitHub Action input of `""` (empty, its default) defers
-the same way.
+defers to `[tool.pitloom]` where one applies to the target -- see [Where
+settings come from](#where-settings-come-from) below, since not every
+target has one. Passing an explicit value overrides it for that run
+only. A GitHub Action input of `""` (empty, its default) defers the same
+way.
+
+## Where settings come from
+
+Precedence, on every surface: a per-run flag/parameter wins over
+`--config FILE` (`pitloom_config=`), which wins over the target's own
+`[tool.pitloom]` (where one applies), which wins over the hardcoded
+default. `--config`/`pitloom_config=` **replaces** the target's own
+config outright rather than merging with it -- a key the given file
+doesn't set reverts to the default, not to the target's own value.
+
+Only a project directory, an `embed-wheel --project-dir`, and the
+Hatchling build hook read a target's own `[tool.pitloom]`. A wheel, an
+installed environment, a model file, a Hugging Face model, `enrich`
+without `--project-dir`, and `embed-wheel` without `--project-dir` never
+read one -- not the current directory's, and not one beside the target --
+either could belong to an unrelated project; `--config`/`pitloom_config=`
+is the only config they can get. An sdist archive's own `[tool.pitloom]`
+is not read either (its bundled `pyproject.toml` is not opened for this
+purpose): a `project`/`generate` run against an sdist resolves the
+built-in defaults unless `--config` supplies one.
+
+| Surface | Target's own config | `--config` / `pitloom_config=` | Current directory | Flags |
+| :--- | :--- | :--- | :--- | :--- |
+| `project`/`generate` (project dir) -- `generate_project_sbom()` | Read | Replaces it | Never read | Override |
+| `project`/`generate` (sdist archive) -- `generate_project_sbom()` | Never read (see above) | Only config source | Never read | Override |
+| `wheel`/`generate` (`.whl`) -- `generate_wheel_sbom()` | Never read | Only config source | Never read | Override |
+| `env`/`generate env` -- `generate_env_sbom()` | Never read | Only config source | Never read | Override |
+| `model` (local file)/`generate` -- `generate_model_sbom()` | Never read | Only config source | Never read | Override |
+| `model` (Hugging Face) -- `generate_model_sbom()` | Never read | Only config source | Never read | Override |
+| `enrich` (no `--project-dir`) -- `enrich_model()` | Never read | Only config source | Never read | Override |
+| `enrich --project-dir D` -- `enrich_model(project_target=D)` | Read, for document identity (`use-lockfile`) and the registry (`ids-file`) only | Replaces D's own | Never read | Override |
+| `embed-wheel --project-dir D` -- `embed_wheel_sbom(project_dir=D)` | Read | Replaces it | Never read | Override |
+| `embed-wheel` (no `--project-dir`) -- `embed_wheel_sbom()` | Never read | Only config source | Never read | Override |
+| `embed-wheel --sbom` -- `embed_wheel_sbom(sbom_path=...)` | Not read | Not read (`--config` warns, no effect) | Never read | Embedding flags only (`--sbom-basename`, `-o`, `--verify`, ...); every SBOM-generation flag warns, since the file is embedded as is |
+| Hatchling build hook | Read (always, at build time) | No equivalent -- the hook has no per-run override surface | Never read | None -- no per-run surface |
+| GitHub Action | Project and embed-wheel modes read it (`--project-dir` under the hood); model mode never | `config` input maps to `--config` | Never read | Every other input maps to a flag |
+
+A relative path inside a `--config` file (`ids-file`, a fragment's
+`path`) resolves against that file's own directory, not the current
+directory or a symlink's target -- as a project's own `pyproject.toml`
+does. `loom fragment list` reads only the project's own config.
+A key a target cannot use is ignored without a warning, since one config
+often serves several commands: fragments merge only into a project
+directory's SBOM (`project`, `generate <dir>`, `embed-wheel
+--project-dir`), and an SBOM embedded in a wheel is always compact. The
+matching flags do warn -- see [Options with no
+effect](cli.md#options-with-no-effect).
+A relative `--registry` on the command line resolves against the
+current directory, on every command -- unlike a target's own
+`ids-file`, which is project-relative.
+
+See [Options with no effect](cli.md#options-with-no-effect) for which
+flags a target given for the wrong kind warns about instead of silently
+doing nothing.
 
 ## `[tool.pitloom]`
 
 | Key | Type | Default | CLI flag | Action input | API param | Meaning |
 | :-- | :--- | :------ | :------- | :------------ | :-------- | :------ |
-| `pretty` | bool | `false` | `--pretty` / `--no-pretty` | `pretty` | `pretty` | Indent the JSON output with 2 spaces. |
-| `describe-relationship` | bool | `false` | `--describe-relationship` / `--no-describe-relationship` | -- | `describe_relationship` | Include human-readable text on SPDX relationships. |
+| `pretty` | bool | `false` | `--pretty` / `--no-pretty` | `pretty` | `pretty` | Indent the JSON output with 2 spaces. Not used for an SBOM embedded in a wheel (`embed-wheel`, `wheel --embed`, including its `-o` copy), which is always compact; the flags warn there. |
+| `describe-relationship` | bool | `false` | `--describe-relationship` / `--no-describe-relationship` | -- | `describe_relationship` | Include human-readable text on SPDX relationships. Not used for an SBOM embedded in a wheel, as for `pretty`. |
 | `sbom-basename` | string | *(derived from project name/version)* | -- | -- | `sbom_basename` | Base filename (no extension) for the generated SBOM. |
 | `offline` | bool | `false` | `--offline` | `offline` | `offline` | Skip the PyPI JSON API fallback used to fill dependency metadata gaps. Network attempted, best-effort, by default -- any failure (including no network) silently falls back to local-only data. |
 | `use-lockfile` | bool | `true` | `--use-lockfile` / `--no-use-lockfile` | `use-lockfile` | `use_lockfile` | Resolve exact versions from a lock/pin file cascade (`pylock.toml`/`uv.lock`/`poetry.lock`/`pdm.lock`/`Pipfile.lock`/pinned `requirements.txt`) -- see [Dependency sources and precedence](dependency-sources.md). On by default, unlike every other bool above; `false` falls back to direct dependencies and environment introspection only. CLI flag only on `project`/`generate` (dependency resolution) and `enrich` (`--project-dir` document identity matching); no effect on `model`/`wheel`/`embed-wheel`/`env`. |
 | `extract-file-header` | bool | `true` | `--extract-file-header` / `--no-extract-file-header` | `extract-file-header` | `extract_file_header` | Scan each source file's leading comment header for SPDX-File\* tags. Independent of content-type detection below -- a binary file with no text header still gets a `contentType` when that's on. |
 | `enrich` | bool | `false` | `--enrich` / `--no-enrich` | `enrich` | `enrich` | Run local README/model-card enrichment for discovered AI models. |
 | `ids-file` | string | `null` (auto-discovers `loom-ids.json` by walking up from the project directory) | -- | -- | -- (see `registry` param) | Path to the Loom ID registry file. |
-| `update-registry` | bool | `true` (`project` reads the target project's `[tool.pitloom]`; `wheel`/`env` read the current directory's) | `--update-registry` / `--no-update-registry` | -- | `update_registry` | After generating, harvest newly-minted ids back into the resolved registry and save it. Only consulted by `project`/`wheel`/`env`/`generate`; accepted but has no effect on `model`/`enrich`/`embed-wheel`. No effect when no registry is resolved -- see [Loom IDs across fragments](https://github.com/bact/pitloom/blob/main/README.md#loom-ids-across-fragments-pitloom-ids). |
+| `update-registry` | bool | `true` -- from the target's own `[tool.pitloom]` where one applies (see [Where settings come from](#where-settings-come-from)), else from `--config`/`pitloom_config=`, else the default | `--update-registry` / `--no-update-registry` | -- | `update_registry` | After generating, harvest newly-minted ids back into the resolved registry and save it. Effective on `project`/`wheel`/`env`/`generate`; given for `model`/`enrich`/`embed-wheel`/`wheel --embed` it warns `WARNING: Options: ... has no effect` and is dropped. No effect when no registry is resolved -- see [Loom IDs across fragments](https://github.com/bact/pitloom/blob/main/README.md#loom-ids-across-fragments-pitloom-ids). |
 
 **Invalid values / fallback behaviour:** every boolean above raises
 `ValueError` at config-read time if set to a non-boolean (e.g. the TOML
@@ -105,7 +161,7 @@ pattern falls through to normal detection.
 
 | Key | Type | Default | CLI flag | Action input | API param | Meaning |
 | :-- | :--- | :------ | :------- | :------------ | :-------- | :------ |
-| `files` | array of strings and/or tables | `[]` | -- | -- | -- | Pre-generated SPDX 3 JSON-LD fragment files merged into the final SBOM. Each entry is either a plain path string (shorthand -- every other field below defaults) or an inline table with `path` plus any of the fields below. See [Merge fragments](cli.md#merge-fragments), [`loom fragment list`](cli.md#list-configured-fragments). |
+| `files` | array of strings and/or tables | `[]` | -- | -- | -- | Pre-generated SPDX 3 JSON-LD fragment files merged into a project directory's SBOM (not a wheel, sdist, environment or model file SBOM). Each entry is either a plain path string (shorthand -- every other field below defaults) or an inline table with `path` plus any of the fields below. See [Merge fragments](cli.md#merge-fragments), [`loom fragment list`](cli.md#list-configured-fragments). |
 
 Kept as its own table (rather than folded into a flat `[tool.pitloom]`
 key) since it's expected to grow more fragment-related settings.
@@ -114,7 +170,7 @@ key) since it's expected to grow more fragment-related settings.
 
 | Key | Type | Default | Meaning |
 | :-- | :--- | :------ | :------ |
-| `path` | string | *(required)* | Path to the fragment file, relative to the project directory. |
+| `path` | string | *(required)* | Path to the fragment file, relative to the directory of the file that sets it (the project directory for its own `pyproject.toml`). |
 | `role` | string | `null` | Free-form, unvalidated label for what *part* this fragment plays in a pipeline (e.g. `input_dataset`, `output_dataset`, `ai_model`, `software_package`, `source`, `training_script`, `data_cleaning_script`, `post_processing_script`, `guardrail_safety_function`) -- not enforced, and not read by the merge itself yet; informational only, shown by `loom fragment list`. |
 | `description` | string | `null` | Human-readable description of what the fragment covers. |
 | `required` | boolean | `false` | If `true`, a missing or unreadable fragment fails the build (`FragmentMergeError`) instead of the default warn-and-skip. |

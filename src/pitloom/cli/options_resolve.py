@@ -21,25 +21,28 @@ split needed no import-site changes.
 from __future__ import annotations
 
 import argparse
-import logging
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from pitloom.cli.constants import _PROJECT_CONFIG_FILES, _PROJECT_PYPROJECT_SOURCE
+from pitloom.cli.constants import (
+    _PROJECT_CONFIG_FILES,
+    _PROJECT_PYPROJECT_SOURCE,
+    _PROJECT_SETUP_CFG_SOURCE,
+    _PROJECT_SETUP_PY_SOURCE,
+)
 from pitloom.core.config import PitloomConfig
+from pitloom.core.config_cascade import load_config_file
 from pitloom.core.creation import (
     CreationMetadata,
     Creator,
     Tool,
 )
-from pitloom.core.project import ProjectMetadata
+from pitloom.core.project import ProjectMetadata, is_sdist_archive
 from pitloom.export.spdx3_json import SPDX3_JSONLD_EXTENSION
 from pitloom.extract._toml_io import load_toml_file
-from pitloom.extract.project import read_project, resolve_project_with_lockfile
-
-log = logging.getLogger(__name__)
+from pitloom.extract.project import resolve_project_with_lockfile
 
 
 @dataclass(frozen=True)
@@ -112,33 +115,34 @@ def _resolve_creation_field(
     cli_value: str | None,
     config_value: str | None,
     default_value: str | None,
+    config_source: str,
 ) -> _ResolvedValue:
-    """Resolve a creation field with precedence CLI > pyproject > default."""
+    """Resolve a creation field with precedence CLI > config > default."""
     if cli_value is not None:
         return _ResolvedValue(value=cli_value, source="command-line")
     if config_value is not None:
-        return _ResolvedValue(value=config_value, source=_PROJECT_PYPROJECT_SOURCE)
+        return _ResolvedValue(value=config_value, source=config_source)
     return _ResolvedValue(value=default_value, source="default")
 
 
 def _resolve_creators(
     args: argparse.Namespace,
     config_creators: list[Creator],
+    config_source: str,
 ) -> _ResolvedCreators:
-    """Resolve the creator list with precedence CLI > pyproject > default."""
+    """Resolve the creator list with precedence CLI > config > default."""
     cli_creators: list[Creator] | None = args.creators
     if cli_creators:
         return _ResolvedCreators(value=cli_creators, source="command-line")
     if config_creators:
-        return _ResolvedCreators(
-            value=config_creators, source=_PROJECT_PYPROJECT_SOURCE
-        )
+        return _ResolvedCreators(value=config_creators, source=config_source)
     return _ResolvedCreators(value=[], source="default")
 
 
 def _resolve_tools(
     args: argparse.Namespace,
     config_tools: list[Tool] | None,
+    config_source: str,
 ) -> _ResolvedTools:
     """Resolve the tool list."""
     if args.no_creation_tool:
@@ -150,90 +154,48 @@ def _resolve_tools(
             source="command-line",
         )
     if config_tools is not None:
-        return _ResolvedTools(value=config_tools, source=_PROJECT_PYPROJECT_SOURCE)
+        return _ResolvedTools(value=config_tools, source=config_source)
     return _ResolvedTools(value=None, source="default")
 
 
 def _resolve_creation_metadata(
     args: argparse.Namespace,
     pitloom_config: PitloomConfig,
+    config_source: str = _PROJECT_PYPROJECT_SOURCE,
 ) -> _ResolvedCreationMetadata:
-    """Resolve creation metadata."""
+    """Resolve creation metadata; *config_source* labels a value taken
+    from *pitloom_config* for ``--verbose``."""
     default_creation = CreationMetadata()
     return _ResolvedCreationMetadata(
-        creators=_resolve_creators(args, pitloom_config.creators),
-        tools=_resolve_tools(args, pitloom_config.tools),
+        creators=_resolve_creators(args, pitloom_config.creators, config_source),
+        tools=_resolve_tools(args, pitloom_config.tools, config_source),
         creation_datetime=_resolve_creation_field(
             args.creation_datetime,
             pitloom_config.creation_datetime,
             default_creation.creation_datetime,
+            config_source,
         ),
         creation_comment=_resolve_creation_field(
             args.creation_comment,
             pitloom_config.creation_comment,
             "Generated via Pitloom CLI",
+            config_source,
         ),
     )
 
 
-def _resolve_common_options(
-    args: argparse.Namespace,
-    target_dir: Path | None = None,
-    load_project: bool = True,
-) -> tuple[PitloomConfig, CreationMetadata, bool, bool]:
-    """Resolve common settings using project config when available.
+def load_explicit_config(args: argparse.Namespace) -> PitloomConfig | None:
+    """Load ``--config FILE``, or ``None`` when it was not given.
 
-    This is always a best-effort, config-only peek
-    (``include_locked_dependencies=False``): no caller pre-supplies its
-    result to a later real metadata read for the same directory, so its
-    own ``WARNING:`` lines are never at risk of being re-emitted by one --
-    unlike :func:`pitloom.extract.project.resolve_project_with_lockfile`'s
-    peek-then-reread, which does need to suppress that.
+    Raises:
+        FileNotFoundError, ValueError, OSError: the named file is missing,
+            invalid or unreadable -- fatal, since the user asked for it
+            (see :func:`~pitloom.core.config_cascade.load_config_file`).
     """
-    if load_project:
-        lookup_dir = target_dir if target_dir is not None else Path.cwd()
-        if lookup_dir.is_file():
-            lookup_dir = lookup_dir.parent
-
-        try:
-            # Only [tool.pitloom] config is used here, shared across every
-            # subcommand (including build-stage ones like embed-wheel) --
-            # skip the lock/pin cascade and in-tree installed-metadata
-            # resolution so neither ever runs for a caller that would
-            # discard the result anyway.
-            _, pitloom_config, _ = read_project(
-                lookup_dir,
-                include_locked_dependencies=False,
-                include_installed_metadata=False,
-            )
-        except FileNotFoundError:
-            # No config file at all -- absent source data, not an error.
-            pitloom_config = PitloomConfig()
-        except ValueError as exc:
-            # A real parse failure (malformed pyproject.toml/setup.cfg):
-            # this peek is best-effort only (its caller's target may not
-            # even be this directory), so degrade to defaults rather than
-            # raise -- but say so, since silently discarding a genuine
-            # parse error would hide it from the user entirely.
-            log.warning(
-                "%s: could not read project config (%s) -- using defaults",
-                lookup_dir,
-                exc,
-            )
-            pitloom_config = PitloomConfig()
-    else:
-        pitloom_config = PitloomConfig()
-
-    creation = _resolve_creation_metadata(args, pitloom_config)
-    effective_pretty, effective_describe_relationship = (
-        _resolve_pretty_and_describe_relationship(args, pitloom_config)
-    )
-    return (
-        pitloom_config,
-        creation.to_creation_metadata(),
-        effective_pretty,
-        effective_describe_relationship,
-    )
+    path: Path | None = getattr(args, "config", None)
+    if path is None:
+        return None
+    return load_config_file(path)
 
 
 def _resolve_bool_cascade(cli_value: bool | None, config_value: bool | None) -> bool:
@@ -252,60 +214,47 @@ def _resolve_bool_cascade(cli_value: bool | None, config_value: bool | None) -> 
     return bool(config_value if cli_value is None else cli_value)
 
 
-def _resolve_pretty_and_describe_relationship(
-    args: argparse.Namespace, pitloom_config: PitloomConfig
-) -> tuple[bool, bool]:
-    """Resolve the CLI-flag > ``[tool.pitloom]`` > default cascade for
-    ``pretty``/``describe_relationship``, shared by every caller that
-    already has a resolved *pitloom_config* in hand (whether from
-    :func:`_resolve_common_options`'s own peek or from a caller's own
-    :func:`pitloom.extract.project.resolve_project_with_lockfile` read) --
-    see AGENTS.md's "pattern hand-copied across 3+ call sites drifts" rule.
-    """
-    effective_pretty = _resolve_bool_cascade(
-        getattr(args, "pretty", None), pitloom_config.pretty
-    )
-    effective_describe_relationship = _resolve_bool_cascade(
-        getattr(args, "describe_relationship", None),
-        pitloom_config.describe_relationship,
-    )
-    return effective_pretty, effective_describe_relationship
-
-
 def _resolve_project_generation_settings(
     args: argparse.Namespace, project_dir: Path
-) -> tuple[
-    ProjectMetadata, PitloomConfig, Path | None, _ResolvedCreationMetadata, bool, bool
-]:
-    """Resolve *project_dir*'s metadata/config, creation metadata, and the
-    ``pretty``/``describe_relationship`` cascade in one call -- the same
-    three-call sequence every project-directory SBOM-generation command
-    handler needs immediately after deciding the lock-file cascade
-    (``loom project``, and ``loom generate``'s own project-directory fast
-    path), so it lives in one place rather than being hand-copied per
-    caller (see AGENTS.md's "pattern hand-copied across 3+ call sites
-    drifts" rule).
+) -> tuple[ProjectMetadata, PitloomConfig, Path | None, _ResolvedCreationMetadata]:
+    """Resolve *project_dir*'s metadata, the config that applies to it and
+    its creation metadata in one call -- the sequence every
+    project-target SBOM command needs (``loom project`` and ``loom
+    generate`` on a project directory or sdist), kept in one place.
+
+    ``--config FILE`` replaces the project's own ``[tool.pitloom]``, and the
+    returned config path is then that file, so ``--verbose`` names the
+    config that actually applied. Its ``use-lockfile`` decides the lock-file
+    cascade when ``--use-lockfile`` is not given.
     """
+    explicit = load_explicit_config(args)
     project_metadata, pitloom_config, config_path = resolve_project_with_lockfile(
-        project_dir, args.use_lockfile
+        project_dir, args.use_lockfile, explicit
     )
-    creation = _resolve_creation_metadata(args, pitloom_config)
-    effective_pretty, effective_describe_relationship = (
-        _resolve_pretty_and_describe_relationship(args, pitloom_config)
+    if explicit is not None:
+        config_path = args.config
+    elif is_sdist_archive(project_dir):
+        config_path = None  # an sdist's own [tool.pitloom] is not read
+    creation = _resolve_creation_metadata(
+        args, pitloom_config, config_source_label(config_path)
     )
-    return (
-        project_metadata,
-        pitloom_config,
-        config_path,
-        creation,
-        effective_pretty,
-        effective_describe_relationship,
-    )
+    return project_metadata, pitloom_config, config_path, creation
+
+
+def config_source_label(config_path: Path | None) -> str:
+    """The ``--verbose`` label for a value taken from the config at
+    *config_path* -- the project's own or a ``--config`` file."""
+    return config_path.name if config_path else _PROJECT_PYPROJECT_SOURCE
 
 
 def _load_pitloom_tool_section(config_path: Path | None) -> dict[str, Any]:
-    """Load ``[tool.pitloom]`` keys for verbose source reporting."""
-    if config_path is None or config_path.name != "pyproject.toml":
+    """Load ``[tool.pitloom]`` keys for verbose source reporting, from a
+    project's ``pyproject.toml`` or a ``--config`` file of any name."""
+    if (
+        config_path is None
+        or config_path.name in (_PROJECT_SETUP_CFG_SOURCE, _PROJECT_SETUP_PY_SOURCE)
+        or is_sdist_archive(config_path)
+    ):
         return {}
 
     try:
@@ -328,7 +277,7 @@ def _resolve_output_source(
     if args.output is not None:
         return "command-line"
     if pitloom_config.sbom_basename:
-        return config_path.name if config_path else _PROJECT_PYPROJECT_SOURCE
+        return config_source_label(config_path)
     return "default"
 
 

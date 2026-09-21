@@ -10,7 +10,7 @@ See also:
   other generators.
 - :mod:`pitloom.assemble._generators` for the project/sdist generator.
 - :mod:`pitloom.assemble._generators_wheel` for the built-wheel generator,
-  which resolves the same current-directory cascade.
+  which resolves its settings the same way.
 """
 
 from __future__ import annotations
@@ -20,16 +20,13 @@ from pathlib import Path
 from pitloom.assemble._generators_shared import _sync_registry
 from pitloom.assemble._model_generator import _write_output_file
 from pitloom.assemble.spdx3.document import build_deployed
-from pitloom.core.config_cascade import (
-    ConfigOverrides,
-    apply_overrides,
-    resolve_generator_config,
-)
+from pitloom.core.config import PitloomConfig
+from pitloom.core.config_cascade import ConfigOverrides, resolve_standalone_config
 from pitloom.core.creation import CreationMetadata
 from pitloom.core.document import DocumentModel
 from pitloom.core.provenance import ProvenanceConfig
 from pitloom.extract.env import read_environment
-from pitloom.ids import IdRegistry, resolve_registry
+from pitloom.ids import IdRegistry, resolve_explicit_registry
 from pitloom.logging_config import configure_logging
 
 
@@ -45,18 +42,15 @@ def generate_env_sbom(
     offline: bool | None = None,
     content_type_method: str | None = None,
     update_registry: bool | None = None,
+    max_source_metadata_bytes: int | None = None,
+    pitloom_config: PitloomConfig | None = None,
 ) -> str:
     """Generate a Deployed SPDX 3 SBOM for the current installed environment.
 
-    An installed environment carries no ``[tool.pitloom]`` of its own, so
-    every unset *setting* falls back to the current directory's
-    ``pyproject.toml``
-    (:func:`~pitloom.core.config_cascade.resolve_generator_config`) before
-    the built-in defaults -- the same set of settings the project surface
-    resolves, but read from the current directory rather than from a target
-    project. ``creation_metadata`` and ``ids-file`` are deliberately
-    excluded, for the reasons
-    :func:`~pitloom.assemble.generate_wheel_sbom`'s docstring gives.
+    Settings and the registry resolve exactly as
+    :func:`~pitloom.assemble.generate_wheel_sbom` describes: arguments, then
+    an explicit *pitloom_config*, then the built-in defaults, with nothing
+    borrowed from the current directory.
 
     ``content_type_method`` applies here for one of its two jobs only: it
     steers whether each installed package's originator enrichment fetches a
@@ -66,9 +60,8 @@ def generate_env_sbom(
     configure_logging()
     project_metadata, env_tree = read_environment()
 
-    cwd = Path.cwd()
-    cfg = apply_overrides(
-        resolve_generator_config(cwd),
+    cfg = resolve_standalone_config(
+        pitloom_config,
         ConfigOverrides(
             provenance=provenance,
             offline=offline,
@@ -76,15 +69,14 @@ def generate_env_sbom(
             pretty=pretty,
             describe_relationship=describe_relationship,
             update_registry=update_registry,
+            max_source_metadata_bytes=max_source_metadata_bytes,
         ),
     )
-    # Not cascaded to cfg.ids_file -- see the matching comment in
-    # pitloom.assemble._generators_wheel.
-    resolved_registry = resolve_registry(cwd, registry)
+    resolved_registry = resolve_explicit_registry(registry, cfg.ids_file)
 
     doc = DocumentModel(
         project=project_metadata,
-        creation_metadata=creation_metadata or CreationMetadata(),
+        creation_metadata=creation_metadata or cfg.creation_metadata,
         ai_models=[],
     )
     exporter = build_deployed(
