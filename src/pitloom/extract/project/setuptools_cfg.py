@@ -324,18 +324,22 @@ def setup_cfg_pitloom_config(text: str) -> PitloomConfig:
     taken as :func:`read_setup_cfg` takes it for a directory: only when
     ``[metadata]`` names the project, else the defaults.
 
+    Only ``[tool:pitloom]`` is interpolated: a ``%`` elsewhere (e.g. in a
+    ``[metadata]`` description) is not this function's concern.
+
     Raises:
         ValueError: the text is not valid INI (``configparser.Error``) or
-            its ``[tool:pitloom]`` settings are invalid.
+            its ``[tool:pitloom]`` settings are invalid; one line.
     """
     cfg = configparser.ConfigParser()
     try:
-        cfg.read_string(text)
-        if not _section_dict(cfg, "metadata").get("name", "").strip():
+        cfg.read_string(text, source="setup.cfg")
+        if not cfg.get("metadata", "name", raw=True, fallback="").strip():
             return PitloomConfig()
         return _read_pitloom_config_from_cfg(cfg)
     except configparser.Error as exc:  # also a value's bad % interpolation
-        raise ValueError(str(exc)) from exc
+        # configparser spreads a parse error over several lines.
+        raise ValueError(" ".join(str(exc).split())) from exc
 
 
 _KNOWN_BOOL_KEYS = frozenset(

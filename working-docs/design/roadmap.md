@@ -732,7 +732,7 @@ be built:
   (a `-v`/Hatchling-hook gap, an import cycle, a widened id-minting
   collision, ...). See [config-sources.md](../implementation/config-sources.md#found-not-fixed-here).
   An sdist's own config: done in step 6.5, [sdist-own-config.md](../implementation/sdist-own-config.md).
-- [ ] **3 small findings from step 6.5.** See
+- [ ] **6 small findings from step 6.5.** See
   [sdist-own-config.md](../implementation/sdist-own-config.md#found-not-fixed-here).
 
 ### Internal codenames

@@ -23,6 +23,8 @@ from pitloom.core._config_parse import (
     _VALID_PRESERVE_SOURCE_METADATA,
     _VALID_PROVENANCE_DETAIL,
     _VALID_PROVENANCE_FORMATS,
+    PYPROJECT_SOURCE,
+    SETUP_CFG_SOURCE,
     _read_content_type_overrides,
     _read_content_type_settings,
     _read_creators,
@@ -35,6 +37,7 @@ from pitloom.core._config_parse import (
     _read_tools,
     _read_use_lockfile_setting,
     parse_pitloom_config,
+    pyproject_config_applies,
     read_pitloom_config,
     select_project_config,
 )
@@ -84,5 +87,8 @@ __all__ = [
     "_read_use_lockfile_setting",
     "parse_pitloom_config",
     "read_pitloom_config",
+    "PYPROJECT_SOURCE",
+    "SETUP_CFG_SOURCE",
+    "pyproject_config_applies",
     "select_project_config",
 ]

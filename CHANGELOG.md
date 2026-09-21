@@ -83,12 +83,18 @@ and this project adheres to
   current directory on every command, not the project directory
   ([#231])
 - An sdist reads its own `[tool.pitloom]` (root `pyproject.toml`, else
-  `setup.cfg`) as its unpacked directory does; `ids-file` and fragments
-  do not apply to it
+  `setup.cfg`) as its unpacked directory does; an invalid one fails the run
+  (`--config` bypasses it) ([#232])
+- A declared `[tool.pitloom]` in an unnamed `pyproject.toml` beats
+  `setup.cfg`'s, even when it only sets defaults ([#232])
+- `sbom-basename` (config and `--sbom-basename`) must be a file name: no
+  `/`, `\`, `:` or NUL ([#232])
+- `embed-wheel --project-dir <sdist>` no longer merges `--config`
+  fragments, as `project` already did not ([#232])
 - AI model hyperparameters and per-key provenance are emitted in sorted
-  key order, whatever the model file's own order
+  key order, whatever the model file's own order ([#232])
 - SBOM, fragment and registry files are written with LF line endings and
-  UTF-8 on every platform, stdout included
+  UTF-8 on every platform, stdout included ([#232])
 
 ### Fixed
 
@@ -105,9 +111,10 @@ and this project adheres to
 - `embed-wheel --sbom` warns that `--config`/`--project-dir` have no
   effect, without reading them ([#231])
 - `--config`/`pitloom_config=` no longer parses the target's own
-  config it replaces, so an invalid one no longer fails the run
+  config it replaces, so an invalid one no longer fails the run ([#232])
 - `builtTime` is UTC with `Z`: a `Z` or offset `creation-datetime` no
   longer fails the Hatchling build on Python 3.10 or keeps its offset
+  ([#232])
 - A wrong-shaped `[tool.pitloom]` value (e.g. `fragment.files = "a"`,
   `sbom-basename = 3`) raises, instead of being dropped or crashing later
   ([#231])
@@ -136,6 +143,7 @@ and this project adheres to
 [#229]: https://github.com/bact/pitloom/pull/229
 [#230]: https://github.com/bact/pitloom/pull/230
 [#231]: https://github.com/bact/pitloom/pull/231
+[#232]: https://github.com/bact/pitloom/pull/232
 
 ## [0.19.0] - 2026-09-18
 

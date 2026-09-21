@@ -19,12 +19,18 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from pitloom.core.config import PitloomConfig, select_project_config
+from pitloom.core.config import (
+    PYPROJECT_SOURCE,
+    PitloomConfig,
+    pyproject_config_applies,
+    select_project_config,
+)
 from pitloom.core.project import (
     ProjectMetadata,
     is_sdist_archive,
     merge_project_metadata,
 )
+from pitloom.extract._toml_io import load_toml_file
 from pitloom.extract.lock import apply_locked_dependencies
 from pitloom.extract.project._installed_reconcile import reconcile_installed_metadata
 from pitloom.extract.project.installed import (
@@ -89,20 +95,27 @@ def _fallback_to_setuptools(
     # carry-over just below, generalized so a future field needing the
     # same treatment doesn't need a third hand-copied carry-over here.
     pre_setuptools_metadata = metadata
+    # Decide first: setup.cfg's [tool:pitloom] is parsed only when it is the
+    # one that applies, as for an sdist -- an unused one cannot fail the run.
+    pyproject_applies = read_config and pyproject_config_applies(
+        load_toml_file(pyproject_path)
+    )
     metadata, setuptools_pitloom_config = read_setuptools(
-        project_path, quiet=quiet, read_config=read_config
+        project_path, quiet=quiet, read_config=read_config and not pyproject_applies
     )
     metadata = merge_project_metadata(
         primary=metadata, secondary=pre_setuptools_metadata
     )
-    # Keep a real [tool.pitloom] from pyproject.toml even though metadata
-    # came from setup.cfg/setup.py; else take setup.cfg's [tool:pitloom].
-    # The rule an sdist archive shares (pyproject.toml names no project here).
-    pitloom_config = select_project_config(
-        pitloom_config, False, lambda: setuptools_pitloom_config
+    # pyproject.toml's [tool.pitloom] still applies when declared, though
+    # metadata came from setup.cfg/setup.py; else setup.cfg's [tool:pitloom].
+    # The rule an sdist archive shares. Without read_config both are
+    # placeholders for a config the caller replaces.
+    pitloom_config, source = select_project_config(
+        pitloom_config, pyproject_applies, lambda: setuptools_pitloom_config
     )
-    config_path = setup_cfg if setup_cfg.exists() else setup_py
-    return metadata, pitloom_config, config_path
+    if source == PYPROJECT_SOURCE:
+        return metadata, pitloom_config, pyproject_path
+    return metadata, pitloom_config, setup_cfg if setup_cfg.exists() else setup_py
 
 
 def read_project(

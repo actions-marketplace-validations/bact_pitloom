@@ -29,7 +29,7 @@ import pytest
 from pitloom import __main__
 from pitloom.assemble import generate_project_sbom
 from pitloom.core import _config_parse
-from pitloom.core.config import PitloomConfig
+from pitloom.core.config import FragmentConfig, PitloomConfig
 from pitloom.core.creation import CreationMetadata
 from pitloom.embed import embed_wheel_sbom
 from pitloom.ids import IdRegistry
@@ -212,3 +212,54 @@ def test_cli_invalid_sdist_config_errors_then_config_rescues(
     argv = ["project", str(sdist), "--config", str(good), "-o", str(out)]
     assert _loom(argv, monkeypatch) == 0
     assert out.read_text(encoding="utf-8").startswith("{\n  ")
+
+
+def test_cli_sdist_sbom_basename_cannot_escape_the_output_directory(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """With no ``-o``, the file name comes from the archive's own config:
+    a path there is an ``ERROR:``, and nothing is written outside."""
+    work = tmp_path / "work"
+    work.mkdir()
+    sdist = _make_sdist(tmp_path, "[tool.pitloom]\nsbom-basename = '../escaped'\n")
+    monkeypatch.chdir(work)
+    assert _loom(["project", str(sdist)], monkeypatch) != 0
+    errors = error_lines(capsys.readouterr().err)
+    assert len(errors) == 1 and "sbom-basename" in errors[0], errors
+    assert not list(tmp_path.glob("escaped*")) and not list(work.iterdir())
+
+
+def test_sdist_sbom_does_not_depend_on_the_archive_location(tmp_path: Path) -> None:
+    """Errors name the archive by path; the SBOM must not."""
+    (tmp_path / "a").mkdir()
+    first = _make_sdist(tmp_path / "a")
+    second = tmp_path / "b" / "deeper" / first.name
+    second.parent.mkdir(parents=True)
+    second.write_bytes(first.read_bytes())
+    sboms = [
+        generate_project_sbom(p, creation_metadata=_PINNED) for p in (first, second)
+    ]
+    assert str(first.parent) != str(second.parent)  # the input really moved
+    assert sboms[0] == sboms[1]
+
+
+@pytest.mark.parametrize("surface", ["project", "embed-wheel"])
+def test_explicit_config_fragments_skip_an_sdist_on_every_surface(
+    tmp_path: Path, surface: str
+) -> None:
+    """Fragments merge only into a project directory's SBOM -- also those
+    of an explicit config: ``project`` and ``embed-wheel --project-dir``
+    agree for an sdist."""
+    sdist = _make_sdist(tmp_path)
+    config = PitloomConfig(
+        fragments=[FragmentConfig(path=str(tmp_path / "missing.json"), required=True)]
+    )
+    if surface == "project":
+        generate_project_sbom(sdist, pitloom_config=config, creation_metadata=_PINNED)
+    else:
+        wheel = _make_dummy_wheel(tmp_path / "dist", "demo", "1.0.0")
+        embed_wheel_sbom(
+            wheel, project_dir=sdist, pitloom_config=config, creation_metadata=_PINNED
+        )

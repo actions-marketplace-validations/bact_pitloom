@@ -44,13 +44,19 @@ is the only config they can get.
 
 An sdist archive's own config is read as its unpacked directory's is: the
 `[tool.pitloom]` of the `pyproject.toml` at the archive's root, else the
-`[tool:pitloom]` of its root `setup.cfg`. One that cannot be read (not
-valid TOML, not UTF-8, over 1 MiB) or is invalid fails the run, naming
-the member (e.g. `demo-1.0.0.tar.gz:pyproject.toml`), as for a directory. Two keys
-cannot apply to an archive and are ignored without a warning: `ids-file`
-(it could only name a file inside the archive) and
-`[tool.pitloom.fragment]` (fragments merge only into a project
-directory's SBOM).
+`[tool:pitloom]` of its root `setup.cfg`. An invalid one fails the run,
+as a directory's does; so does one that cannot be read (not valid TOML,
+not UTF-8, or over 1 MiB -- a limit for archive members only). The error
+names the archive and member, e.g. `config file
+dist/demo-1.0.0.tar.gz:pyproject.toml: ...`; `--config` replaces it without reading it. Some keys cannot apply to
+an archive and are ignored without a warning:
+
+- `ids-file` (it could only name a file inside the archive) and
+  `[tool.pitloom.fragment]` (fragments merge only into a project
+  directory's SBOM, even from `--config`);
+- `use-lockfile`, `enrich`, `extract-file-header` and
+  `[tool.pitloom.content-type]` -- the settings whose flags warn for an
+  sdist (see [Options with no effect](cli.md#options-with-no-effect)).
 
 | Surface | Target's own config | `--config` / `pitloom_config=` | Current directory | Flags |
 | :--- | :--- | :--- | :--- | :--- |
@@ -104,7 +110,9 @@ doing nothing.
 `ValueError` at config-read time if set to a non-boolean (e.g. the TOML
 string `"true"` instead of the bare value `true`) -- no silent
 coercion. `sbom-basename`/`ids-file` raise `ValueError` if set to a
-non-string. `extract-file-header` off never errors and never blocks
+non-string, and `sbom-basename` also if it is a path rather than a file
+name (a `/`, `\`, `:` or NUL, or `.`/`..`) -- the same rule as
+`embed-wheel --sbom-basename`. `extract-file-header` off never errors and never blocks
 content-type detection -- see below.
 
 ## `[tool.pitloom.content-type]`

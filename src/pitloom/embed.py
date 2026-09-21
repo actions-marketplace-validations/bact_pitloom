@@ -24,7 +24,6 @@ from pitloom._embed_build_sbom import (
 )
 from pitloom._embed_wheel import (
     _DEFAULT_FILE_ATTR,
-    _INVALID_FILENAME_CHARS,
     _ZIP_EPOCH_FLOOR,
     _calculate_record_hash,
     _derive_wheel_sbom_filename,
@@ -87,7 +86,6 @@ __all__ = [
     "EmbedFileCache",
     "EmbeddedSbomLocation",
     "_DEFAULT_FILE_ATTR",
-    "_INVALID_FILENAME_CHARS",
     "RECOMMENDED_EXTENSIONS",
     "VALIDATED_FORMATS",
     "_ZIP_EPOCH_FLOOR",

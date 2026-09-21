@@ -29,14 +29,21 @@ the unpacked directory does. Before, `read_project()` returned
   config_member)`.
 - One selection rule for both targets:
   `core/_config_parse.py:select_project_config()` -- the pyproject
-  config when it names the project or sets anything, else `setup.cfg`'s
-  `[tool:pitloom]`, else the defaults. `reader._fallback_to_setuptools`
-  and `sdist._config` both call it; the drift test runs the same shapes
-  through a directory and a `.tar.gz`/`.zip`.
+  config when `pyproject_config_applies()` (it names the project or
+  *declares* `[tool.pitloom]`, even empty), else `setup.cfg`'s
+  `[tool:pitloom]`, else the defaults; it also returns the source, so a
+  directory's `-v` names the file the values came from.
+  `reader._fallback_to_setuptools` and `sdist._config` both call it; the
+  drift test runs the same shapes through a directory and a
+  `.tar.gz`/`.zip` and compares config and source. Rejected (first
+  version, carried over from the directory code): "sets anything",
+  `pyproject != PitloomConfig()` -- a value comparison, so an explicit
+  `pretty = false` lost to `setup.cfg`'s `pretty = true`.
 - The TOML is decoded as `tomllib.load()` decodes a file
   (`_toml_io.load_toml_bytes`, strict UTF-8).
 - A config member that cannot be read (not TOML, not UTF-8 or a BOM, over
-  the cap, a `setup.cfg` `configparser` error such as a bare `%`) or is
+  the cap, a `setup.cfg` `configparser` error such as a bare `%` in
+  `[tool:pitloom]`; `[metadata]` is read raw, only for `name`) or is
   invalid raises `ValueError("config file
   demo-1.0.0.tar.gz:pyproject.toml: ...")`, the `load_config_file()`
   wording with the member in place of a path -- as a directory fails.
@@ -61,14 +68,21 @@ the unpacked directory does. Before, `read_project()` returned
    the same config with no caller-side "explicit or own" branch (the
    first version dropped fragments only in `_generators.py`, and
    `embed-wheel --project-dir <sdist>` still merged them). A `required =
-   true` fragment does not fail an sdist. Rejected: one `WARNING:` per key (the design doc's
+   true` fragment does not fail an sdist. `embed-wheel` also skips an
+   explicit `--config`'s fragments for an sdist, as `project` does. The
+   same holds for `use-lockfile`, `enrich`, `extract-file-header` and
+   `content-type`, whose flags warn for an sdist (`INERT[SDIST]`): all
+   are listed in `docs/configuration.md`. Rejected: one `WARNING:` per key (the design doc's
    first proposal) -- it would warn on every third-party sdist that
    ships a normal config.
 2. **Identity keys apply** (creators, creation comment and datetime), as
    for a cloned directory.
 3. **`setup.cfg` is read** when the pyproject has no usable config, for
    parity with a directory.
-4. **An invalid config raises**, as for a directory.
+4. **An invalid config raises**, as for a directory. The error names the
+   archive's path (as the command resolved it) plus the
+   member, as `load_config_file()` names a `--config` path; the SBOM's own provenance keeps the bare file name,
+   so its bytes do not depend on where the archive sits.
 5. **`--config`/`pitloom_config=` does not parse the config it replaces.**
    `read_config` is threaded through `read_project()` ->
    `read_pyproject()`/`read_setuptools()`/`read_setup_cfg()`/
@@ -76,6 +90,16 @@ the unpacked directory does. Before, `read_project()` returned
    `read_config=explicit_config is None`. Without this, decision 4
    would make a broken third-party sdist unusable. An explicit flag, not
    call-site discipline (AGENTS.md "stage-scoped helpers").
+6. **`sbom-basename` must be a file name** (no `/`, `\`, `:`, NUL,
+   `.`/`..`), for every target: a third-party sdist's config must not
+   choose where the SBOM is written without `-o`. One predicate,
+   `core/file_names.is_plain_file_name()`, also guards the name embedded
+   in a wheel (`--sbom-basename`), so the key and the flag agree.
+7. **A pyproject that names the project holds its config**, even when
+   its metadata then comes from `setup.cfg` (a `[tool.poetry]` whose read
+   failed): its `[tool.pitloom]`, or the defaults, not `setup.cfg`'s --
+   the sdist rule, now shared by the directory (before, a directory took
+   `setup.cfg`'s there).
 
 Rejected: warn-and-defaults for an unparseable `pyproject.toml` (the
 first plan). With a `setup.cfg` beside it, the selection then fell
@@ -102,14 +126,23 @@ runs on every invocation, not only under `-v`.
 
 ## Found, not fixed here
 
+- `sbom-basename = "x.spdx3.json"` gives `x.spdx3.json.spdx3.json` from
+  `project` but `x.spdx3.json` from `embed-wheel` (which strips a given
+  extension).
+
+- `[tool.poetry] version = 3` crashes with an uncaught `AttributeError`
+  (`extract/project/poetry.py`); `_try_read_poetry` catches only
+  `ValueError`/`KeyError`.
+
 - `embed-wheel --project-dir <sdist>` runs Hatchling file discovery
   against the archive path and warns `Hatchling file discovery failed`;
   also on `main` before this change.
 - `-v` labels a value from `setup.cfg`'s `[tool:pitloom]` `[default]`, for
   a directory and an sdist alike.
-- A `%` in any `setup.cfg` value fails the config read
-  (`configparser` interpolation), for a directory and now an sdist;
-  setuptools itself may read such a file. Not checked against setuptools.
+- A `%` in any `setup.cfg` value fails a *directory's* read
+  (`read_setup_cfg()` interpolates `[metadata]`); an sdist reads
+  `[metadata]` raw. A directory's `configparser` error is also
+  multi-line and names no file.
 
 - `import pitloom._loom_active_run` as the *first* Pitloom import fails:
   it imports `pitloom.loom`, which imports it back. Every real entry

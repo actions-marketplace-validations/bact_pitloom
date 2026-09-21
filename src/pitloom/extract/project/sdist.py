@@ -28,6 +28,7 @@ from typing import IO, Any, NamedTuple, TypeVar
 from pitloom.core.config import (
     PitloomConfig,
     parse_pitloom_config,
+    pyproject_config_applies,
     select_project_config,
 )
 from pitloom.core.project import ProjectFile, ProjectMetadata
@@ -233,20 +234,6 @@ def _metadata_from_pyproject(data: Any) -> ProjectMetadata:
     )
 
 
-def _names_project(data: Any) -> bool:
-    """Whether a parsed ``pyproject.toml`` names the project, as a
-    directory's ``read_pyproject()`` finds a name: ``[project]`` or
-    ``[tool.poetry]``."""
-    if not isinstance(data, dict):
-        return False
-    tool = data.get("tool")
-    poetry = tool.get("poetry") if isinstance(tool, dict) else None
-    for table in (data.get("project"), poetry):
-        if isinstance(table, dict) and str(table.get("name") or "").strip():
-            return True
-    return False
-
-
 _T = TypeVar("_T")
 
 
@@ -272,10 +259,8 @@ def _config(
             sdist_name, _PYPROJECT, lambda: parse_pitloom_config(pyproject)
         )
     )
-    used_setup_cfg: list[bool] = []
 
     def read_setup_cfg() -> PitloomConfig:
-        used_setup_cfg.append(True)
         raw = _member_bytes(root, _SETUP_CFG, sdist_name)
         return _member_config(
             sdist_name,
@@ -283,18 +268,15 @@ def _config(
             lambda: setup_cfg_pitloom_config(raw.decode("utf-8")),
         )
 
-    config = select_project_config(
+    config, member = select_project_config(
         pyproject_config,
-        _names_project(pyproject),
+        pyproject_config_applies(pyproject),
         read_setup_cfg if _SETUP_CFG in root else None,
     )
     # Neither can apply to an archive: an ids-file names a file inside it,
     # and fragments merge only into a directory's SBOM. Dropped here, so
     # every surface given this config ignores them (documented, not warned).
-    config = dataclasses.replace(config, ids_file=None, fragments=[])
-    if used_setup_cfg:
-        return config, _SETUP_CFG
-    return config, _PYPROJECT if pyproject_config is not None else None
+    return dataclasses.replace(config, ids_file=None, fragments=[]), member
 
 
 def read_sdist(sdist_path: Path, *, read_config: bool = True) -> SdistContents:
@@ -318,7 +300,8 @@ def read_sdist(sdist_path: Path, *, read_config: bool = True) -> SdistContents:
     if not sdist_path.exists():
         raise FileNotFoundError(f"Sdist archive not found: {sdist_path}")
 
-    name = sdist_path.name
+    # The archive as given, as load_config_file() names a --config file.
+    name = str(sdist_path)
     members = _scan_archive(sdist_path)
     raw_pkg_info = members.root.get(_PKG_INFO)
     pyproject: Any = None
@@ -331,7 +314,7 @@ def read_sdist(sdist_path: Path, *, read_config: bool = True) -> SdistContents:
     if raw_pkg_info is not None:
         metadata = _parse_pkg_info(
             raw_pkg_info.decode("utf-8", errors="replace"),
-            f"Source: sdist PKG-INFO | File: {name}",
+            f"Source: sdist PKG-INFO | File: {sdist_path.name}",
         )
     elif pyproject is not None:
         metadata = _metadata_from_pyproject(pyproject)
@@ -358,11 +341,11 @@ def sdist_config_source(sdist_path: Path) -> tuple[str | None, dict[str, Any]]:
     root = _scan_archive(sdist_path, root_only=True).root
     pyproject: Any = None
     if _PYPROJECT in root:
-        raw = _member_bytes(root, _PYPROJECT, sdist_path.name)
+        raw = _member_bytes(root, _PYPROJECT, str(sdist_path))
         pyproject = _member_config(
-            sdist_path.name, _PYPROJECT, lambda: load_toml_bytes(raw)
+            str(sdist_path), _PYPROJECT, lambda: load_toml_bytes(raw)
         )
-    _, member = _config(root, pyproject, sdist_path.name)
+    _, member = _config(root, pyproject, str(sdist_path))
     tool = pyproject.get("tool") if isinstance(pyproject, dict) else None
     table = tool.get("pitloom") if isinstance(tool, dict) else None
     if member != _PYPROJECT or not isinstance(table, dict):

@@ -8,9 +8,9 @@
 The same ``pyproject.toml``/``setup.cfg`` gives the same config (or the same
 failure) whether it is read from a directory or from a ``.tar.gz``/``.zip``
 of it -- one rule, :func:`pitloom.core.config.select_project_config`, picks
-the source for both. Only the ``ids-file`` differs: inside an archive it can
-only name a file inside the archive, so it is dropped (documented, not
-warned).
+the source for both, by presence of ``[tool.pitloom]``, never by value. Only
+``ids-file`` and fragments differ: they cannot apply to an archive, so they
+are dropped (documented, not warned).
 
 See also:
 - :mod:`tests.extract.project.test_sdist` for sdist metadata and files.
@@ -25,7 +25,7 @@ from pathlib import Path
 
 import pytest
 
-from pitloom.core.config import PitloomConfig
+from pitloom.core.config import PitloomConfig, pyproject_config_applies
 from pitloom.extract.project import read_project, sdist_config_source
 from pitloom.extract.project.sdist import CONFIG_MEMBER_MAX_BYTES, read_sdist
 from tests.assemble.conftest import _make_sdist
@@ -81,10 +81,20 @@ _SHAPES: dict[str, tuple[dict[str, str], str | None, bool]] = {
         "setup.cfg",
         True,
     ),
-    "unnamed pyproject with an empty table defers to setup.cfg": (
+    # A declared [tool.pitloom] is the user's config even when it sets
+    # nothing, or only the defaults: presence decides, never the values.
+    "unnamed pyproject with an empty table beats setup.cfg": (
         {"pyproject.toml": _UNNAMED + "[tool.pitloom]\n", "setup.cfg": _CFG_PRETTY},
-        "setup.cfg",
-        True,
+        "pyproject.toml",
+        False,
+    ),
+    "unnamed pyproject setting a default beats setup.cfg": (
+        {
+            "pyproject.toml": _UNNAMED + "[tool.pitloom]\npretty = false\n",
+            "setup.cfg": _CFG_PRETTY,
+        },
+        "pyproject.toml",
+        False,
     ),
     "creators and comment": (
         {
@@ -127,11 +137,13 @@ def test_sdist_config_matches_its_directory(
 ) -> None:
     """Drift guard: one rule for both targets."""
     members, member, changed = _SHAPES[shape]
-    _, dir_config, _ = read_project(_directory(tmp_path, members))
+    _, dir_config, dir_path = read_project(_directory(tmp_path, members))
     sdist = _sdist(tmp_path, members, fmt)
     contents = read_sdist(sdist)
     assert contents.config == dir_config
     assert contents.config_member == member
+    # The directory names the same source (what -v labels values with).
+    assert dir_path is not None and dir_path.name == member
     assert (contents.config != PitloomConfig()) is changed
 
 
@@ -180,7 +192,7 @@ def test_own_ids_file_is_dropped_silently(
         config = read_sdist(sdist).config
     assert config.ids_file is None
     assert not caplog.records
-    # the directory keeps it: this is the one deliberate difference
+    # the directory keeps it: a deliberate difference (as for fragments)
     _, dir_config, _ = read_project(
         _directory(
             tmp_path,
@@ -316,7 +328,7 @@ def test_oversize_first_member_still_wins_over_a_later_one(
     "text",
     [
         "[metadata]\nname = demo\n#" + "x" * CONFIG_MEMBER_MAX_BYTES,  # oversize
-        "[metadata]\nname = demo\ndescription = 100% pure\n",  # bad interpolation
+        "[metadata]\nname = demo\n[tool:pitloom]\nsbom-basename = 100% x\n",
         "no section header\n",  # not INI
     ],
     ids=["oversize", "interpolation", "not-ini"],
@@ -392,3 +404,84 @@ def test_oversize_pyproject_without_pkg_info_or_config_warns_once(
         assert read_sdist(sdist, read_config=False).metadata.name == "unknown"
     assert len(caplog.records) == 1
     assert "pyproject.toml" in caplog.records[0].getMessage()
+
+
+@_FMT
+def test_percent_outside_tool_pitloom_does_not_fail(tmp_path: Path, fmt: str) -> None:
+    """Only ``[tool:pitloom]`` is interpolated: a ``%`` in a ``[metadata]``
+    description (metadata comes from PKG-INFO) does not fail the read."""
+    sdist = _sdist(
+        tmp_path,
+        {"setup.cfg": "[metadata]\nname = demo\ndescription = 100% pure\n"},
+        fmt,
+    )
+    assert read_sdist(sdist).config == PitloomConfig()
+
+
+def test_setup_cfg_parse_error_is_one_line(tmp_path: Path) -> None:
+    """``configparser`` spreads a parse error over lines; the ``ERROR:`` a
+    CLI prints from it must be one line, naming the file, not ``<string>``."""
+    sdist = _sdist(tmp_path, {"setup.cfg": "[metadata]\nname = demo\njunk\n"}, "tar")
+    with pytest.raises(ValueError) as info:
+        read_sdist(sdist)
+    message = str(info.value)
+    assert "\n" not in message and "<string>" not in message
+    assert f"{sdist.name}:setup.cfg" in message
+
+
+@pytest.mark.parametrize(
+    ("data", "applies"),
+    [
+        ({}, False),
+        ({"tool": {"other": {}}}, False),
+        ({"build-system": {"requires": []}}, False),
+        ({"tool": {"pitloom": {}}}, True),  # declared, even empty
+        ({"tool": {"pitloom": {"pretty": False}}}, True),  # only a default
+        ({"project": {"name": "demo"}}, True),
+        ({"project": {"name": "  "}}, False),
+        ({"tool": {"poetry": {"name": "demo"}}}, True),
+        ("not a table", False),
+    ],
+)
+def test_pyproject_config_applies_by_presence(data: object, applies: bool) -> None:
+    assert pyproject_config_applies(data) is applies
+
+
+def test_percent_in_the_project_name_is_read_raw(tmp_path: Path) -> None:
+    """``[metadata] name`` is only checked for presence, never interpolated."""
+    text = "[metadata]\nname = 100% demo\n[tool:pitloom]\npretty = true\n"
+    sdist = _sdist(tmp_path, {"setup.cfg": text}, "tar")
+    assert read_sdist(sdist).config.pretty is True
+
+
+def test_error_names_the_archive_path_as_given(tmp_path: Path) -> None:
+    """As ``load_config_file()`` names a ``--config`` path: the directory is
+    part of the message, not only the archive's file name."""
+    nested = tmp_path / "dist" / "nested"
+    nested.mkdir(parents=True)
+    sdist = _make_sdist(nested, "[tool.pitloom]\npretty = 'yes'\n")
+    with pytest.raises(ValueError) as info:
+        read_sdist(sdist)
+    assert f"config file {sdist}:pyproject.toml:" in str(info.value)
+
+
+@_FMT
+def test_unused_invalid_setup_cfg_config_fails_neither_target(
+    tmp_path: Path, fmt: str
+) -> None:
+    """The pyproject's declared ``[tool.pitloom]`` applies, so ``setup.cfg``'s
+    is never parsed -- an invalid one fails neither the directory nor the
+    sdist of the same project."""
+    members = {
+        "pyproject.toml": _UNNAMED + "[tool.pitloom]\npretty = true\n",
+        "setup.cfg": "[metadata]\nname = demo\n[tool:pitloom]\noffline = notabool\n",
+    }
+    _, dir_config, dir_path = read_project(_directory(tmp_path, members))
+    contents = read_sdist(_sdist(tmp_path, members, fmt))
+    assert dir_config.pretty is True and contents.config == dir_config
+    assert dir_path is not None and dir_path.name == contents.config_member
+    # not vacuous: that setup.cfg config is invalid when it is the one used
+    members["pyproject.toml"] = _UNNAMED
+    (tmp_path / "used").mkdir()
+    with pytest.raises(ValueError, match="offline"):
+        read_sdist(_sdist(tmp_path / "used", members, fmt))
