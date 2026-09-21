@@ -79,20 +79,7 @@ one shared helper, then a test that runs every format/surface through it.
 - **Test:** `Z`, `+07:00`, naive, fractional seconds, on Python 3.10 and 3.14,
   through the CLI, the library API and the hook; every output ends in `Z`.
 
-## 4. Enrichment `created` follows the document's datetime
-
-- **Bug:** `build_enrichment_creation_info()` (`assemble/spdx3/creation_info.py`)
-  sets `created=spdx3_utc_now()`, ignoring `--creation-datetime` and
-  `SOURCE_DATE_EPOCH`, so any SBOM or `loom enrich` fragment with
-  enrichment differs between two runs a second apart. Found in PR #231's
-  review; pre-existing on `main`.
-- **Fix:** pass the main `CreationInfo.created` in; update the docstring
-  that calls it "the enrichment run's own timestamp (now)".
-- **Test:** `project --enrich` and `enrich` twice with a pinned datetime,
-  byte-identical.
-
-
-## 5. `\n` line endings on every platform
+## 4. `\n` line endings on every platform
 
 - **Bug:** SBOM files are written in text mode (`Path.write_text()`), so a
   pretty SBOM gets CRLF on Windows and differs from the POSIX bytes for the

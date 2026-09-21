@@ -139,6 +139,12 @@ only a project directory's own `pyproject.toml` was reachable.
   degrade to defaults (dropping a `required` fragment silently) or crash
   later with `AttributeError`. Every config path gets it -- a project's
   own `pyproject.toml` too, not only `--config`.
+- **Enrichment `CreationInfo.created` read the wall clock**, so two runs
+  a second apart differed despite a pinned datetime (a CI flake in
+  `test_flag_beats_config_beats_default[enrich-comment]` on Windows).
+  Fixed here: it reuses the main `CreationInfo.created`, already resolved
+  from the pin. `tests/test_wall_clock_sources.py` now fails on any new
+  wall-clock read outside the allowlisted last-fallback sites.
 
 ## Tests
 
@@ -245,11 +251,6 @@ only a project directory's own `pyproject.toml` was reachable.
   `setup.py` config path, so `--verbose` reports `"default"` for
   `pretty`/`describe_relationship` even when `setup.cfg` set one and it
   took effect.
-- **Enrichment `CreationInfo.created` is wall-clock time**
-  (`build_enrichment_creation_info()`, `spdx3_utc_now()`), ignoring
-  `--creation-datetime`/`SOURCE_DATE_EPOCH`: any SBOM with enrichment is
-  not reproducible. Pre-existing on `main`; a `--config` `enrich = true`
-  now reaches it on more targets. Fits with step 8 (determinism).
 - **`enrich --project-dir D` without `--config` names the default
   "Pitloom" creator, not D's `creators`**, while `project D` uses D's.
   Documented (identity keys come from an explicit config only), but the

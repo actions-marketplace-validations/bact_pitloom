@@ -92,6 +92,9 @@ and this project adheres to
   `ERROR:` naming the file ([#231])
 - `enrich --project-dir <sdist>` names the sdist SBOM's document and no
   longer searches beside the archive for `loom-ids.json` ([#231])
+- An enrichment's `CreationInfo.created` follows `--creation-datetime`/
+  `SOURCE_DATE_EPOCH` instead of the wall clock, so enriched SBOMs are
+  reproducible ([#231])
 - `embed-wheel --sbom` warns that `--config`/`--project-dir` have no
   effect, without reading them ([#231])
 - A wrong-shaped `[tool.pitloom]` value (e.g. `fragment.files = "a"`,
